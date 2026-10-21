@@ -23,8 +23,9 @@ class Role(models.TextChoices):
 class Membership(models.Model):
     """Vínculo de acesso entre um usuário e uma empresa, com papel próprio.
 
-    O papel vale somente dentro da empresa. Escopo por unidade/setor entra na etapa 3,
-    quando essas entidades existirem.
+    O papel vale somente dentro da empresa. Gestores veem apenas funcionários cuja lotação atual
+    esteja em `scope_units` ou `scope_sectors`; escopo vazio não concede acesso a dados operacionais.
+    Administradores da empresa não usam escopo.
     """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="memberships")
@@ -32,6 +33,8 @@ class Membership(models.Model):
     role = models.CharField(max_length=20, choices=Role.choices)
     name = models.CharField(max_length=150, blank=True, default="")
     is_active = models.BooleanField(default=True)
+    scope_units = models.ManyToManyField("operations.Unit", blank=True, related_name="+")
+    scope_sectors = models.ManyToManyField("operations.Sector", blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

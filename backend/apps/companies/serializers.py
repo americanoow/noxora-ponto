@@ -24,10 +24,18 @@ class CompanyUpdateSerializer(serializers.Serializer):
 class MembershipSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     name = serializers.CharField(read_only=True)
+    scope_unit_ids = serializers.SerializerMethodField()
+    scope_sector_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
-        fields = ["id", "email", "name", "role", "is_active"]
+        fields = ["id", "email", "name", "role", "is_active", "scope_unit_ids", "scope_sector_ids"]
+
+    def get_scope_unit_ids(self, obj):
+        return sorted(u.pk for u in obj.scope_units.all())
+
+    def get_scope_sector_ids(self, obj):
+        return sorted(s.pk for s in obj.scope_sectors.all())
 
 
 class MembershipCreateSerializer(serializers.Serializer):
@@ -41,3 +49,5 @@ class MembershipUpdateSerializer(serializers.Serializer):
 
     role = serializers.ChoiceField(choices=Role.choices, required=False)
     is_active = serializers.BooleanField(required=False)
+    scope_unit_ids = serializers.ListField(child=serializers.IntegerField(), required=False, max_length=200)
+    scope_sector_ids = serializers.ListField(child=serializers.IntegerField(), required=False, max_length=500)

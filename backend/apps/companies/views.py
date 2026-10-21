@@ -1,13 +1,14 @@
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.services import get_or_invite_user, send_password_reset
 from apps.audit import services as audit
 from apps.audit.models import AuditLog
+from apps.operations.models import Sector, Unit
 
 from .models import Company, Membership, Role
 from .permissions import require_role, resolve_company
@@ -120,15 +121,30 @@ class MemberDetailView(APIView):
             raise PermissionDenied("Você não pode alterar o próprio vínculo.")
         data = MembershipUpdateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
-        changes = data.validated_data
+        changes = dict(data.validated_data)
+        unit_ids = changes.pop("scope_unit_ids", None)
+        sector_ids = changes.pop("scope_sector_ids", None)
         for field, value in changes.items():
             setattr(membership, field, value)
-        membership.save(update_fields=list(changes) or None)
+        if changes:
+            membership.save(update_fields=list(changes))
+        # Escopo: ids de outra empresa não casam com o filtro e são rejeitados.
+        if unit_ids is not None:
+            units = Unit.objects.filter(company=company, pk__in=unit_ids)
+            if units.count() != len(set(unit_ids)):
+                raise ValidationError({"scope_unit_ids": "Unidade inválida."})
+            membership.scope_units.set(units)
+        if sector_ids is not None:
+            sectors = Sector.objects.filter(company=company, pk__in=sector_ids)
+            if sectors.count() != len(set(sector_ids)):
+                raise ValidationError({"scope_sector_ids": "Setor inválido."})
+            membership.scope_sectors.set(sectors)
         audit.record(
             request,
             "member.updated",
             company=company,
             target=membership,
+            changes=sorted(data.validated_data),
             **{k: v for k, v in changes.items()},
         )
         return Response(MembershipSerializer(membership).data)
