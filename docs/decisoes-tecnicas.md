@@ -37,3 +37,14 @@ Pendências: throttling usa cache local (trocar por cache compartilhado em produ
 | D13 | Enumeração por tempo no reset/convite aceita como risco residual; outbox assíncrona de e-mails adiada para a etapa 14/15 | Resposta, status e erros já são uniformes e há throttling (5/h); outbox exige worker e operação (contraria D2 sem necessidade hoje) | Reavaliar na etapa 14 junto com retry de e-mail e cache compartilhado |
 | D14 | Backend de e-mail console permitido só com `DJANGO_DEBUG=true`; fora de debug é recusado na configuração | Ver link de convite no desenvolvimento sem expor tokens em logs de produção | Padrão continua SMTP |
 | D15 | Nome do membro é local (`Membership.name`), não o nome global do usuário | Evita vazar identidade entre empresas | Tela usa e-mail como fallback |
+
+## Etapa 3 — cadastros da operação
+| # | Decisão | Justificativa | Consequência |
+|---|---------|---------------|--------------|
+| D16 | Jornada (`WorkSchedule`) não muda depois de atribuída; mudar = nova jornada + atribuição com vigência | Mudança não reescreve o passado | `replace_schedule_days` recusa jornada com atribuições |
+| D17 | Lotação e jornada do funcionário: intervalos `valid_from/valid_to`; nova vigência exige data posterior à mais recente e fecha o intervalo anterior na véspera; serialização por `select_for_update` no funcionário + unicidade `(employee, valid_from)` | Sem sobreposição e sem reescrever linhas passadas | Constraint de exclusão no PostgreSQL (btree_gist) fica como endurecimento pendente; concorrência real não validada (sem PostgreSQL) |
+| D18 | Escopo do gestor em `Membership.scope_units/scope_sectors` pela lotação **atual**; escopo vazio não concede acesso; administrador não usa escopo; gestor só lê | Fecha D11 | Quando a lotação muda, o funcionário sai do escopo do gestor anterior (histórico permanece no banco) |
+| D19 | CPF opcional, só dígitos, validado por dígito verificador, mascarado em listagens e para gestores; nunca vai para auditoria | Minimização (LGPD) | Obrigatoriedade/uso do CPF em registros do REP-P a confirmar na etapa 5/12 (validação especializada) |
+| D20 | "Hoje" para vigência usa a data UTC do servidor (`TIME_ZONE=UTC`) | Simplicidade | Pode divergir da data local da unidade por horas; tratar com fuso da unidade na apuração (etapa 8) |
+| D21 | Importação CSV é tudo ou nada, só cria funcionários (não atualiza), até 2000 linhas / 1 MB, com prévia obrigatória por `commit=false` | Erros compreensíveis por linha e nenhuma gravação parcial | Atualização em massa fica como melhoria |
+| D22 | Funcionário nunca é apagado: inativação mantém lotações e jornadas | Preserva histórico | Contagem de ativos para cobrança usa `is_active` (etapa 13) |

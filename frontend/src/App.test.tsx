@@ -123,7 +123,8 @@ it("descarta membros anteriores ao trocar para empresa que retorna 403", async (
   render(<App />);
   expect(await screen.findByText(/privado@a.test/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Empresa"), { target: { value: "8" } });
-  expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão");
+  // o painel de operação (sem mock neste teste) também pode exibir alertas: mira-se o de membros
+  expect(await screen.findByText("Você não tem permissão para esta operação.")).toBeInTheDocument();
   expect(screen.queryByText(/privado@a.test/)).not.toBeInTheDocument();
 });
 

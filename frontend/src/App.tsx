@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Operations } from "./Operations";
 import { StatusBanner } from "./StatusBanner";
 import { type Me, ROLE_LABELS, errorMessage, fetchMe, logout } from "./auth";
 import { LoginScreen, MembersPanel, PlatformPanel, ResetPasswordScreen } from "./screens";
@@ -74,6 +75,13 @@ export function App() {
             </select>
           )}
           {me.is_platform_admin && <PlatformPanel />}
+          {membership && membership.role !== "employee" && (
+            <Operations
+              key={`ops:${membership.company_id}:${membership.role}`}
+              companyId={membership.company_id}
+              canEdit={membership.role === "company_admin"}
+            />
+          )}
           {membership && (
             <MembersPanel
               key={`${membership.company_id}:${membership.role}`}
