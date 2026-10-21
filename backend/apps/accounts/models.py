@@ -40,6 +40,9 @@ class User(AbstractUser):
 
     username = None
     email = models.EmailField("e-mail", unique=True)
+    # Equipe da Noxora. Independe de is_staff/is_superuser e não concede acesso aos dados internos
+    # das empresas: só gestão comercial/cadastral de empresas, sempre auditada.
+    is_platform_admin = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
