@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Operations } from "./Operations";
 import { resetCsrf } from "./http";
@@ -48,6 +48,68 @@ const page = (results: unknown[], count = results.length) => ({
 });
 
 describe("Operations", () => {
+  it("exige prévia válida e a invalida ao editar o CSV", async () => {
+    routes["GET /api/companies/7/employees/"] = () => ({ body: page([]) });
+    routes["POST /api/companies/7/employees/import/"] = () => ({
+      body: { total: 1, valid: 1, committed: 0, errors: [] },
+    });
+    render(<Operations companyId={7} canEdit />);
+    fireEvent.click(screen.getByRole("button", { name: "Importação" }));
+    const submit = screen.getByRole("button", { name: "Importar" });
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar" }));
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Conteúdo CSV"), {
+      target: { value: "matricula,nome\n1,Ana" },
+    });
+    expect(submit).toBeDisabled();
+  });
+
+  it("descarta dados, busca e formulários ao trocar de empresa", async () => {
+    routes["GET /api/companies/7/employees/"] = () => ({ body: page([employee(1, "Privada")]) });
+    const { rerender } = render(<Operations companyId={7} canEdit />);
+    await screen.findByText(/Privada/);
+    fireEvent.change(screen.getByLabelText("Matrícula"), { target: { value: "rascunho" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Privada" } });
+    routes["GET /api/companies/8/employees/"] = () => ({ status: 403 });
+    rerender(<Operations companyId={8} canEdit />);
+    expect(screen.queryByText(/Privada/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Buscar")).toHaveValue("");
+    expect(screen.getByLabelText("Matrícula")).toHaveValue("");
+    await screen.findByRole("alert");
+    expect(screen.queryByText(/Privada/)).not.toBeInTheDocument();
+  });
+
+  it("ignora resposta antiga que chega depois da busca mais recente", async () => {
+    let resolveOld!: (value: unknown) => void;
+    const old = new Promise((resolve) => {
+      resolveOld = resolve;
+    });
+    const original = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string, init?: RequestInit) => {
+        if (input.includes("/employees/")) {
+          if (!input.includes("q=")) return old;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => page([employee(2, "Nova")]),
+          });
+        }
+        return original(input, init);
+      }),
+    );
+    render(<Operations companyId={7} canEdit />);
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Nova" } });
+    await screen.findByText(/Nova/);
+    await act(async () => {
+      resolveOld({ ok: true, status: 200, json: async () => page([employee(1, "Antiga")]) });
+    });
+    expect(screen.queryByText(/Antiga/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Nova/)).toBeInTheDocument();
+  });
+
   it("lista funcionários com CPF mascarado e busca com filtro", async () => {
     routes["GET /api/companies/7/employees/"] = () => ({ body: page([employee(1, "Ana")], 1) });
     render(<Operations companyId={7} canEdit />);

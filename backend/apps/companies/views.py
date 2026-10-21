@@ -78,7 +78,11 @@ class MemberListView(APIView):
     def get(self, request, company_id):
         company = resolve_company(request, company_id)
         require_role(request, Role.COMPANY_ADMIN)
-        members = Membership.objects.filter(company=company).select_related("user")
+        members = (
+            Membership.objects.filter(company=company)
+            .select_related("user")
+            .prefetch_related("scope_units", "scope_sectors")
+        )
         return Response(MembershipSerializer(members, many=True).data)
 
     @transaction.atomic

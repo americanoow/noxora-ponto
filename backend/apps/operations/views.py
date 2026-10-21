@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
@@ -53,6 +55,10 @@ def _get_or_404(queryset, pk):
     if obj is None:
         raise Http404
     return obj
+
+
+def _valid_id(value):
+    return value.isascii() and value.isdecimal() and len(value) <= 19 and 0 < int(value) <= 2**63 - 1
 
 
 def _apply(instance, validated, fields):
@@ -126,7 +132,7 @@ class SectorListView(APIView):
         company = reader_company(request, company_id)
         sectors = _visible_sectors(request, company)
         if unit := request.query_params.get("unit"):
-            sectors = sectors.filter(unit_id=unit) if unit.isdigit() else sectors.none()
+            sectors = sectors.filter(unit_id=unit) if _valid_id(unit) else sectors.none()
         return Response(SectorSerializer(sectors, many=True).data)
 
     def post(self, request, company_id):
@@ -203,9 +209,9 @@ class EmployeeListView(APIView):
         if unit or sector:
             current = Assignment.objects.filter(employee=OuterRef("pk")).filter(services.current_q())
             if unit:
-                current = current.filter(unit_id=unit) if unit.isdigit() else current.none()
+                current = current.filter(unit_id=unit) if _valid_id(unit) else current.none()
             if sector:
-                current = current.filter(sector_id=sector) if sector.isdigit() else current.none()
+                current = current.filter(sector_id=sector) if _valid_id(sector) else current.none()
             qs = qs.filter(Exists(current))
         paginator = Pagination()
         page = paginator.paginate_queryset(_employees_with_assignments(qs), request)
@@ -353,10 +359,19 @@ class EmployeeSchedulesView(APIView):
 # ---------- Jornadas ----------
 
 
+def _visible_schedules(request, company):
+    schedules = WorkSchedule.objects.filter(company=company)
+    if not is_admin(request):
+        schedules = schedules.filter(
+            assignments__employee__in=services.visible_employees(request, company)
+        ).distinct()
+    return schedules
+
+
 class ScheduleListView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
-        schedules = WorkSchedule.objects.filter(company=company).prefetch_related("days")
+        schedules = _visible_schedules(request, company).prefetch_related("days")
         return Response(WorkScheduleSerializer(schedules, many=True).data)
 
     def post(self, request, company_id):
@@ -379,7 +394,7 @@ class ScheduleListView(APIView):
 class ScheduleDetailView(APIView):
     def get(self, request, company_id, schedule_id):
         company = reader_company(request, company_id)
-        schedule = _get_or_404(WorkSchedule.objects.filter(company=company), schedule_id)
+        schedule = _get_or_404(_visible_schedules(request, company), schedule_id)
         return Response(WorkScheduleSerializer(schedule).data)
 
     def patch(self, request, company_id, schedule_id):
@@ -426,8 +441,21 @@ class EmployeeImportView(APIView):
             raise ValidationError({"csv": str(exc)}) from exc
         records, errors = importing.validate(company, rows)
         committed = 0
+        # A sessão guarda apenas o resumo do arquivo, nunca CPF ou conteúdo CSV.
+        preview_key = f"employee_import_preview:{company.pk}"
+        digest = hashlib.sha256(data.validated_data["csv"].encode("utf-8")).hexdigest()
         if data.validated_data["commit"] and not errors:
-            with transaction.atomic():
-                committed = len(importing.commit(company, records))
-                audit.record(request, "employee.imported", company=company, count=committed)
+            if request.session.get(preview_key) != digest:
+                raise ValidationError({"csv": "Pré-visualize este arquivo antes de importar."})
+            try:
+                with transaction.atomic():
+                    committed = len(importing.commit(company, records))
+                    audit.record(request, "employee.imported", company=company, count=committed)
+            except IntegrityError:
+                raise ValidationError({"csv": "Conflito de cadastro. Faça uma nova prévia."}) from None
+            request.session.pop(preview_key, None)
+        elif not data.validated_data["commit"]:
+            request.session.pop(preview_key, None)
+            if not errors:
+                request.session[preview_key] = digest
         return Response({"total": len(rows), "valid": len(records), "errors": errors, "committed": committed})

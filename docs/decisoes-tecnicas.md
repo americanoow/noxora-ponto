@@ -48,3 +48,8 @@ Pendências: throttling usa cache local (trocar por cache compartilhado em produ
 | D20 | "Hoje" para vigência usa a data UTC do servidor (`TIME_ZONE=UTC`) | Simplicidade | Pode divergir da data local da unidade por horas; tratar com fuso da unidade na apuração (etapa 8) |
 | D21 | Importação CSV é tudo ou nada, só cria funcionários (não atualiza), até 2000 linhas / 1 MB, com prévia obrigatória por `commit=false` | Erros compreensíveis por linha e nenhuma gravação parcial | Atualização em massa fica como melhoria |
 | D22 | Funcionário nunca é apagado: inativação mantém lotações e jornadas | Preserva histórico | Contagem de ativos para cobrança usa `is_active` (etapa 13) |
+
+## Notas da revisão da etapa 3 (21/10/2026)
+- D16/D17: atribuição também bloqueia a jornada, compartilhando a serialização com a edição de dias. Inativação dos destinos é revalidada sob bloqueio. Concorrência real segue pendente no PostgreSQL.
+- D18: catálogo e detalhe de jornadas do gestor se limitam às jornadas atribuídas aos funcionários atualmente visíveis, incluindo seus históricos. Escopo vazio não libera o catálogo.
+- D21: prévia obrigatória do mesmo CSV/sessão/empresa, identificada por hash sem armazenar seu conteúdo na sessão; gravação revalida os dados. Limite de 1 MB em bytes UTF-8, parser estrito e rejeição de prefixos de fórmula. Detalhes em [03-revisao.md](etapas/03-revisao.md).

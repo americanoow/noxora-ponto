@@ -10,7 +10,7 @@ from . import services
 from .models import Employee, Sector, Unit
 
 MAX_ROWS = 2000
-MAX_CHARS = 1_000_000
+MAX_BYTES = 1_000_000
 REQUIRED = {"matricula", "nome"}
 KNOWN = REQUIRED | {"cpf", "unidade", "setor", "inicio"}
 
@@ -29,24 +29,35 @@ def _parse_date(raw):
 
 
 def parse(text):
-    if len(text) > MAX_CHARS:
-        raise ImportFileError("Arquivo grande demais.")
-    text = text.lstrip("﻿")
+    if len(text.encode("utf-8")) > MAX_BYTES:
+        raise ImportFileError("Arquivo grande demais (limite de 1 MB).")
+    text = text.lstrip("\ufeff")
     first_line = text.splitlines()[0] if text.strip() else ""
     delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
-    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-    headers = {(h or "").strip().lower() for h in (reader.fieldnames or [])}
-    missing = REQUIRED - headers
-    if missing:
-        raise ImportFileError(f"Colunas obrigatórias ausentes: {', '.join(sorted(missing))}.")
-    unknown = headers - KNOWN
-    if unknown:
-        raise ImportFileError(f"Colunas não reconhecidas: {', '.join(sorted(unknown))}.")
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True)
     rows = []
-    for line, raw in enumerate(reader, start=2):
-        if len(rows) >= MAX_ROWS:
-            raise ImportFileError(f"O arquivo excede {MAX_ROWS} linhas.")
-        rows.append((line, {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items() if k}))
+    try:
+        headers = [h.strip().lower() for h in next(reader, [])]
+        if len(headers) != len(set(headers)):
+            raise ImportFileError("Colunas repetidas no cabeçalho.")
+        if REQUIRED - set(headers):
+            raise ImportFileError("Colunas obrigatórias: matricula e nome.")
+        if set(headers) - KNOWN:
+            raise ImportFileError("Colunas não reconhecidas no cabeçalho.")
+        while True:
+            line = reader.line_num + 1
+            raw = next(reader, None)
+            if raw is None:
+                break
+            if not raw:
+                continue
+            if len(rows) >= MAX_ROWS:
+                raise ImportFileError(f"O arquivo excede {MAX_ROWS} linhas.")
+            if len(raw) != len(headers):
+                raise ImportFileError(f"Linha {line}: quantidade de campos diferente do cabeçalho.")
+            rows.append((line, dict(zip(headers, (v.strip() for v in raw), strict=True))))
+    except csv.Error:
+        raise ImportFileError(f"CSV inválido próximo à linha {reader.line_num}.") from None
     if not rows:
         raise ImportFileError("O arquivo não contém linhas de dados.")
     return rows
@@ -69,15 +80,19 @@ def validate(company, rows):
         def err(field, message, line=line):
             errors.append({"line": line, "field": field, "message": message})
 
+        for field, value in row.items():
+            if value.startswith(("=", "+", "-", "@")):
+                err(field, "Conteúdo com prefixo de fórmula não permitido.")
+
         reg, name = row.get("matricula", ""), row.get("nome", "")
         if not reg:
             err("matricula", "Matrícula obrigatória.")
         elif len(reg) > 30:
             err("matricula", "Matrícula com mais de 30 caracteres.")
         elif reg in existing_regs:
-            err("matricula", f"Matrícula {reg} já cadastrada.")
+            err("matricula", "Matrícula já cadastrada.")
         elif reg in seen_regs:
-            err("matricula", f"Matrícula {reg} repetida no arquivo.")
+            err("matricula", "Matrícula repetida no arquivo.")
         seen_regs.add(reg)
         if not name:
             err("nome", "Nome obrigatório.")
@@ -98,11 +113,11 @@ def validate(company, rows):
         if row.get("unidade"):
             unit = units.get(row["unidade"].lower())
             if unit is None:
-                err("unidade", f"Unidade '{row['unidade']}' não encontrada ou inativa.")
+                err("unidade", "Unidade não encontrada ou inativa.")
             elif row.get("setor"):
                 sector = sectors.get((unit.pk, row["setor"].lower()))
                 if sector is None:
-                    err("setor", f"Setor '{row['setor']}' não encontrado na unidade '{unit.name}'.")
+                    err("setor", "Setor não encontrado na unidade.")
         elif row.get("setor"):
             err("setor", "Informe a unidade para usar um setor.")
         if row.get("inicio"):

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "./auth";
 import {
   type Employee,
@@ -35,16 +35,27 @@ const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 function useLoader<T>(fn: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
   const reload = useCallback(() => {
+    const current = ++generation.current;
+    setData(null);
+    setError(null);
     fn()
       .then((value) => {
-        setData(value);
-        setError(null);
+        if (current === generation.current) setData(value);
       })
-      .catch((e) => setError(errorMessage(e)));
+      .catch((e) => {
+        if (current === generation.current) setError(errorMessage(e));
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  useEffect(reload, [reload]);
+  useEffect(() => {
+    const tracker = generation;
+    reload();
+    return () => {
+      tracker.current++;
+    };
+  }, [reload]);
   return { data, error, reload };
 }
 
@@ -63,6 +74,12 @@ const Alert = ({ message }: { message: string | null }) =>
   message ? <p role="alert">{message}</p> : null;
 
 export function Operations({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
+  return (
+    <OperationsPanel key={`${companyId}:${canEdit}`} companyId={companyId} canEdit={canEdit} />
+  );
+}
+
+function OperationsPanel({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const [tab, setTab] = useState<Tab>("employees");
   return (
     <section>
@@ -203,7 +220,7 @@ function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: bool
 
   return (
     <div>
-      <Alert message={error ?? list.error} />
+      <Alert message={error ?? list.error ?? units.error ?? sectors.error} />
       <input
         aria-label="Buscar"
         placeholder="Nome ou matrícula"
@@ -253,7 +270,7 @@ function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: bool
                 </button>
               </>
             )}
-            {moving === e.id && (
+            {canEdit && moving === e.id && (
               <form
                 onSubmit={(ev) => {
                   ev.preventDefault();
@@ -460,14 +477,22 @@ function ImportTab({ companyId }: { companyId: number }) {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [previewCsv, setPreviewCsv] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const send = (commit: boolean) => {
+    setPending(true);
+    setPreviewCsv(null);
     setError(null);
     importEmployees(companyId, csv, commit)
-      .then(setResult)
+      .then((value) => {
+        setResult(value);
+        if (!commit && value.errors.length === 0) setPreviewCsv(csv);
+      })
       .catch((e) => {
         setResult(null);
         setError(errorMessage(e));
-      });
+      })
+      .finally(() => setPending(false));
   };
 
   return (
@@ -481,11 +506,20 @@ function ImportTab({ companyId }: { companyId: number }) {
         rows={8}
         cols={70}
         value={csv}
-        onChange={(e) => setCsv(e.target.value)}
+        disabled={pending}
+        onChange={(e) => {
+          setCsv(e.target.value);
+          setPreviewCsv(null);
+          setResult(null);
+        }}
       />
       <div>
-        <button onClick={() => send(false)}>Pré-visualizar</button>
-        <button onClick={() => send(true)}>Importar</button>
+        <button disabled={pending} onClick={() => send(false)}>
+          Pré-visualizar
+        </button>
+        <button disabled={pending || previewCsv !== csv} onClick={() => send(true)}>
+          Importar
+        </button>
       </div>
       <Alert message={error} />
       {result && (

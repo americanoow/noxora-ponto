@@ -88,6 +88,13 @@ class ScheduleDaySerializer(serializers.ModelSerializer):
         extra_kwargs = {"weekday": {"max_value": 6, "min_value": 0}, "break_minutes": {"max_value": 480}}
 
     def validate(self, attrs):
+        missing = {
+            field: "Campo obrigatório."
+            for field in ("weekday", "start_time", "end_time")
+            if field not in attrs
+        }
+        if missing:
+            raise serializers.ValidationError(missing)
         if attrs["start_time"] == attrs["end_time"]:
             raise serializers.ValidationError("Início e fim não podem ser iguais.")
         return attrs
