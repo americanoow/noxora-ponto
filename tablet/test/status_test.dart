@@ -9,7 +9,7 @@ void main() {
     final client = ApiClient(
       baseUrl: 'http://teste',
       client: MockClient((request) async => http.Response(
-            request.url.path.contains('health') ? '{"status":"ok"}' : '{"database":"ok"}',
+            request.url.path.contains('health') ? '{"status":"ok"}' : '{"status":"ok","database":"ok"}',
             200,
           )),
     );
@@ -23,7 +23,7 @@ void main() {
     final client = ApiClient(
       baseUrl: 'http://teste',
       client: MockClient((request) async =>
-          request.url.path.contains('health') ? http.Response('{}', 200) : http.Response('{}', 503)),
+          request.url.path.contains('health') ? http.Response('{"status":"ok"}', 200) : http.Response('{}', 503)),
     );
     await tester.pumpWidget(NoxoraApp(client: client));
     await tester.pumpAndSettle();

@@ -4,22 +4,37 @@ export type ApiStatus =
   | { kind: "error"; message: string };
 
 async function getJson(path: string, signal?: AbortSignal) {
-  const response = await fetch(path, { signal });
-  const body = await response.json().catch(() => ({}));
+  const timeout = AbortSignal.timeout(8000);
+  const response = await fetch(path, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  const body: unknown = await response.json();
   return { ok: response.ok, body };
+}
+
+function hasOk(body: unknown, field: string): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    field in body &&
+    (body as Record<string, unknown>)[field] === "ok"
+  );
 }
 
 export async function fetchApiStatus(signal?: AbortSignal): Promise<ApiStatus> {
   try {
     const health = await getJson("/api/health/", signal);
-    if (!health.ok) return { kind: "error", message: "A API não respondeu corretamente." };
+    if (!health.ok || !hasOk(health.body, "status"))
+      return { kind: "error", message: "A API não respondeu corretamente." };
     const ready = await getJson("/api/ready/", signal);
     if (!ready.ok)
       return { kind: "error", message: "A API está no ar, mas o banco está indisponível." };
+    if (!hasOk(ready.body, "status") || !hasOk(ready.body, "database"))
+      return { kind: "error", message: "A API não respondeu corretamente." };
     return {
       kind: "ok",
-      health: String(health.body.status),
-      database: String(ready.body.database),
+      health: "ok",
+      database: "ok",
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;

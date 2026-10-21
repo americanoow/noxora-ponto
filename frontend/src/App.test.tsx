@@ -14,7 +14,7 @@ describe("App", () => {
       vi.fn((url: string) =>
         url.includes("health")
           ? respond(true, { status: "ok" })
-          : respond(true, { database: "ok" }),
+          : respond(true, { status: "ok", database: "ok" }),
       ),
     );
     render(<App />);

@@ -1,15 +1,20 @@
-{
-  "etapa": 1,
-  "tarefa": "Preparação e estrutura inicial",
-  "fase": "implementação",
-  "ia_responsavel": "Claude",
-  "estado_geral": "em andamento",
-  "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Registros de coordenação criados (CLAUDE.md, AGENTS.md, plano)",
-  "proxima_acao": "Entregar etapa 1 ao Codex e conferir revisão",
-  "ultimo_checkpoint": "etapa-1-implementacao",
-  "referencia_git": null,
-  "codex_execucao_id": null,
-  "verificacoes_pendentes": ["Docker ausente: PostgreSQL via Compose não validado", "Flutter ausente: app tablet não compilado"],
-  "retomada_manual_obrigatoria": false
+﻿{
+    "etapa":  1,
+    "tarefa":  "PreparaÃƒÂ§ÃƒÂ£o e estrutura inicial",
+    "fase":  "validaÃ§Ã£o",
+    "ia_responsavel":  "Claude",
+    "estado_geral":  "em andamento",
+    "motivo_pausa":  null,
+    "ultima_tarefa_concluida":  "Etapa 1 revisada e corrigida pelo Codex; backend SQLite e frontend verificados",
+    "proxima_acao":  "Conferir docs/etapas/01-revisao.md e correÃ§Ãµes; validar PostgreSQL, Flutter e CI sem iniciar outra etapa",
+    "ultimo_checkpoint":  "etapa-1-implementacao",
+    "referencia_git":  null,
+    "codex_execucao_id":  null,
+    "verificacoes_pendentes":  [
+                                   "Docker ausente: PostgreSQL 17 via Compose, migrations e testes nÃ£o validados",
+                                   "Flutter/Dart ausentes: geraÃ§Ã£o Android, analyze, testes e APK debug nÃ£o executados",
+                                   "CI ajustada e YAML validado, mas workflow nunca executado",
+                                   "Aplicar migration accounts.0002 no banco persistente apÃ³s verificar conflitos de e-mail"
+                               ],
+    "retomada_manual_obrigatoria":  false
 }

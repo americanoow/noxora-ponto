@@ -11,22 +11,46 @@ docker compose up -d db                       # PostgreSQL
 cd backend
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env                   # ajuste se necessário
+# .env.example é uma referência: o Django não carrega arquivos .env automaticamente.
 $env:DJANGO_DEBUG = "true"
 $env:DATABASE_URL = "postgres://noxora:noxora_dev@localhost:5432/noxora"
 .\.venv\Scripts\python manage.py migrate
 .\.venv\Scripts\python manage.py runserver
 ```
-Verificações: `ruff check .`, `ruff format --check .`, `pytest -q`.
+Verificações (em `backend`, com as variáveis acima):
+```powershell
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m ruff check .
+.\.venv\Scripts\python -m ruff format --check .
+.\.venv\Scripts\python manage.py check
+.\.venv\Scripts\python manage.py makemigrations --check --dry-run
+```
+Sem PostgreSQL, defina `$env:DATABASE_URL = "sqlite:///:memory:"` somente para testes;
+para desenvolvimento persistente, remova a variável com `Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue`.
+SQLite exige `DJANGO_DEBUG=true` e não valida comportamento de PostgreSQL.
+
+Fora de debug, `DJANGO_SECRET_KEY` precisa de uma chave aleatória privada com pelo menos
+50 caracteres e 5 caracteres distintos; o exemplo não é uma chave válida para produção.
+`DATABASE_URL` deve apontar para PostgreSQL e `DJANGO_ALLOWED_HOSTS` deve listar os hosts
+autorizados (sem `*`). Cookies de sessão e CSRF exigem HTTPS fora de debug;
+`DJANGO_COOKIE_SECURE=false` não desativa essa proteção. A terminação TLS, o proxy,
+redirecionamento HTTPS e HSTS ainda precisam de configuração na etapa de implantação.
+
 Endpoints: `GET /api/health/` (liveness) e `GET /api/ready/` (readiness, 503 sem banco).
+Respostas JSON: saúde `{"status":"ok"}`; prontidão `{"status":"ok","database":"ok"}`
+ou HTTP 503 com `{"status":"indisponivel","database":"falha"}`. São endpoints públicos,
+sem detalhes do banco. Prontidão verifica conectividade (`SELECT 1`), não migrations aplicadas.
 
 ## Frontend
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev        # http://localhost:5173, proxy /api -> http://localhost:8000
-npm run lint; npm run typecheck; npm test; npm run build
+npm run lint; npm run format:check; npm run typecheck; npm test; npm run build
 ```
+
+O proxy `/api` existe no servidor de desenvolvimento do Vite. O build estático precisa
+ser servido com roteamento de `/api` para o backend; a hospedagem não integra esta etapa.
 
 ## Tablet
 Veja [tablet/README.md](tablet/README.md). URL da API via `--dart-define=API_BASE_URL=...` (emulador: `10.0.2.2`; dispositivo físico: IP da máquina).

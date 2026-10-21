@@ -3,7 +3,9 @@ param([Parameter(Mandatory)][int]$Etapa, [Parameter(Mandatory)][string]$Nome)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $estadoPath = Join-Path $root 'docs\controle\estado.json'
-$estado = Get-Content $estadoPath -Raw | ConvertFrom-Json
+function Read-Estado { [IO.File]::ReadAllText($estadoPath, [Text.Encoding]::UTF8) | ConvertFrom-Json }
+function Save-Estado($e) { [IO.File]::WriteAllText($estadoPath, ($e | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false)) }
+$estado = Read-Estado
 if ($estado.estado_geral -eq 'pausado' -or $estado.retomada_manual_obrigatoria) {
     Write-Error "Projeto pausado: $($estado.motivo_pausa). Aguardando retomada manual."; exit 2
 }
@@ -13,7 +15,7 @@ $logFile = Join-Path $root "docs\controle\codex-$nn.jsonl"
 if (-not (Test-Path $promptFile)) { Write-Error "Prompt ausente: $promptFile"; exit 1 }
 
 $estado.estado_geral = 'aguardando Codex'; $estado.fase = 'revisão'; $estado.ia_responsavel = 'Codex'
-$estado | ConvertTo-Json -Depth 5 | Set-Content $estadoPath -Encoding utf8
+Save-Estado $estado
 
 Push-Location $root
 try {
@@ -21,8 +23,8 @@ try {
     $code = $LASTEXITCODE
 } finally { Pop-Location }
 
-$estado = Get-Content $estadoPath -Raw | ConvertFrom-Json
-$log = if (Test-Path $logFile) { Get-Content $logFile -Raw } else { '' }
+$estado = Read-Estado
+$log = if (Test-Path $logFile) { Get-Content $logFile -Raw -Encoding UTF8 } else { '' }
 $motivo = $null
 if ($code -ne 0) {
     $motivo = switch -Regex ($log) {
@@ -37,5 +39,5 @@ if ($code -ne 0) {
 } else {
     $estado.estado_geral = 'em andamento'; $estado.fase = 'validação'; $estado.ia_responsavel = 'Claude'
 }
-$estado | ConvertTo-Json -Depth 5 | Set-Content $estadoPath -Encoding utf8
+Save-Estado $estado
 exit $code

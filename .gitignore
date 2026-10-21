@@ -8,4 +8,7 @@ dist/
 build/
 .dart_tool/
 .idea/
+.pytest_cache/
+.ruff_cache/
+staticfiles/
 docs/controle/codex-*.jsonl

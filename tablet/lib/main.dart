@@ -12,22 +12,29 @@ class NoxoraApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: 'Noxora Ponto',
         theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-        home: StatusPage(client: client ?? ApiClient()),
+        home: StatusPage(client: client),
       );
 }
 
 class StatusPage extends StatefulWidget {
-  const StatusPage({super.key, required this.client});
-  final ApiClient client;
+  const StatusPage({super.key, this.client});
+  final ApiClient? client;
 
   @override
   State<StatusPage> createState() => _StatusPageState();
 }
 
 class _StatusPageState extends State<StatusPage> {
-  late Future<ApiStatus> _status = widget.client.fetchStatus();
+  late final ApiClient _client = widget.client ?? ApiClient();
+  late Future<ApiStatus> _status = _client.fetchStatus();
 
-  void _retry() => setState(() => _status = widget.client.fetchStatus());
+  void _retry() => setState(() => _status = _client.fetchStatus());
+
+  @override
+  void dispose() {
+    if (widget.client == null) _client.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(

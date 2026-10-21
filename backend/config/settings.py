@@ -14,15 +14,20 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
 if not SECRET_KEY:
     if DEBUG:
         SECRET_KEY = "inseguro-somente-desenvolvimento"
     else:
         raise RuntimeError("DJANGO_SECRET_KEY é obrigatório quando DJANGO_DEBUG é falso.")
 
+if not DEBUG and (len(SECRET_KEY) < 50 or len(set(SECRET_KEY)) < 5):
+    raise RuntimeError("DJANGO_SECRET_KEY deve ter ao menos 50 caracteres e 5 caracteres distintos.")
+
 _hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,10.0.2.2")
 ALLOWED_HOSTS = [h.strip() for h in _hosts.split(",") if h.strip()]
+if not DEBUG and (not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS):
+    raise RuntimeError("DJANGO_ALLOWED_HOSTS deve listar hosts explícitos fora de debug.")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -74,6 +79,8 @@ DATABASES = {
         conn_max_age=60,
     )
 }
+if not DEBUG and DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+    raise RuntimeError("DATABASE_URL deve configurar PostgreSQL fora de debug.")
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -102,5 +109,5 @@ REST_FRAMEWORK = {
 
 if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SESSION_COOKIE_SECURE = env_bool("DJANGO_COOKIE_SECURE", True)
-    CSRF_COOKIE_SECURE = env_bool("DJANGO_COOKIE_SECURE", True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

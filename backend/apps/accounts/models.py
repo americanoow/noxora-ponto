@@ -1,13 +1,14 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
     def _create(self, email, password, **extra):
-        if not email:
+        if not email or not email.strip():
             raise ValueError("O e-mail é obrigatório.")
         user = self.model(email=self.normalize_email(email).lower(), **extra)
         user.set_password(password)
@@ -22,7 +23,12 @@ class UserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra):
         extra.setdefault("is_staff", True)
         extra.setdefault("is_superuser", True)
+        if extra["is_staff"] is not True or extra["is_superuser"] is not True:
+            raise ValueError("Superusuário exige is_staff=True e is_superuser=True.")
         return self._create(email, password, **extra)
+
+    def get_by_natural_key(self, username):
+        return self.get(email__iexact=username.strip())
 
 
 class User(AbstractUser):
@@ -39,6 +45,17 @@ class User(AbstractUser):
     REQUIRED_FIELDS: list[str] = []
 
     objects = UserManager()
+
+    class Meta(AbstractUser.Meta):
+        constraints = [models.UniqueConstraint(Lower("email"), name="accounts_user_email_ci_unique")]
+
+    def clean(self):
+        super().clean()
+        self.email = self.email.strip().lower()
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.email

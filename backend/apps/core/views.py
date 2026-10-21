@@ -26,6 +26,6 @@ def ready(request):
             cursor.execute("SELECT 1")
             cursor.fetchone()
     except Exception:
-        logger.exception("Falha na verificação de prontidão do banco")
+        logger.error("Falha na verificação de prontidão do banco")
         return Response({"status": "indisponivel", "database": "falha"}, status=503)
     return Response({"status": "ok", "database": "ok"})

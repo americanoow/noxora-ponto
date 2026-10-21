@@ -39,14 +39,20 @@ class ApiClient {
       if (health.statusCode != 200) {
         return const ApiError('A API não respondeu corretamente.');
       }
+      final healthBody = jsonDecode(health.body);
+      if (healthBody is! Map<String, dynamic> || healthBody['status'] != 'ok') {
+        return const ApiError('A API não respondeu corretamente.');
+      }
       final ready = await _get('/api/ready/');
       if (ready.statusCode != 200) {
         return const ApiError('A API está no ar, mas o banco está indisponível.');
       }
-      return ApiOk(
-        health: '${jsonDecode(health.body)['status']}',
-        database: '${jsonDecode(ready.body)['database']}',
-      );
+      final readyBody = jsonDecode(ready.body);
+      if (readyBody is! Map<String, dynamic> ||
+          readyBody['status'] != 'ok' || readyBody['database'] != 'ok') {
+        return const ApiError('A API não respondeu corretamente.');
+      }
+      return const ApiOk(health: 'ok', database: 'ok');
     } catch (_) {
       return const ApiError('Não foi possível contatar a API.');
     }
@@ -54,4 +60,6 @@ class ApiClient {
 
   Future<http.Response> _get(String path) =>
       _client.get(Uri.parse('$_baseUrl$path')).timeout(const Duration(seconds: 8));
+
+  void close() => _client.close();
 }
