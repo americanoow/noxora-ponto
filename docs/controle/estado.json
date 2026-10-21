@@ -1,20 +1,20 @@
 ﻿{
-    "etapa":  1,
-    "tarefa":  "PreparaÃƒÂ§ÃƒÂ£o e estrutura inicial",
-    "fase":  "validaÃ§Ã£o",
-    "ia_responsavel":  "Claude",
-    "estado_geral":  "em andamento",
-    "motivo_pausa":  null,
-    "ultima_tarefa_concluida":  "Etapa 1 revisada e corrigida pelo Codex; backend SQLite e frontend verificados",
-    "proxima_acao":  "Conferir docs/etapas/01-revisao.md e correÃ§Ãµes; validar PostgreSQL, Flutter e CI sem iniciar outra etapa",
-    "ultimo_checkpoint":  "etapa-1-implementacao",
-    "referencia_git":  null,
-    "codex_execucao_id":  null,
-    "verificacoes_pendentes":  [
-                                   "Docker ausente: PostgreSQL 17 via Compose, migrations e testes nÃ£o validados",
-                                   "Flutter/Dart ausentes: geraÃ§Ã£o Android, analyze, testes e APK debug nÃ£o executados",
-                                   "CI ajustada e YAML validado, mas workflow nunca executado",
-                                   "Aplicar migration accounts.0002 no banco persistente apÃ³s verificar conflitos de e-mail"
-                               ],
-    "retomada_manual_obrigatoria":  false
+  "etapa": 2,
+  "tarefa": "Empresas, autenticação e permissões",
+  "fase": "implementação",
+  "ia_responsavel": "Claude",
+  "estado_geral": "em andamento",
+  "motivo_pausa": null,
+  "ultima_tarefa_concluida": "Etapa 1 revisada pelo Codex e conferida pelo Claude (backend 27 testes, frontend 13)",
+  "proxima_acao": "Implementar modelos de empresa/vínculo/papéis e autenticação por sessão (etapa 2)",
+  "ultimo_checkpoint": "etapa-1-revisada",
+  "referencia_git": null,
+  "codex_execucao_id": null,
+  "verificacoes_pendentes": [
+    "Etapa 1: Docker ausente, PostgreSQL 17 via Compose não validado",
+    "Etapa 1: Flutter ausente, analyze/testes/APK debug não executados",
+    "Etapa 1: CI nunca executada",
+    "Aplicar migration accounts.0002 em banco persistente após checar e-mails duplicados por caixa"
+  ],
+  "retomada_manual_obrigatoria": false
 }
