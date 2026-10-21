@@ -1,0 +1,11 @@
+.env
+*.sqlite3
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+dist/
+build/
+.dart_tool/
+.idea/
+docs/controle/codex-*.jsonl

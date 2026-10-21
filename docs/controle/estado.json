@@ -1,0 +1,15 @@
+{
+  "etapa": 1,
+  "tarefa": "Preparação e estrutura inicial",
+  "fase": "implementação",
+  "ia_responsavel": "Claude",
+  "estado_geral": "em andamento",
+  "motivo_pausa": null,
+  "ultima_tarefa_concluida": "Registros de coordenação criados (CLAUDE.md, AGENTS.md, plano)",
+  "proxima_acao": "Entregar etapa 1 ao Codex e conferir revisão",
+  "ultimo_checkpoint": "etapa-1-implementacao",
+  "referencia_git": null,
+  "codex_execucao_id": null,
+  "verificacoes_pendentes": ["Docker ausente: PostgreSQL via Compose não validado", "Flutter ausente: app tablet não compilado"],
+  "retomada_manual_obrigatoria": false
+}
