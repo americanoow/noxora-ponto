@@ -1,27 +1,83 @@
 import { useEffect, useState } from "react";
-import { type ApiStatus, fetchApiStatus } from "./api";
+import { StatusBanner } from "./StatusBanner";
+import { type Me, ROLE_LABELS, fetchMe, logout } from "./auth";
+import { LoginScreen, MembersPanel, PlatformPanel, ResetPasswordScreen } from "./screens";
 
 export function App() {
-  const [status, setStatus] = useState<ApiStatus>({ kind: "loading" });
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [companyId, setCompanyId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  const params = new URLSearchParams(window.location.search);
+  const isReset = window.location.pathname === "/redefinir-senha";
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetchApiStatus(controller.signal)
-      .then(setStatus)
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
+    if (isReset) return;
+    fetchMe()
+      .then((value) => {
+        setMe(value);
+        setCompanyId(value?.memberships[0]?.company_id ?? null);
+      })
+      .catch(() => setLoadError(true));
+  }, [isReset]);
+
+  const membership = me?.memberships.find((m) => m.company_id === companyId);
 
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto" }}>
+    <main style={{ fontFamily: "system-ui", maxWidth: 640, margin: "3rem auto" }}>
       <h1>Noxora Ponto</h1>
-      {status.kind === "loading" && <p role="status">Verificando a API…</p>}
-      {status.kind === "ok" && (
-        <p role="status">
-          API disponível (saúde: {status.health}, banco: {status.database}).
-        </p>
+      {isReset ? (
+        <ResetPasswordScreen uid={params.get("uid") ?? ""} token={params.get("token") ?? ""} />
+      ) : loadError ? (
+        <p role="alert">Não foi possível contatar a API.</p>
+      ) : me === undefined ? (
+        <p role="status">Carregando…</p>
+      ) : me === null ? (
+        <LoginScreen
+          onLogin={(value) => {
+            setMe(value);
+            setCompanyId(value.memberships[0]?.company_id ?? null);
+          }}
+        />
+      ) : (
+        <>
+          <p>
+            {me.email}
+            {membership && ` — ${ROLE_LABELS[membership.role]}`}{" "}
+            <button
+              onClick={() =>
+                void logout().finally(() => {
+                  setMe(null);
+                  setCompanyId(null);
+                })
+              }
+            >
+              Sair
+            </button>
+          </p>
+          {me.memberships.length > 1 && (
+            <select
+              aria-label="Empresa"
+              value={companyId ?? ""}
+              onChange={(e) => setCompanyId(Number(e.target.value))}
+            >
+              {me.memberships.map((m) => (
+                <option key={m.id} value={m.company_id}>
+                  {m.company_name}
+                </option>
+              ))}
+            </select>
+          )}
+          {me.is_platform_admin && <PlatformPanel />}
+          {membership && (
+            <MembersPanel companyId={membership.company_id} myRole={membership.role} />
+          )}
+          {!membership && !me.is_platform_admin && (
+            <p>Seu usuário não possui acesso a nenhuma empresa.</p>
+          )}
+        </>
       )}
-      {status.kind === "error" && <p role="alert">{status.message}</p>}
+      <StatusBanner />
     </main>
   );
 }
