@@ -1,23 +1,21 @@
 {
-    "etapa":  2,
-    "tarefa":  "Empresas, autenticação e permissões",
-    "fase":  "validaÃ§Ã£o",
-    "ia_responsavel":  "Claude",
-    "estado_geral":  "em andamento",
-    "motivo_pausa":  null,
-    "ultima_tarefa_concluida":  "Etapa 2 revisada e corrigida pelo Codex: backend 82 testes SQLite, frontend 25, verificações estáticas e build passaram",
-    "proxima_acao":  "Conferir docs/etapas/02-revisao.md e correções; decidir proposta de e-mail assíncrono contra enumeração temporal; validar PostgreSQL. Não iniciar etapa 3.",
-    "ultimo_checkpoint":  "etapa-1-revisada",
-    "referencia_git":  null,
-    "codex_execucao_id":  null,
-    "verificacoes_pendentes":  [
-                                   "Etapa 1: Docker ausente, PostgreSQL 17 via Compose não validado",
-                                   "Etapa 1: Flutter ausente, analyze/testes/APK debug não executados",
-                                   "Etapa 1: CI nunca executada",
-                                   "Aplicar migration accounts.0002 em banco persistente após checar e-mails duplicados por caixa",
-                                   "Etapa 2: decidir proposta de outbox/e-mail assíncrono contra enumeração temporal e para retry",
-                                   "Etapa 2: validar concorrência real e locks em PostgreSQL",
-                                   "Etapa 2: aplicar companies.0002_membership_name em banco persistente e validar entrega SMTP"
-                               ],
-    "retomada_manual_obrigatoria":  false
+  "etapa": 3,
+  "tarefa": "Cadastros da operação",
+  "fase": "implementação",
+  "ia_responsavel": "Claude",
+  "estado_geral": "em andamento",
+  "motivo_pausa": null,
+  "ultima_tarefa_concluida": "Etapa 2 revisada pelo Codex e conferida (backend 83, frontend 25)",
+  "proxima_acao": "Implementar unidades, setores, funcionários, jornadas e histórico com vigência (etapa 3)",
+  "ultimo_checkpoint": "etapa-2-revisada",
+  "referencia_git": null,
+  "codex_execucao_id": null,
+  "verificacoes_pendentes": [
+    "Docker ausente: PostgreSQL 17 e concorrência real (reset, convites, revogações) não validados",
+    "Flutter ausente: analyze/testes/APK debug não executados",
+    "CI nunca executada",
+    "Aplicar migrations em banco persistente após checar e-mails duplicados por caixa (accounts.0002)",
+    "SMTP real não configurado; MFA não avaliado; throttling em cache local"
+  ],
+  "retomada_manual_obrigatoria": false
 }
