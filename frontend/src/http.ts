@@ -17,7 +17,10 @@ export function resetCsrf() {
 async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
   const response = await fetch("/api/auth/csrf/", { credentials: "same-origin" });
-  csrfToken = ((await response.json()) as { csrfToken: string }).csrfToken;
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) throw new ApiError(response.status, data);
+  if (typeof data.csrfToken !== "string" || !data.csrfToken) throw new Error("Token CSRF ausente.");
+  csrfToken = data.csrfToken;
   return csrfToken;
 }
 
@@ -35,6 +38,10 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   });
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(response.status, data as Record<string, unknown>);
+  if (!response.ok) {
+    // Uma sessão pode ter sido alterada em outra aba; a próxima tentativa precisa de token novo.
+    if (response.status === 403) resetCsrf();
+    throw new ApiError(response.status, data as Record<string, unknown>);
+  }
   return data as T;
 }

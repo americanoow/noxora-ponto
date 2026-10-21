@@ -7,6 +7,11 @@ class AppendOnlyError(Exception):
 
 
 class AuditQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        if kwargs.get("update_conflicts"):
+            raise AppendOnlyError("Registros de auditoria não podem ser alterados.")
+        return super().bulk_create(objs, **kwargs)
+
     def update(self, **kwargs):
         raise AppendOnlyError("Registros de auditoria não podem ser alterados.")
 

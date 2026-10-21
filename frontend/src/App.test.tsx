@@ -96,3 +96,43 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Entrar" })).toBeInTheDocument();
   });
 });
+
+it("mantém sessão visível e informa falha ao sair", async () => {
+  routes["GET /api/auth/me/"] = () => ({ body: me("employee") });
+  routes["POST /api/auth/logout/"] = () => ({ status: 403 });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sair" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão");
+  expect(screen.getByRole("button", { name: "Sair" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Entrar" })).not.toBeInTheDocument();
+});
+
+it("descarta membros anteriores ao trocar para empresa que retorna 403", async () => {
+  const account = me("company_admin");
+  account.memberships.push({
+    id: 2,
+    company_id: 8,
+    company_name: "Empresa B",
+    role: "company_admin",
+  });
+  routes["GET /api/auth/me/"] = () => ({ body: account });
+  routes["GET /api/companies/7/members/"] = () => ({
+    body: [{ id: 5, email: "privado@a.test", name: "A", role: "employee", is_active: true }],
+  });
+  routes["GET /api/companies/8/members/"] = () => ({ status: 403 });
+  render(<App />);
+  expect(await screen.findByText(/privado@a.test/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Empresa"), { target: { value: "8" } });
+  expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão");
+  expect(screen.queryByText(/privado@a.test/)).not.toBeInTheDocument();
+});
+
+it("informa limite de tentativas no login", async () => {
+  routes["GET /api/auth/me/"] = () => ({ status: 403 });
+  routes["POST /api/auth/login/"] = () => ({ status: 429 });
+  render(<App />);
+  fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "a@a.test" } });
+  fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "senha" } });
+  fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Muitas tentativas");
+});

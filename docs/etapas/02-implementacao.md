@@ -13,4 +13,10 @@
 
 ## Pendências
 - Sem PostgreSQL/Docker nem Flutter (herdado). MFA e escopo por unidade/setor não implementados (ver D11).
-- Convites enviam link por e-mail via backend console em desenvolvimento; SMTP real não configurado.
+- Convites enviam link por e-mail; após a revisão, o backend padrão é SMTP e console é proibido para não expor tokens em logs. SMTP real não configurado.
+
+## Revisão do Codex (21/10/2026)
+- Relatório: [02-revisao.md](02-revisao.md). Backend: 82 testes; frontend: 25; Ruff, lint, typecheck, build e check de migrations passaram.
+- Convites agora expõem somente o nome local do vínculo (`companies.0002_membership_name`); nomes antigos ficam vazios, com e-mail como fallback.
+- O backend console de e-mail foi proibido por expor tokens em logs. O padrão é SMTP; configurar um servidor de teste/produção. Os testes usam locmem. Falhas de transporte não alteram a resposta pública, mas não há retry durável.
+- Há pendência essencial de enumeração por tempo no envio síncrono; proposta assíncrona registrada para decisão. Concorrência real em PostgreSQL não validada.

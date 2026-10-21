@@ -111,14 +111,15 @@ def test_payload_nao_concede_admin_da_plataforma(tenant_a):
     )
 
 
-def test_admin_cria_membro_e_convite_e_enviado(tenant_a):
+def test_admin_cria_membro_e_convite_e_enviado(tenant_a, django_capture_on_commit_callbacks):
     from django.core import mail
 
-    r = tenant_a.client("company_admin").post(
-        members_url(tenant_a.company),
-        {"email": "Novo@A.test", "name": "Novo", "role": "employee"},
-        format="json",
-    )
+    with django_capture_on_commit_callbacks(execute=True):
+        r = tenant_a.client("company_admin").post(
+            members_url(tenant_a.company),
+            {"email": "Novo@A.test", "name": "Novo", "role": "employee"},
+            format="json",
+        )
     assert r.status_code == 201
     assert len(mail.outbox) == 1 and mail.outbox[0].to == ["novo@a.test"]
     assert AuditLog.objects.filter(action="member.created", company=tenant_a.company).exists()
@@ -214,3 +215,126 @@ def test_so_plataforma_altera_empresa(tenant_a, platform_admin):
     assert login_client(platform_admin).patch(url, {"is_active": False}, format="json").status_code == 200
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.is_active is False
+
+
+def test_convite_nao_revela_nome_global(tenant_a, tenant_b):
+    client = tenant_a.client("company_admin")
+    response = client.post(
+        members_url(tenant_a.company),
+        {
+            "email": tenant_b.users["employee"].email,
+            "name": "Nome local",
+            "role": "employee",
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.json()["name"] == "Nome local"
+    listed = client.get(members_url(tenant_a.company)).json()
+    assert next(m for m in listed if m["id"] == response.json()["id"])["name"] == "Nome local"
+    assert tenant_b.users["employee"].first_name == "employee"
+
+
+def test_plataforma_com_vinculo_continua_sem_acesso_operacional(tenant_a, platform_admin):
+    from conftest import login_client
+
+    Membership.objects.create(user=platform_admin, company=tenant_a.company, role="company_admin")
+    client = login_client(platform_admin)
+    url = members_url(tenant_a.company)
+    assert client.get(url).status_code == 403
+    assert client.post(url, {"email": "x@x.test", "role": "employee"}, format="json").status_code == 403
+    assert (
+        client.patch(
+            member_url(tenant_a.company, tenant_a.memberships["employee"]), {"role": "manager"}, format="json"
+        ).status_code
+        == 403
+    )
+    assert AuditLog.objects.filter(action="platform.company_access", actor=platform_admin).count() == 3
+
+
+def test_patch_nao_move_vinculo_nem_altera_identidade(tenant_a, tenant_b):
+    member = tenant_a.memberships["employee"]
+    user = tenant_a.users["employee"]
+    response = tenant_a.client("company_admin").patch(
+        member_url(tenant_a.company, member),
+        {
+            "company": tenant_b.company.pk,
+            "user": tenant_b.users["company_admin"].pk,
+            "email": "invadido@x.test",
+            "password": "senha-injetada",
+            "is_superuser": True,
+            "is_platform_admin": True,
+            "role": "manager",
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    member.refresh_from_db()
+    user.refresh_from_db()
+    assert member.company == tenant_a.company and member.user == user
+    assert user.email == "employee@a.test" and not user.is_superuser and not user.is_platform_admin
+
+
+@pytest.mark.parametrize("disabled", ["user", "membership", "company"])
+def test_revogacao_bloqueia_todos_endpoints_empresa(tenant_a, disabled):
+    client = tenant_a.client("company_admin")
+    target = {
+        "user": tenant_a.users["company_admin"],
+        "membership": tenant_a.memberships["company_admin"],
+        "company": tenant_a.company,
+    }[disabled]
+    target.is_active = False
+    target.save()
+    expected = 403 if disabled == "user" else 404
+    base = f"/api/companies/{tenant_a.company.pk}/"
+    assert client.get(base).status_code == expected
+    assert client.get(base + "audit/").status_code == expected
+    assert client.get(base + "members/").status_code == expected
+    assert (
+        client.post(base + "members/", {"email": "x@x.test", "role": "employee"}, format="json").status_code
+        == expected
+    )
+    assert (
+        client.patch(
+            member_url(tenant_a.company, tenant_a.memberships["employee"]), {"role": "manager"}, format="json"
+        ).status_code
+        == expected
+    )
+
+
+def test_falha_auditoria_reverte_alteracao(tenant_a, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("Falha simulada")
+
+    monkeypatch.setattr("apps.companies.views.audit.record", fail)
+    with pytest.raises(RuntimeError, match="simulada"):
+        tenant_a.client("company_admin").patch(
+            member_url(tenant_a.company, tenant_a.memberships["employee"]), {"role": "manager"}, format="json"
+        )
+    tenant_a.memberships["employee"].refresh_from_db()
+    assert tenant_a.memberships["employee"].role == "employee"
+
+
+def test_corrida_criacao_usuario_recupera_identidade_existente(tenant_b, monkeypatch):
+    from django.db import IntegrityError
+
+    from apps.accounts.models import User
+    from apps.accounts.services import get_or_invite_user
+
+    target = tenant_b.users["employee"]
+    manager = User.objects
+    original_filter = manager.filter
+    calls = 0
+
+    def concurrent_filter(**kwargs):
+        nonlocal calls
+        calls += 1
+        return manager.none() if calls == 1 else original_filter(**kwargs)
+
+    def duplicate(*args, **kwargs):
+        raise IntegrityError("Conflito simulado")
+
+    monkeypatch.setattr(manager, "filter", concurrent_filter)
+    monkeypatch.setattr(manager, "create_user", duplicate)
+    user, created = get_or_invite_user(target.email)
+    assert user == target and created is False

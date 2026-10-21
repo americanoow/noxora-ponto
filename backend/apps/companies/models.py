@@ -30,6 +30,7 @@ class Membership(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="memberships")
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="memberships")
     role = models.CharField(max_length=20, choices=Role.choices)
+    name = models.CharField(max_length=150, blank=True, default="")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

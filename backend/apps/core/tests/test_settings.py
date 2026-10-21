@@ -72,3 +72,18 @@ def test_debug_permite_sqlite_sem_chave(env):
 @override_settings(DEBUG=False, ALLOWED_HOSTS=["localhost"])
 def test_host_nao_autorizado_rejeitado():
     assert APIClient().get("/api/health/", HTTP_HOST="atacante.invalid").status_code == 400
+
+
+def test_console_email_proibido_fora_de_debug(env):
+    env.setenv("DJANGO_SECRET_KEY", TEST_KEY)
+    env.setenv("DATABASE_URL", "postgresql://localhost/noxora_test")
+    env.setenv("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+    with pytest.raises(RuntimeError, match="tokens"):
+        runpy.run_path(str(SETTINGS))
+
+
+def test_console_email_permitido_em_debug(env):
+    env.setenv("DJANGO_DEBUG", "true")
+    env.setenv("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+    config = runpy.run_path(str(SETTINGS))
+    assert config["EMAIL_BACKEND"].endswith("console.EmailBackend")

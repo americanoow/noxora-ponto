@@ -1,7 +1,11 @@
+import logging
+from smtplib import SMTPException
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.db import IntegrityError, transaction
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
@@ -14,7 +18,11 @@ def send_password_reset(user, *, invite: bool = False):
     token = default_token_generator.make_token(user)
     link = f"{settings.FRONTEND_URL}/redefinir-senha?uid={uid}&token={token}"
     subject = "Seu acesso ao Noxora Ponto" if invite else "Redefinição de senha do Noxora Ponto"
-    send_mail(subject, f"Defina sua senha em: {link}\n\nO link expira em 1 hora.", None, [user.email])
+    try:
+        send_mail(subject, f"Defina sua senha em: {link}\n\nO link expira em 1 hora.", None, [user.email])
+    except (SMTPException, OSError):
+        # Não expor existência da conta nem detalhes SMTP/token em resposta ou traceback.
+        logging.getLogger(__name__).error("Falha no envio de e-mail de acesso.")
 
 
 def get_or_invite_user(email: str, name: str = ""):
@@ -26,5 +34,12 @@ def get_or_invite_user(email: str, name: str = ""):
     existing = User.objects.filter(email__iexact=email).first()
     if existing:
         return existing, False
-    user = User.objects.create_user(email, None, first_name=name[:150])
-    return user, True
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(email, None, first_name=name[:150])
+        return user, True
+    except IntegrityError:
+        existing = User.objects.filter(email__iexact=email).first()
+        if existing is None:
+            raise
+        return existing, False

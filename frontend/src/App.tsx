@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { StatusBanner } from "./StatusBanner";
-import { type Me, ROLE_LABELS, fetchMe, logout } from "./auth";
+import { type Me, ROLE_LABELS, errorMessage, fetchMe, logout } from "./auth";
 import { LoginScreen, MembersPanel, PlatformPanel, ResetPasswordScreen } from "./screens";
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const isReset = window.location.pathname === "/redefinir-senha";
@@ -46,15 +47,19 @@ export function App() {
             {membership && ` — ${ROLE_LABELS[membership.role]}`}{" "}
             <button
               onClick={() =>
-                void logout().finally(() => {
-                  setMe(null);
-                  setCompanyId(null);
-                })
+                void logout()
+                  .then(() => {
+                    setMe(null);
+                    setCompanyId(null);
+                    setLogoutError(null);
+                  })
+                  .catch((error: unknown) => setLogoutError(errorMessage(error)))
               }
             >
               Sair
             </button>
           </p>
+          {logoutError && <p role="alert">{logoutError}</p>}
           {me.memberships.length > 1 && (
             <select
               aria-label="Empresa"
@@ -70,7 +75,11 @@ export function App() {
           )}
           {me.is_platform_admin && <PlatformPanel />}
           {membership && (
-            <MembersPanel companyId={membership.company_id} myRole={membership.role} />
+            <MembersPanel
+              key={`${membership.company_id}:${membership.role}`}
+              companyId={membership.company_id}
+              myRole={membership.role}
+            />
           )}
           {!membership && !me.is_platform_admin && (
             <p>Seu usuário não possui acesso a nenhuma empresa.</p>

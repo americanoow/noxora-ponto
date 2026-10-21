@@ -29,7 +29,9 @@ def _require_platform_admin(request):
 class CompanyListView(APIView):
     def get(self, request):
         if request.user.is_platform_admin:
-            companies = Company.objects.all()
+            companies = list(Company.objects.all())
+            for company in companies:
+                audit.record(request, "platform.company_access", company=company, path=request.path)
         else:
             companies = Company.objects.filter(
                 is_active=True, memberships__user=request.user, memberships__is_active=True
@@ -44,7 +46,9 @@ class CompanyListView(APIView):
         with transaction.atomic():
             company = Company.objects.create(name=v["name"])
             admin, created = get_or_invite_user(v["admin_email"], v["admin_name"])
-            Membership.objects.create(user=admin, company=company, role=Role.COMPANY_ADMIN)
+            Membership.objects.create(
+                user=admin, company=company, role=Role.COMPANY_ADMIN, name=v["admin_name"]
+            )
             audit.record(request, "company.created", company=company, target=company, admin_email=admin.email)
         if created:
             send_password_reset(admin, invite=True)
@@ -55,11 +59,10 @@ class CompanyDetailView(APIView):
     def get(self, request, company_id):
         return Response(CompanySerializer(resolve_company(request, company_id)).data)
 
+    @transaction.atomic
     def patch(self, request, company_id):
         _require_platform_admin(request)
-        company = Company.objects.filter(pk=company_id).first()
-        if company is None:
-            raise Http404
+        company = resolve_company(request, company_id, lock=True)
         data = CompanyUpdateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         changes = data.validated_data
@@ -77,8 +80,12 @@ class MemberListView(APIView):
         members = Membership.objects.filter(company=company).select_related("user")
         return Response(MembershipSerializer(members, many=True).data)
 
+    @transaction.atomic
     def post(self, request, company_id):
-        company = resolve_company(request, company_id)
+        company = resolve_company(request, company_id, lock=True)
+        if request.user.is_platform_admin:
+            # Resposta sem exceção preserva o registro de acesso negado na transação.
+            return Response({"detail": "Você não tem permissão para esta operação."}, status=403)
         require_role(request, Role.COMPANY_ADMIN)
         data = MembershipCreateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
@@ -86,18 +93,24 @@ class MemberListView(APIView):
         try:
             with transaction.atomic():
                 user, created = get_or_invite_user(v["email"], v["name"])
-                membership = Membership.objects.create(user=user, company=company, role=v["role"])
+                membership = Membership.objects.create(
+                    user=user, company=company, role=v["role"], name=v["name"]
+                )
                 audit.record(request, "member.created", company=company, target=membership, role=v["role"])
         except IntegrityError:
             return Response({"detail": "Este usuário já possui vínculo com a empresa."}, status=409)
         if created:
-            send_password_reset(user, invite=True)
+            transaction.on_commit(lambda: send_password_reset(user, invite=True))
         return Response(MembershipSerializer(membership).data, status=status.HTTP_201_CREATED)
 
 
 class MemberDetailView(APIView):
+    @transaction.atomic
     def patch(self, request, company_id, member_id):
-        company = resolve_company(request, company_id)
+        # Serializa alterações administrativas antes de verificar o papel do autor.
+        company = resolve_company(request, company_id, lock=True)
+        if request.user.is_platform_admin:
+            return Response({"detail": "Você não tem permissão para esta operação."}, status=403)
         actor = require_role(request, Role.COMPANY_ADMIN)
         # O filtro por empresa impede alcançar vínculo de outra empresa por id.
         membership = Membership.objects.filter(company=company, pk=member_id).select_related("user").first()

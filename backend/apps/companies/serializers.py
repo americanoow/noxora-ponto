@@ -23,7 +23,7 @@ class CompanyUpdateSerializer(serializers.Serializer):
 
 class MembershipSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
-    name = serializers.CharField(source="user.first_name", read_only=True)
+    name = serializers.CharField(read_only=True)
 
     class Meta:
         model = Membership

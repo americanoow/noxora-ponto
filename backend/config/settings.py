@@ -123,7 +123,10 @@ CSRF_TRUSTED_ORIGINS = [
 PASSWORD_RESET_TIMEOUT = 3600
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+if not DEBUG and EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
+    # Em desenvolvimento (DEBUG) o console permite ver links de convite; fora dele, tokens iriam para logs.
+    raise RuntimeError("Backend console de e-mail proibido fora de debug: expõe tokens de acesso em logs.")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Noxora Ponto <nao-responda@localhost>")
 
 if not DEBUG:

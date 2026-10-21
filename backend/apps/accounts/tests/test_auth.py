@@ -151,3 +151,113 @@ def test_usuario_convidado_nao_loga_sem_definir_senha(db):
     user.set_unusable_password()
     user.save()
     assert login(csrf_client(), "novo@x.test", "").status_code == 400
+
+
+def test_reset_concorrente_nao_sobrescreve_senha(tenant_a, monkeypatch):
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    from apps.accounts.models import User
+
+    user = tenant_a.users["employee"]
+    token = default_token_generator.make_token(user)
+    original_check = default_token_generator.check_token
+
+    def competing_reset(snapshot, supplied):
+        valid = original_check(snapshot, supplied)
+        concurrent = User.objects.get(pk=user.pk)
+        concurrent.set_password("senha-do-primeiro-reset-99")
+        concurrent.save(update_fields=["password"])
+        return valid
+
+    monkeypatch.setattr(default_token_generator, "check_token", competing_reset)
+    response = csrf_client().post(
+        "/api/auth/password-reset/confirm/",
+        {
+            "uid": urlsafe_base64_encode(force_bytes(user.pk)),
+            "token": token,
+            "new_password": "senha-do-segundo-reset-88",
+        },
+        format="json",
+    )
+    assert response.status_code == 400
+    user.refresh_from_db()
+    assert user.check_password("senha-do-primeiro-reset-99")
+    assert not AuditLog.objects.filter(action="auth.password_reset_confirmed").exists()
+
+
+def test_falha_smtp_nao_enumera_nem_expoe_segredos(tenant_a, monkeypatch, caplog):
+    from smtplib import SMTPException
+
+    def fail(*args, **kwargs):
+        raise SMTPException("token-ultrassecreto")
+
+    monkeypatch.setattr("apps.accounts.services.send_mail", fail)
+    client = csrf_client()
+    known = client.post("/api/auth/password-reset/", {"email": "employee@a.test"}, format="json")
+    unknown = client.post("/api/auth/password-reset/", {"email": "unknown@a.test"}, format="json")
+    assert known.status_code == unknown.status_code == 202
+    assert known.json() == unknown.json()
+    assert "token-ultrassecreto" not in caplog.text
+
+
+@pytest.mark.parametrize("path", ["password-reset/", "password-reset/confirm/"])
+def test_reset_exige_csrf(path):
+    client = APIClient(enforce_csrf_checks=True)
+    assert client.post("/api/auth/" + path, {}, format="json").status_code == 403
+
+
+def test_login_rotaciona_chave_da_sessao(tenant_a):
+    client = csrf_client()
+    session = client.session
+    session["antes"] = True
+    session.save()
+    old_key = session.session_key
+    assert login(client, "employee@a.test").status_code == 200
+    assert client.session.session_key != old_key
+    assert not Session.objects.filter(session_key=old_key).exists()
+
+
+def test_sessao_sem_marca_login_e_invalida(tenant_a):
+    client = tenant_a.client("employee")
+    session = client.session
+    del session["login_at"]
+    session.save()
+    assert client.get("/api/auth/me/").status_code == 403
+
+
+def test_mutacoes_empresa_exigem_csrf(tenant_a):
+    client = APIClient(enforce_csrf_checks=True)
+    client.force_login(tenant_a.users["company_admin"])
+    base = f"/api/companies/{tenant_a.company.pk}/"
+    assert client.post(base + "members/", {}, format="json").status_code == 403
+    assert (
+        client.patch(base + f"members/{tenant_a.memberships['employee'].pk}/", {}, format="json").status_code
+        == 403
+    )
+    assert client.patch(base, {}, format="json").status_code == 403
+
+
+def test_reset_expirado_e_usuario_inativo_rejeitados(tenant_a, monkeypatch):
+    from datetime import timedelta
+
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    user = tenant_a.users["employee"]
+    token = default_token_generator.make_token(user)
+    payload = {
+        "uid": urlsafe_base64_encode(force_bytes(user.pk)),
+        "token": token,
+        "new_password": "senha-forte-nova-99",
+    }
+    client = csrf_client()
+    now = default_token_generator._now()
+    with monkeypatch.context() as patch:
+        patch.setattr(default_token_generator, "_now", lambda: now + timedelta(hours=2))
+        assert client.post("/api/auth/password-reset/confirm/", payload, format="json").status_code == 400
+    user.is_active = False
+    user.save()
+    assert client.post("/api/auth/password-reset/confirm/", payload, format="json").status_code == 400

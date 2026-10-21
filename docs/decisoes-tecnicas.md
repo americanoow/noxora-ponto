@@ -23,3 +23,17 @@
 | D12 | Admin da empresa não altera o próprio vínculo | Impede autoelevação e o último administrador se desativar | Mudança do próprio papel exige outro administrador |
 
 Pendências: throttling usa cache local (trocar por cache compartilhado em produção multi-processo); IP de auditoria vem de REMOTE_ADDR (proxy confiável na etapa 15); MFA não implementado (avaliar para administradores).
+
+## Notas da revisão da etapa 2 (21/10/2026)
+- D8: contas da plataforma não recebem papel operacional mesmo que possuam vínculo; acessos pela listagem e alteração também são auditados.
+- D9: limpeza recursiva de metadados e bloqueio de upsert no ORM; a proteção no banco continua pendente.
+- Nomes exibidos em vínculos pertencem à empresa (`Membership.name`), sem consulta ao nome global de convidados. Migration aditiva; nomes legados ficam vazios.
+- E-mail console proibido por imprimir tokens; SMTP é o padrão. Falhas de transporte retornam mensagem pública uniforme, com log genérico.
+- **Proposta ainda não aprovada:** outbox/processamento assíncrono para reduzir enumeração temporal em reset/convites e garantir retry. Exige decisão de arquitetura/operação frente a D2; detalhes e validações em [etapas/02-revisao.md](etapas/02-revisao.md). Não implementado nesta revisão.
+
+## Decisões após revisão da etapa 2
+| # | Decisão | Justificativa | Consequência |
+|---|---------|---------------|--------------|
+| D13 | Enumeração por tempo no reset/convite aceita como risco residual; outbox assíncrona de e-mails adiada para a etapa 14/15 | Resposta, status e erros já são uniformes e há throttling (5/h); outbox exige worker e operação (contraria D2 sem necessidade hoje) | Reavaliar na etapa 14 junto com retry de e-mail e cache compartilhado |
+| D14 | Backend de e-mail console permitido só com `DJANGO_DEBUG=true`; fora de debug é recusado na configuração | Ver link de convite no desenvolvimento sem expor tokens em logs de produção | Padrão continua SMTP |
+| D15 | Nome do membro é local (`Membership.name`), não o nome global do usuário | Evita vazar identidade entre empresas | Tela usa e-mail como fallback |

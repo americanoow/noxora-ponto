@@ -1,10 +1,14 @@
 from .models import AuditLog
 
-_SENSITIVE = ("password", "senha", "token", "secret", "biometr")
+_SENSITIVE = ("password", "senha", "token", "secret", "biometr", "authorization", "cookie")
 
 
-def _clean(metadata: dict) -> dict:
-    return {k: v for k, v in metadata.items() if not any(s in k.lower() for s in _SENSITIVE)}
+def _clean(metadata):
+    if isinstance(metadata, dict):
+        return {k: _clean(v) for k, v in metadata.items() if not any(s in k.lower() for s in _SENSITIVE)}
+    if isinstance(metadata, (list, tuple)):
+        return [_clean(value) for value in metadata]
+    return metadata
 
 
 def record(request, action, *, company=None, actor=None, target=None, actor_email="", **metadata):

@@ -2,6 +2,7 @@ from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.middleware.csrf import get_token
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
@@ -130,7 +131,22 @@ class PasswordResetConfirmView(PublicView):
             validate_password(data.validated_data["new_password"], user)
         except DjangoValidationError as exc:
             return Response({"new_password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        old_password = user.password
         user.set_password(data.validated_data["new_password"])
-        user.save(update_fields=["password"])  # troca o hash: encerra sessões antigas e invalida o token
-        audit.record(request, "auth.password_reset_confirmed", actor=user)
+        with transaction.atomic():
+            # Compare-and-swap: duas confirmações que validaram o mesmo hash não podem vencer.
+            changed = (
+                get_user_model()
+                .objects.filter(
+                    pk=user.pk,
+                    password=old_password,
+                    is_active=True,
+                    last_login=user.last_login,
+                    email=user.email,
+                )
+                .update(password=user.password)
+            )
+            if not changed:
+                return invalid
+            audit.record(request, "auth.password_reset_confirmed", actor=user)
         return Response({"detail": "Senha atualizada."})
