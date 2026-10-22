@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DevicesTab } from "./DevicesTab";
 import { errorMessage } from "./auth";
 import {
   type Employee,
@@ -23,11 +24,12 @@ import {
   updateUnit,
 } from "./operationsApi";
 
-type Tab = "units" | "employees" | "import" | "schedules";
+type Tab = "units" | "employees" | "import" | "schedules" | "devices";
 const TABS: [Tab, string][] = [
   ["employees", "Funcionários"],
   ["units", "Unidades e setores"],
   ["schedules", "Jornadas"],
+  ["devices", "Tablets"],
   ["import", "Importação"],
 ];
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
@@ -93,6 +95,7 @@ function OperationsPanel({ companyId, canEdit }: { companyId: number; canEdit: b
       {tab === "employees" && <EmployeesTab companyId={companyId} canEdit={canEdit} />}
       {tab === "units" && <UnitsTab companyId={companyId} canEdit={canEdit} />}
       {tab === "schedules" && <SchedulesTab companyId={companyId} canEdit={canEdit} />}
+      {tab === "devices" && <DevicesTab companyId={companyId} canEdit={canEdit} />}
       {tab === "import" && canEdit && <ImportTab companyId={companyId} />}
     </section>
   );
