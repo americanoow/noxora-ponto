@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -14,15 +15,26 @@ const String appVersion = '0.1.0';
 const Duration rotateAfter = Duration(days: 20);
 
 class DeviceScope {
-  const DeviceScope({required this.name, required this.company, required this.unit});
+  const DeviceScope({
+    required this.name,
+    required this.company,
+    required this.unit,
+    this.identificationMode = 'registration',
+  });
   final String name;
   final String company;
   final String unit;
+
+  /// 'registration' (só matrícula) ou 'face' (verificação facial ou exceção autorizada).
+  final String identificationMode;
+
+  bool get requiresFace => identificationMode == 'face';
 
   factory DeviceScope.fromJson(Map<String, dynamic> json) => DeviceScope(
         name: '${json['name']}',
         company: '${(json['company'] as Map<String, dynamic>)['name']}',
         unit: '${(json['unit'] as Map<String, dynamic>)['name']}',
+        identificationMode: '${json['identification_mode'] ?? 'registration'}',
       );
 }
 
@@ -61,6 +73,37 @@ class PunchUnconfirmed extends PunchOutcome {
   const PunchUnconfirmed(this.message);
   final String message;
 }
+
+/// Resultado da verificação facial 1:1 feita pelo servidor.
+sealed class FaceOutcome {
+  const FaceOutcome();
+}
+
+class FaceVerified extends FaceOutcome {
+  const FaceVerified(this.verificationId);
+  final int verificationId;
+}
+
+/// Não verificado: [outcome] é o código do servidor (no_match, liveness_failed, poor_quality, ...).
+class FaceDenied extends FaceOutcome {
+  const FaceDenied(this.outcome, this.message);
+  final String outcome;
+  final String message;
+}
+
+class FaceUnavailable extends FaceOutcome {
+  const FaceUnavailable(this.message);
+  final String message;
+}
+
+const _faceMessages = <String, String>{
+  'no_match': 'Rosto não reconhecido. Tente novamente ou chame um responsável.',
+  'liveness_failed': 'Não foi possível confirmar que é uma pessoa presente. Tente novamente.',
+  'poor_quality': 'Imagem com pouca qualidade. Ajuste a posição e a luz e tente novamente.',
+  'no_template': 'Sem cadastro facial. Procure o administrador.',
+  'no_consent': 'Sem consentimento registrado. Procure o administrador.',
+  'locked': 'Verificação facial bloqueada por tentativas. Chame um responsável.',
+};
 
 String _newEventId() {
   final random = Random.secure();
@@ -196,7 +239,11 @@ class DeviceController extends ChangeNotifier {
 
   /// Registra uma marcação. [declaredKind]: '', 'entry', 'break_start', 'break_end' ou 'exit'
   /// (informativo; a apuração decide). Nunca grava localmente: a fila offline é da etapa 7.
-  Future<PunchOutcome> punch(String registration, {String declaredKind = ''}) async {
+  Future<PunchOutcome> punch(
+    String registration, {
+    String declaredKind = '',
+    Map<String, dynamic>? identification,
+  }) async {
     final reg = registration.trim();
     if (reg.isEmpty) return const PunchRejected('Informe a matrícula.');
     if (_punching) return const PunchUnconfirmed('Aguarde a conclusão do registro anterior.');
@@ -214,6 +261,7 @@ class DeviceController extends ChangeNotifier {
         'client_event_id': _newEventId(),
         'declared_kind': declaredKind,
         'device_reported_at': _now().toUtc().toIso8601String(),
+        if (identification != null) 'identification': identification,
       });
       final response = await _client
           .post(
@@ -260,6 +308,42 @@ class DeviceController extends ChangeNotifier {
       return const PunchUnconfirmed('Sem confirmação do servidor. Tente novamente: não haverá duplicidade.');
     } finally {
       _punching = false;
+    }
+  }
+
+  /// Envia a captura ao servidor para verificação 1:1. A imagem não é guardada no aparelho.
+  Future<FaceOutcome> verifyFace(String registration, Uint8List image) async {
+    final reg = registration.trim();
+    if (reg.isEmpty) return const FaceDenied('invalid', 'Informe a matrícula.');
+    try {
+      final credential = await store.read();
+      if (credential == null) return const FaceDenied('invalid', 'Tablet não ativado.');
+      final response = await _client
+          .post(
+            Uri.parse('$_baseUrl/api/device/face/verify/'),
+            headers: _headers(credential.token),
+            body: jsonEncode({'registration': reg, 'image': base64Encode(image)}),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 404) {
+        return const FaceDenied('unknown', 'Matrícula não encontrada nesta unidade.');
+      }
+      if (response.statusCode == 401) {
+        scope = null;
+        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await store.clear();
+        return const FaceUnavailable('Tablet desativado.');
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final outcome = '${body['outcome']}';
+      if (response.statusCode == 200 && outcome == 'success') {
+        final id = body['verification_id'];
+        if (id is int) return FaceVerified(id);
+      }
+      if (response.statusCode == 503) return const FaceUnavailable('Verificação facial indisponível.');
+      return FaceDenied(outcome, _faceMessages[outcome] ?? 'Verificação não concluída.');
+    } catch (_) {
+      return const FaceUnavailable('Sem conexão com o servidor para verificar o rosto.');
     }
   }
 

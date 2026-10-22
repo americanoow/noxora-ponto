@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BiometricsActions } from "./BiometricsActions";
 import { DevicesTab } from "./DevicesTab";
 import { EmployerTab, RecordsTab } from "./TimeclockTab";
 import { errorMessage } from "./auth";
@@ -277,6 +278,14 @@ function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: bool
                   Alterar lotação
                 </button>
               </>
+            )}
+            {e.is_active && (
+              <BiometricsActions
+                companyId={companyId}
+                employeeId={e.id}
+                employeeName={e.full_name}
+                canEdit={canEdit}
+              />
             )}
             {canEdit && moving === e.id && (
               <form

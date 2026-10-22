@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -28,6 +29,7 @@ class UndeletableStore extends MemoryTokenStore {
 
 void main() {
   punchTests();
+  faceTests();
   test('falha ao apagar token após revogação na rotação não mantém tablet ativo', () async {
     final store = UndeletableStore()
       ..value = StoredCredential(token: '7.velho', issuedAt: DateTime.utc(2020));
@@ -297,5 +299,85 @@ void punchTests() {
     final c = activeController((_) async => throw StateError('não deve chamar a rede'));
     expect(await c.punch('   '), isA<PunchRejected>());
     c.dispose();
+  });
+}
+
+// ---------- Verificação facial e exceção ----------
+
+void faceTests() {
+  test('verificação facial bem-sucedida devolve o id e envia a imagem em base64 com credencial', () async {
+    late Map<String, dynamic> sent;
+    late Map<String, String> headers;
+    final c = activeController((r) async {
+      sent = jsonDecode(r.body) as Map<String, dynamic>;
+      headers = r.headers;
+      return http.Response(
+        jsonEncode({'outcome': 'success', 'liveness': 'passed', 'verification_id': 12}),
+        200,
+      );
+    });
+    final result = await c.verifyFace(' 100 ', Uint8List.fromList([1, 2, 3]));
+    expect(result, isA<FaceVerified>());
+    expect((result as FaceVerified).verificationId, 12);
+    expect(sent['registration'], '100');
+    expect(base64Decode(sent['image'] as String), [1, 2, 3]);
+    expect(headers['Authorization'], 'Device 7.s');
+    c.dispose();
+  });
+
+  test('falhas de verificação trazem mensagem clara e não liberam a marcação', () async {
+    for (final outcome in ['no_match', 'liveness_failed', 'poor_quality', 'no_template', 'locked']) {
+      final c = activeController((_) async => http.Response(jsonEncode({'outcome': outcome}), 200));
+      final result = await c.verifyFace('100', Uint8List.fromList([1]));
+      expect(result, isA<FaceDenied>(), reason: outcome);
+      expect((result as FaceDenied).outcome, outcome);
+      expect(result.message, isNotEmpty);
+      c.dispose();
+    }
+  });
+
+  test('motor indisponível (503), rede e matrícula desconhecida', () async {
+    var c = activeController((_) async => http.Response(jsonEncode({'outcome': 'engine_unavailable'}), 503));
+    expect(await c.verifyFace('100', Uint8List(1)), isA<FaceUnavailable>());
+    c.dispose();
+    c = activeController((_) async => throw http.ClientException('rede'));
+    expect(await c.verifyFace('100', Uint8List(1)), isA<FaceUnavailable>());
+    c.dispose();
+    c = activeController((_) async => http.Response('{}', 404));
+    expect(await c.verifyFace('999', Uint8List(1)), isA<FaceDenied>());
+    c.dispose();
+  });
+
+  test('credencial revogada durante a verificação desativa o tablet', () async {
+    final store = MemoryTokenStore()..value = StoredCredential(token: '7.s', issuedAt: DateTime.now());
+    final c = activeController((_) async => http.Response('{}', 401), store: store);
+    expect(await c.verifyFace('100', Uint8List(1)), isA<FaceUnavailable>());
+    expect(c.state, DeviceState.revoked);
+    expect(await store.read(), isNull);
+    c.dispose();
+  });
+
+  test('marcação envia a identificação facial e a de exceção no corpo', () async {
+    final bodies = <Map<String, dynamic>>[];
+    final c = activeController((r) async {
+      bodies.add(jsonDecode(r.body) as Map<String, dynamic>);
+      return http.Response(jsonEncode(punchOk), 201);
+    });
+    await c.punch('100', identification: {'method': 'face', 'verification_id': 12});
+    await c.punch('200', identification: {'method': 'authorized_exception', 'code': '12345678'});
+    expect(bodies[0]['identification'], {'method': 'face', 'verification_id': 12});
+    expect(bodies[1]['identification'], {'method': 'authorized_exception', 'code': '12345678'});
+    c.dispose();
+  });
+
+  test('escopo informa o modo facial', () {
+    final scope = DeviceScope.fromJson({
+      'name': 'T',
+      'company': {'name': 'E'},
+      'unit': {'name': 'U'},
+      'identification_mode': 'face',
+    });
+    expect(scope.requiresFace, isTrue);
+    expect(DeviceScope.fromJson({'name': 'T', 'company': {'name': 'E'}, 'unit': {'name': 'U'}}).requiresFace, isFalse);
   });
 }

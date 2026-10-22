@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { IdentificationModePanel } from "./BiometricsActions";
 import { errorMessage } from "./auth";
 import type { Page } from "./operationsApi";
 import {
@@ -107,58 +108,61 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
   };
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        setError(null);
-        updateEmployer(companyId, form)
-          .then((value) => {
-            setForm(value);
-            setSaved(true);
-          })
-          .catch((err) => setError(errorMessage(err)));
-      }}
-    >
-      <p>Estes dados aparecem no Comprovante de Registro de Ponto. Alterações são auditadas.</p>
-      {error && <p role="alert">{error}</p>}
-      <label>
-        Razão social ou nome
-        <input
-          value={form.legal_name}
-          disabled={!canEdit}
-          onChange={(e) => set({ legal_name: e.target.value })}
-        />
-      </label>
-      <label>
-        Tipo de documento
-        <select
-          value={form.tax_id_type}
-          disabled={!canEdit}
-          onChange={(e) => set({ tax_id_type: e.target.value as Employer["tax_id_type"] })}
-        >
-          <option value="">—</option>
-          <option value="CNPJ">CNPJ</option>
-          <option value="CPF">CPF</option>
-        </select>
-      </label>
-      <label>
-        Documento (somente números)
-        <input
-          value={form.tax_id}
-          disabled={!canEdit}
-          onChange={(e) => set({ tax_id: e.target.value })}
-        />
-      </label>
-      <label>
-        CEI/CAEPF/CNO (se houver)
-        <input
-          value={form.cei_caepf_cno}
-          disabled={!canEdit}
-          onChange={(e) => set({ cei_caepf_cno: e.target.value })}
-        />
-      </label>
-      {canEdit && <button type="submit">Salvar dados do empregador</button>}
-      {saved && <p role="status">Dados salvos.</p>}
-    </form>
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setError(null);
+          updateEmployer(companyId, form)
+            .then((value) => {
+              setForm(value);
+              setSaved(true);
+            })
+            .catch((err) => setError(errorMessage(err)));
+        }}
+      >
+        <p>Estes dados aparecem no Comprovante de Registro de Ponto. Alterações são auditadas.</p>
+        {error && <p role="alert">{error}</p>}
+        <label>
+          Razão social ou nome
+          <input
+            value={form.legal_name}
+            disabled={!canEdit}
+            onChange={(e) => set({ legal_name: e.target.value })}
+          />
+        </label>
+        <label>
+          Tipo de documento
+          <select
+            value={form.tax_id_type}
+            disabled={!canEdit}
+            onChange={(e) => set({ tax_id_type: e.target.value as Employer["tax_id_type"] })}
+          >
+            <option value="">—</option>
+            <option value="CNPJ">CNPJ</option>
+            <option value="CPF">CPF</option>
+          </select>
+        </label>
+        <label>
+          Documento (somente números)
+          <input
+            value={form.tax_id}
+            disabled={!canEdit}
+            onChange={(e) => set({ tax_id: e.target.value })}
+          />
+        </label>
+        <label>
+          CEI/CAEPF/CNO (se houver)
+          <input
+            value={form.cei_caepf_cno}
+            disabled={!canEdit}
+            onChange={(e) => set({ cei_caepf_cno: e.target.value })}
+          />
+        </label>
+        {canEdit && <button type="submit">Salvar dados do empregador</button>}
+        {saved && <p role="status">Dados salvos.</p>}
+      </form>
+      <IdentificationModePanel companyId={companyId} canEdit={canEdit} />
+    </>
   );
 }

@@ -61,6 +61,7 @@ class PunchPanel extends StatefulWidget {
 
 class _PunchPanelState extends State<PunchPanel> {
   final _registration = TextEditingController();
+  final _exceptionCode = TextEditingController();
   String _kind = '';
   PunchOutcome? _outcome;
   bool _busy = false;
@@ -68,6 +69,7 @@ class _PunchPanelState extends State<PunchPanel> {
   @override
   void dispose() {
     _registration.dispose();
+    _exceptionCode.dispose();
     super.dispose();
   }
 
@@ -77,14 +79,22 @@ class _PunchPanelState extends State<PunchPanel> {
       _busy = true;
       _outcome = null;
     });
-    final outcome = await widget.controller.punch(_registration.text, declaredKind: _kind);
+    final code = _exceptionCode.text.trim();
+    final outcome = await widget.controller.punch(
+      _registration.text,
+      declaredKind: _kind,
+      identification: code.isEmpty ? null : {'method': 'authorized_exception', 'code': code},
+    );
     if (!mounted) return;
     setState(() {
       _busy = false;
       _outcome = outcome;
       // Só limpa a matrícula quando a tentativa se encerrou; se não houve confirmação,
       // o mesmo evento é reenviado com a mesma matrícula (sem duplicar).
-      if (outcome is! PunchUnconfirmed) _registration.clear();
+      if (outcome is! PunchUnconfirmed) {
+        _registration.clear();
+        _exceptionCode.clear();
+      }
     });
   }
 
@@ -115,6 +125,26 @@ class _PunchPanelState extends State<PunchPanel> {
               onChanged: _busy ? null : (v) => setState(() => _kind = v ?? ''),
             ),
           ),
+          if (widget.controller.scope?.requiresFace ?? false) ...[
+            const SizedBox(height: 8),
+            const SizedBox(
+              width: 300,
+              child: Text(
+                'Esta empresa exige verificação facial. A captura pela câmera ainda não está '
+                'disponível neste aplicativo; chame um responsável para obter um código de exceção.',
+              ),
+            ),
+            SizedBox(
+              width: 300,
+              child: TextField(
+                controller: _exceptionCode,
+                enabled: !_busy,
+                keyboardType: TextInputType.number,
+                maxLength: 8,
+                decoration: const InputDecoration(labelText: 'Código de exceção (8 dígitos)'),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,

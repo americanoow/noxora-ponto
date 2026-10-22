@@ -159,6 +159,7 @@ def _scope_payload(device):
         "company": {"id": device.company_id, "name": device.company.name},
         "unit": {"id": device.unit_id, "name": device.unit.name, "timezone": device.unit.timezone},
         "collect_location": device.collect_location,
+        "identification_mode": device.company.identification_mode,
         "server_time": timezone.now(),
     }
 

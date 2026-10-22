@@ -28,7 +28,10 @@ const record = (over = {}) => ({
 beforeEach(() => {
   calls = [];
   resetCsrf();
-  routes = { "GET /api/auth/csrf/": () => ({ body: { csrfToken: "tok" } }) };
+  routes = {
+    "GET /api/auth/csrf/": () => ({ body: { csrfToken: "tok" } }),
+    "GET /api/companies/7/identification/": () => ({ body: { mode: "registration" } }),
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init?: RequestInit) => {
