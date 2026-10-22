@@ -1,23 +1,23 @@
 {
-  "etapa": 3,
-  "tarefa": "Cadastros da operação — conferência final pendente",
-  "fase": "conferência",
-  "ia_responsavel": "nenhuma (projeto pausado)",
-  "estado_geral": "pausado",
-  "motivo_pausa": "Codex: limite de uso confirmado pela ferramenta (\"You've hit your usage limit ... try again at 8:54 PM\"). Horário informado pela própria ferramenta; não foi feita nova tentativa.",
-  "ultima_tarefa_concluida": "Etapa 3 implementada (commit e103818). Codex escreveu docs/etapas/03-revisao.md completo e corrigiu 10 problemas antes do limite, que ocorreu ao final do turno. Verificação independente do Claude: backend 150 testes, ruff e migrations limpos; frontend 33 testes, lint e typecheck limpos (SQLite).",
-  "proxima_acao": "Após retomada manual do usuário: conferir se o Codex precisa concluir algo além do relatório já escrito; aceitar a etapa 3 e só então iniciar a etapa 4 (gestão de tablets).",
-  "ultimo_checkpoint": "etapa-3-revisao-codex-preservada",
+  "etapa": 4,
+  "tarefa": "Autorização e gestão dos tablets",
+  "fase": "implementação",
+  "ia_responsavel": "Claude",
+  "estado_geral": "em andamento",
+  "motivo_pausa": null,
+  "ultima_tarefa_concluida": "Retomada manual autorizada pelo usuário em 2026-10-21 23:25 (mensagem: \"volte do ponto onde parou\"). Verificado: sem execução do Codex em andamento (os codex.exe ativos são o app/extensão do usuário), repositório limpo, horário posterior ao informado pela ferramenta (8:54 PM). Etapa 3 aceita: relatório do Codex completo e verificação independente do Claude (backend 150, frontend 33).",
+  "proxima_acao": "Implementar etapa 4: ativação de tablets por credencial temporária, credencial individual por dispositivo, revogação, painel de dispositivos. Na passagem ao Codex, se o limite persistir, pausar de novo.",
+  "ultimo_checkpoint": "etapa-3-aceita",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
-    "Etapa 3: aceite final aguardando retomada manual (execução do Codex terminou com erro de limite)",
     "Docker ausente: PostgreSQL 17 e concorrência real (reset, convites, revogações, vigências, jornadas, importação) não validados",
     "Flutter ausente: analyze/testes/APK debug não executados",
     "CI nunca executada",
     "Aplicar migrations em banco persistente após checar e-mails duplicados por caixa (accounts.0002)",
     "SMTP real não configurado; MFA não avaliado; throttling em cache local",
-    "Exclusão de sobreposição de vigências no banco (btree_gist) pendente"
+    "Exclusão de sobreposição de vigências no banco (btree_gist) pendente",
+    "Disponibilidade do Codex após a renovação do limite ainda não confirmada por uma chamada real"
   ],
-  "retomada_manual_obrigatoria": true
+  "retomada_manual_obrigatoria": false
 }

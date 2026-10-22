@@ -27,7 +27,11 @@ $estado = Read-Estado
 $log = if (Test-Path $logFile) { Get-Content $logFile -Raw -Encoding UTF8 } else { '' }
 $motivo = $null
 if ($code -ne 0) {
-    $motivo = switch -Regex ($log) {
+    # Classifica só pelas mensagens de erro da própria ferramenta (eventos error/turn.failed),
+    # nunca pelo texto do código revisado, que pode conter palavras como "rate limit" ou "timeout".
+    $erros = ($log -split "`n" | Where-Object { $_ -match '"type"\s*:\s*"(error|turn\.failed)"' }) -join "`n"
+    $detalhe = if ($erros) { ($erros -split "`n")[-1] } else { 'sem evento de erro no log' }
+    $motivo = switch -Regex ($erros) {
         'usage limit|rate limit|quota'  { 'limite de uso'; break }
         'insufficient|credit|balance'   { 'falta de saldo'; break }
         'context length|context window' { 'limite de contexto'; break }
@@ -35,7 +39,7 @@ if ($code -ne 0) {
         'network|ECONN|timeout'         { 'conectividade'; break }
         default                         { 'interrupção de causa desconhecida' }
     }
-    $estado.estado_geral = 'pausado'; $estado.motivo_pausa = "Codex: $motivo"; $estado.retomada_manual_obrigatoria = $true
+    $estado.estado_geral = 'pausado'; $estado.motivo_pausa = "Codex: $motivo. Mensagem da ferramenta: $detalhe"; $estado.retomada_manual_obrigatoria = $true
 } else {
     $estado.estado_geral = 'em andamento'; $estado.fase = 'validação'; $estado.ia_responsavel = 'Claude'
 }
