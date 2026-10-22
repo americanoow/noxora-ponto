@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.companies",
     "apps.operations",
+    "apps.devices",
     "apps.audit",
 ]
 
@@ -109,7 +110,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_THROTTLE_RATES": {"login": "10/min", "password_reset": "5/hour"},
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+        "password_reset": "5/hour",
+        "device_activation": "10/min",
+        "device": "120/min",
+    },
 }
 
 # Sessões: expiram por inatividade (janela deslizante) e por duração absoluta.
@@ -122,6 +128,12 @@ CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
 PASSWORD_RESET_TIMEOUT = 3600
+
+# Tablets: ativação por código curto, credencial individual com validade e rotação.
+DEVICE_ACTIVATION_TTL_MINUTES = 15
+DEVICE_CREDENTIAL_TTL_DAYS = 30
+DEVICE_ROTATION_GRACE_MINUTES = 10
+DEVICE_ONLINE_SECONDS = 300
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")

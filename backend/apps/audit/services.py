@@ -17,8 +17,11 @@ def record(request, action, *, company=None, actor=None, target=None, actor_emai
     O IP vem de REMOTE_ADDR; cabeçalhos X-Forwarded-For só devem ser considerados
     quando houver proxy confiável configurado (etapa 15).
     """
-    if actor is None and request is not None and getattr(request.user, "is_authenticated", False):
-        actor = request.user
+    # Quando o autor já vem identificado (ex.: dispositivo), não se consulta request.user: durante a
+    # autenticação isso reentraria nos autenticadores.
+    if actor is None and not actor_email and request is not None:
+        if getattr(request.user, "is_authenticated", False):
+            actor = request.user
     return AuditLog.objects.create(
         actor=actor,
         actor_email=(actor.email if actor else actor_email)[:254],
