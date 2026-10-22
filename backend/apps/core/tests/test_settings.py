@@ -87,3 +87,14 @@ def test_console_email_permitido_em_debug(env):
     env.setenv("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
     config = runpy.run_path(str(SETTINGS))
     assert config["EMAIL_BACKEND"].endswith("console.EmailBackend")
+
+
+def test_origens_de_desenvolvimento_so_em_debug(env):
+    env.setenv("DJANGO_DEBUG", "true")
+    assert "http://localhost:5173" in runpy.run_path(str(SETTINGS))["CSRF_TRUSTED_ORIGINS"]
+    env.setenv("DJANGO_DEBUG", "false")
+    env.setenv("DJANGO_SECRET_KEY", TEST_KEY)
+    env.setenv("DATABASE_URL", "postgresql://localhost/noxora_test")
+    env.setenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://ponto.exemplo.com")
+    config = runpy.run_path(str(SETTINGS))
+    assert config["CSRF_TRUSTED_ORIGINS"] == ["https://ponto.exemplo.com"]  # sem origens de desenvolvimento

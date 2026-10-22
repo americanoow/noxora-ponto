@@ -133,6 +133,12 @@ CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
+if DEBUG:
+    # O painel em desenvolvimento roda no Vite (porta 5173) e o navegador envia esse Origin.
+    # Fora de debug as origens precisam ser listadas explicitamente em DJANGO_CSRF_TRUSTED_ORIGINS.
+    for _origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+        if _origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_origin)
 PASSWORD_RESET_TIMEOUT = 3600
 
 # Tablets: ativação por código curto, credencial individual com validade e rotação.

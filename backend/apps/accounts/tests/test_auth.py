@@ -261,3 +261,23 @@ def test_reset_expirado_e_usuario_inativo_rejeitados(tenant_a, monkeypatch):
     user.is_active = False
     user.save()
     assert client.post("/api/auth/password-reset/confirm/", payload, format="json").status_code == 400
+
+
+def _login_com_origin(origin):
+    """Simula o navegador: o Vite (5173) faz proxy e o Origin original chega ao Django."""
+    client = APIClient(enforce_csrf_checks=True, HTTP_ORIGIN=origin)
+    token = client.get("/api/auth/csrf/").json()["csrfToken"]
+    client.defaults["HTTP_X_CSRFTOKEN"] = token
+    return client.post(
+        "/api/auth/login/", {"email": "company_admin@a.test", "password": PASSWORD}, format="json"
+    )
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:5173", "http://127.0.0.1:5173"])
+def test_login_com_origin_do_painel_em_desenvolvimento(tenant_a, origin):
+    assert _login_com_origin(origin).status_code == 200
+
+
+def test_login_com_origin_desconhecida_e_recusado(tenant_a):
+    r = _login_com_origin("http://site-malicioso.test")
+    assert r.status_code == 403 and "CSRF" in r.json()["detail"]

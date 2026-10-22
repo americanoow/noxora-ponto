@@ -80,7 +80,13 @@ export const createCompany = (name: string, adminEmail: string) =>
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 429) return "Muitas tentativas. Aguarde alguns minutos.";
-    if (error.status === 403) return "Você não tem permissão para esta operação.";
+    if (error.status === 403) {
+      // 403 também ocorre por falha de CSRF (token/origem): não confundir com falta de permissão.
+      if (typeof error.body.detail === "string" && error.body.detail.startsWith("CSRF")) {
+        return "Falha de segurança da requisição (CSRF). Recarregue a página e tente de novo.";
+      }
+      return "Você não tem permissão para esta operação.";
+    }
     if (typeof error.body.detail === "string") return error.body.detail;
     const first = Object.values(error.body).flat()[0];
     if (typeof first === "string") return first;
