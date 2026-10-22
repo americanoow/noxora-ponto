@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +16,86 @@ const scopeBody = {
 DeviceController build(MemoryTokenStore store, MockClientHandler handler, {DateTime Function()? now}) =>
     DeviceController(store: store, client: MockClient(handler), baseUrl: 'http://teste', now: now);
 
+class UnreadableStore extends MemoryTokenStore {
+  @override
+  Future<StoredCredential?> read() async => throw StateError('Keystore indisponível');
+}
+
+class UndeletableStore extends MemoryTokenStore {
+  @override
+  Future<void> clear() async => throw StateError('Keystore indisponível');
+}
+
 void main() {
+  test('falha ao apagar token após revogação na rotação não mantém tablet ativo', () async {
+    final store = UndeletableStore()
+      ..value = StoredCredential(token: '7.velho', issuedAt: DateTime.utc(2020));
+    final c = build(store, (r) async => r.url.path.endsWith('rotate-credential/')
+        ? http.Response('{}', 401) : http.Response(jsonEncode(scopeBody), 200));
+    await c.init();
+    expect(c.state, DeviceState.revoked);
+    expect(c.scope, isNull);
+    c.dispose();
+  });
+  test('erro no armazenamento não equivale a tablet sem credencial', () async {
+    final c = build(UnreadableStore(), (_) async => throw StateError('Não deve chamar a rede'));
+    await c.init();
+    expect(c.state, DeviceState.offline);
+    expect(c.message, contains('credencial segura'));
+    c.dispose();
+  });
+  test('heartbeats simultâneos compartilham uma operação e uma rotação', () async {
+    final now = DateTime.utc(2026, 10, 21);
+    final store = MemoryTokenStore()
+      ..value = StoredCredential(token: '7.velho', issuedAt: now.subtract(const Duration(days: 25)));
+    final response = Completer<http.Response>();
+    var heartbeats = 0;
+    var rotations = 0;
+    final c = build(store, (r) async {
+      if (r.url.path.endsWith('rotate-credential/')) {
+        rotations++;
+        return http.Response('{"token":"8.novo"}', 200);
+      }
+      heartbeats++;
+      return response.future;
+    }, now: () => now);
+    final first = c.heartbeat();
+    final second = c.heartbeat();
+    response.complete(http.Response(jsonEncode(scopeBody), 200));
+    await Future.wait([first, second]);
+    expect(heartbeats, 1);
+    expect(rotations, 1);
+    expect((await store.read())?.token, '8.novo');
+    c.dispose();
+  });
+
+  test('401 na rotação retira o estado ativo e limpa credencial', () async {
+    final store = MemoryTokenStore()
+      ..value = StoredCredential(token: '7.velho', issuedAt: DateTime.utc(2020));
+    final c = build(store, (r) async => r.url.path.endsWith('rotate-credential/')
+        ? http.Response('{}', 401) : http.Response(jsonEncode(scopeBody), 200));
+    await c.init();
+    expect(c.state, DeviceState.revoked);
+    expect(await store.read(), isNull);
+    c.dispose();
+  });
+
+  test('resposta tardia após dispose não notifica listeners', () async {
+    final store = MemoryTokenStore()
+      ..value = StoredCredential(token: '7.s', issuedAt: DateTime.now());
+    final response = Completer<http.Response>();
+    final started = Completer<void>();
+    final c = build(store, (_) {
+      started.complete();
+      return response.future;
+    });
+    final pending = c.heartbeat();
+    await started.future;
+    c.dispose();
+    response.complete(http.Response(jsonEncode(scopeBody), 200));
+    await pending;
+  });
+
   test('sem credencial fica aguardando ativação', () async {
     final c = build(MemoryTokenStore(), (_) async => http.Response('{}', 200));
     await c.init();

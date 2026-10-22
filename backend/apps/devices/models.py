@@ -30,7 +30,7 @@ class Device(models.Model):
         ordering = ["name", "id"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(collect_location=False) | ~Q(location_justification=""),
+                condition=Q(collect_location=False) | Q(location_justification__regex=r"\S"),
                 name="device_location_requires_justification",
             )
         ]
@@ -50,6 +50,9 @@ class DeviceCredential(models.Model):
     """Credencial individual do dispositivo. Só o hash do segredo é guardado."""
 
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="credentials")
+    rotated_to = models.OneToOneField(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="predecessor"
+    )
     secret_hash = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()

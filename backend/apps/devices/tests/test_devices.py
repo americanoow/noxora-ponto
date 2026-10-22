@@ -1,12 +1,19 @@
 import datetime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from time import sleep
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
-from django.db import IntegrityError
+from django.core.cache import cache
+from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
 from apps.devices import services
+from apps.devices.auth import ActivationRateThrottle
 from apps.devices.models import ActivationCode, Device, DeviceCredential
 from apps.operations import services as ops
 from apps.operations.models import Employee, Unit
@@ -435,3 +442,182 @@ def test_eventos_sao_auditados_sem_segredos(tenant_a):
     assert {"device.created", "device.activated", "device.credential_rotated", "device.revoked"} <= actions
     dump = str(list(AuditLog.objects.values()))
     assert token.split(".")[1] not in dump
+
+
+def test_forwarded_headers_nao_burlam_limite_de_ativacao(tenant_a):
+    client = APIClient()
+    for i in range(12):
+        response = client.post(
+            "/api/device/activate/",
+            {"code": "AAAAA-BBBBB"},
+            format="json",
+            HTTP_X_FORWARDED_FOR=f"192.0.2.{i}",
+            HTTP_X_REAL_IP=f"192.0.2.{i}",
+        )
+        assert response.status_code == (400 if i < 10 else 429)
+
+
+def test_throttle_nao_perde_tentativas_entre_threads():
+    original_get = cache.get
+
+    def slow_get(*args, **kwargs):
+        result = original_get(*args, **kwargs)
+        sleep(0.005)  # Provoca interleaving entre leitura e escrita do cache.
+        return result
+
+    def attempt(_):
+        return ActivationRateThrottle().allow_request(
+            SimpleNamespace(META={"REMOTE_ADDR": "127.0.0.1"}), None
+        )
+
+    with patch.object(cache, "get", side_effect=slow_get), ThreadPoolExecutor(max_workers=20) as pool:
+        assert sum(pool.map(attempt, range(30))) == 10
+
+
+def test_rotacao_repetida_e_idempotente_sem_estender_janela(tenant_a):
+    device, old = active_device(tenant_a)
+    client = device_client(old)
+    new = client.post("/api/device/rotate-credential/").json()["token"]
+    deadline = services.find_credential(old).expires_at
+    for _ in range(3):
+        assert client.post("/api/device/rotate-credential/").json()["token"] == new
+    assert services.find_credential(old).expires_at == deadline
+    assert device.credentials.count() == 2
+    assert device_client(new).post("/api/device/rotate-credential/").status_code == 400
+    assert device.credentials.count() == 2
+    # Após 20 dias uma renovação legítima continua possível.
+    DeviceCredential.objects.filter(pk=new.split(".")[0]).update(
+        created_at=timezone.now() - datetime.timedelta(days=21)
+    )
+    assert device_client(new).post("/api/device/rotate-credential/").status_code == 200
+
+
+def test_retry_rotacao_usa_chave_do_servidor_e_aceita_fallback(tenant_a, settings):
+    _, old = active_device(tenant_a)
+    client = device_client(old)
+    new = client.post("/api/device/rotate-credential/").json()["token"]
+    previous_key = settings.SECRET_KEY
+    settings.SECRET_KEY = "chave-substituta-somente-teste"
+    assert client.post("/api/device/rotate-credential/").status_code == 400
+    settings.SECRET_KEY_FALLBACKS = [previous_key]
+    assert client.post("/api/device/rotate-credential/").json()["token"] == new
+
+
+def test_respostas_com_segredos_nao_podem_ser_cacheadas(tenant_a):
+    admin = tenant_a.client("company_admin")
+    unit = make_unit(tenant_a.company)
+    created = admin.post(curl(tenant_a.company), {"name": "Tablet", "unit": unit.pk}, format="json")
+    assert created["Cache-Control"] == "no-store"
+    activated = activate(created.json()["activation_code"])
+    assert activated["Cache-Control"] == "no-store"
+    rotated = device_client(activated.json()["token"]).post("/api/device/rotate-credential/")
+    assert rotated["Cache-Control"] == "no-store"
+    renewed = admin.post(curl(tenant_a.company, f"{created.json()['id']}/activation-code/"))
+    assert renewed["Cache-Control"] == "no-store"
+
+
+def test_throttle_compartilhado_por_dispositivo_entre_credenciais(tenant_a):
+    _, old = active_device(tenant_a)
+    client = device_client(old)
+    new = client.post("/api/device/rotate-credential/").json()["token"]
+    for _ in range(119):
+        assert client.get("/api/device/employees/?registration=ausente").status_code == 404
+    assert device_client(new).get("/api/device/me/").status_code == 429
+
+
+@pytest.mark.parametrize("bad", ["9" * 190 + ".s", "9223372036854775808.s", "0.s", "1", "١.s"])
+def test_token_malformado_sem_erro_de_banco(tenant_a, bad):
+    assert device_client(bad).get("/api/device/me/").status_code == 401
+
+
+def test_segredo_de_outro_dispositivo_e_truncado_nao_autenticam(tenant_a):
+    _, first = active_device(tenant_a)
+    _, second = active_device(tenant_a, Unit.objects.get(company=tenant_a.company))
+    forged = first.split(".")[0] + "." + second.split(".")[1]
+    for token in (forged, first[:-1]):
+        assert device_client(token).get("/api/device/me/").status_code == 401
+    with patch("apps.devices.services.hmac.compare_digest", wraps=services.hmac.compare_digest) as compare:
+        assert services.find_credential(forged) is None
+        compare.assert_called_once()
+
+
+@pytest.mark.parametrize("action", ["revoke", "reissue", "expire"])
+def test_rotacao_revalida_credencial_autenticada_antes_da_mudanca(tenant_a, action):
+    device, token = active_device(tenant_a)
+    stale = services.find_credential(token)
+    if action == "expire":
+        DeviceCredential.objects.filter(pk=stale.pk).update(expires_at=timezone.now())
+    else:
+        getattr(services, action)(device)
+    from rest_framework.exceptions import ValidationError
+
+    with pytest.raises(ValidationError):
+        services.rotate(stale)
+    assert device.credentials.count() == 1
+
+
+def test_falha_de_auditoria_desfaz_ativacao_e_preserva_codigo(tenant_a):
+    created = create_device(tenant_a)
+    with patch("apps.devices.views.audit.record", side_effect=RuntimeError("audit indisponível")):
+        with pytest.raises(RuntimeError):
+            activate(created["activation_code"])
+    assert Device.objects.get(pk=created["id"]).status == "pending"
+    assert not DeviceCredential.objects.exists()
+    assert ActivationCode.objects.get(device_id=created["id"]).used_at is None
+    assert activate(created["activation_code"]).status_code == 201
+
+
+def test_falha_de_auditoria_desfaz_rotacao(tenant_a):
+    device, token = active_device(tenant_a)
+    before = services.find_credential(token).expires_at
+    with patch("apps.devices.views.audit.record", side_effect=RuntimeError("audit indisponível")):
+        with pytest.raises(RuntimeError):
+            device_client(token).post("/api/device/rotate-credential/")
+    assert device.credentials.count() == 1
+    assert services.find_credential(token).expires_at == before
+
+
+def test_renovacao_revoga_tambem_sucessora_e_retry(tenant_a):
+    device, token = active_device(tenant_a)
+    new = device_client(token).post("/api/device/rotate-credential/").json()["token"]
+    services.reissue(device)
+    for old in (token, new):
+        assert device_client(old).get("/api/device/me/").status_code == 401
+        assert device_client(old).post("/api/device/rotate-credential/").status_code == 401
+
+
+def test_constraint_recusa_justificativa_so_com_espacos(tenant_a):
+    device, _ = active_device(tenant_a)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Device.objects.filter(pk=device.pk).update(collect_location=True, location_justification=" \t\n")
+
+
+def test_querystring_nao_muda_escopo_do_tablet(tenant_a, tenant_b):
+    device, token = active_device(tenant_a)
+    other = make_unit(tenant_b.company)
+    response = device_client(token).get(
+        f"/api/device/me/?company={tenant_b.company.pk}&unit={other.pk}&device_id=999"
+    )
+    assert response.json()["company"]["id"] == device.company_id
+    assert response.json()["unit"]["id"] == device.unit_id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ativacoes_simultaneas_consumem_codigo_uma_vez_postgresql(tenant_a):
+    if connection.vendor != "postgresql":
+        pytest.skip("Exige PostgreSQL: SQLite não valida bloqueios de linha.")
+    created = create_device(tenant_a)
+    barrier = Barrier(2)
+
+    def attempt():
+        close_old_connections()
+        try:
+            barrier.wait(timeout=10)
+            return activate(created["activation_code"]).status_code
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: attempt(), range(2)))
+    assert sorted(results) == [201, 400]
+    assert DeviceCredential.objects.filter(device_id=created["id"]).count() == 1

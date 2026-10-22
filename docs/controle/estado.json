@@ -1,23 +1,24 @@
 {
-  "etapa": 4,
-  "tarefa": "Autorização e gestão dos tablets",
+  "etapa": 5,
+  "tarefa": "Núcleo de marcação de ponto",
   "fase": "implementação",
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Retomada manual autorizada pelo usuário em 2026-10-21 23:25 (mensagem: \"volte do ponto onde parou\"). Verificado: sem execução do Codex em andamento (os codex.exe ativos são o app/extensão do usuário), repositório limpo, horário posterior ao informado pela ferramenta (8:54 PM). Etapa 3 aceita: relatório do Codex completo e verificação independente do Claude (backend 150, frontend 33).",
-  "proxima_acao": "Implementar etapa 4: ativação de tablets por credencial temporária, credencial individual por dispositivo, revogação, painel de dispositivos. Na passagem ao Codex, se o limite persistir, pausar de novo.",
-  "ultimo_checkpoint": "etapa-3-aceita",
+  "ultima_tarefa_concluida": "Etapa 4 revisada pelo Codex (9 correções) e conferida pelo Claude: backend 202 testes (1 ignorado, concorrência PostgreSQL), frontend 39, lint e migrations limpos (SQLite).",
+  "proxima_acao": "Etapa 5: levantar requisitos oficiais do REP-P/Portaria 671/2021 (fontes vigentes), documentar o que é confirmado e o que exige validação externa, e então implementar o núcleo de marcação.",
+  "ultimo_checkpoint": "etapa-4-aceita",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
-    "Docker ausente: PostgreSQL 17 e concorrência real (reset, convites, revogações, vigências, jornadas, importação) não validados",
-    "Flutter ausente: analyze/testes/APK debug não executados",
+    "Docker ausente: PostgreSQL 17 e concorrência real (reset, convites, revogações, vigências, jornadas, importação, ativação/rotação de tablets) não validados",
+    "Flutter ausente: analyze/testes/APK debug e armazenamento seguro em Android real não executados",
     "CI nunca executada",
-    "Aplicar migrations em banco persistente após checar e-mails duplicados por caixa (accounts.0002)",
-    "SMTP real não configurado; MFA não avaliado; throttling em cache local",
+    "Aplicar migrations em banco persistente: checar e-mails duplicados por caixa (accounts.0002) e justificativas de localização só com espaços (devices.0003)",
+    "SMTP real não configurado; MFA não avaliado; throttling e dedupe em cache local",
     "Exclusão de sobreposição de vigências no banco (btree_gist) pendente",
-    "Disponibilidade do Codex após a renovação do limite ainda não confirmada por uma chamada real"
+    "Revogação offline de tablets só tratável na etapa 7",
+    "Retenção/base jurídica das evidências de localização: validação especializada"
   ],
   "retomada_manual_obrigatoria": false
 }

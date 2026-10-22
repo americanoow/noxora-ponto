@@ -78,6 +78,28 @@ describe("DevicesTab", () => {
     expect(calls.some((c) => c.key.includes("/units/"))).toBe(false);
   });
 
+  it("mantém o código só em memória e o descarta ao mudar empresa ou permissão", async () => {
+    const localWrite = vi.spyOn(Storage.prototype, "setItem");
+    routes["POST /api/companies/7/devices/1/activation-code/"] = () => ({
+      body: {
+        ...device(),
+        activation_code: "ABCDE-FGHJK",
+        activation_expires_at: "2026-10-21T12:15:00Z",
+      },
+    });
+    const view = render(<DevicesTab companyId={7} canEdit />);
+    fireEvent.click(await screen.findByRole("button", { name: "Renovar (novo código)" }));
+    expect(await screen.findByLabelText("Código de ativação")).toHaveTextContent("ABCDE-FGHJK");
+    expect(localWrite).not.toHaveBeenCalled();
+    view.rerender(<DevicesTab companyId={7} canEdit={false} />);
+    await screen.findByText(/Tablet Recepção/);
+    expect(screen.queryByLabelText("Código de ativação")).not.toBeInTheDocument();
+    view.rerender(<DevicesTab companyId={8} canEdit />);
+    await screen.findByRole("alert");
+    expect(screen.queryByLabelText("Código de ativação")).not.toBeInTheDocument();
+    localWrite.mockRestore();
+  });
+
   it("revoga um tablet", async () => {
     routes["POST /api/companies/7/devices/1/revoke/"] = () => ({
       body: device({ status: "revoked" }),

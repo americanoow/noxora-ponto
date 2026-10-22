@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
@@ -33,17 +35,20 @@ class _StatusPageState extends State<StatusPage> {
   late final DeviceController _device =
       widget.deviceController ?? DeviceController(store: SecureTokenStore());
   late Future<ApiStatus> _status = _client.fetchStatus();
+  Timer? _heartbeat;
 
   @override
   void initState() {
     super.initState();
     _device.init();
+    _heartbeat = Timer.periodic(const Duration(minutes: 1), (_) => _device.heartbeat());
   }
 
   void _retry() => setState(() => _status = _client.fetchStatus());
 
   @override
   void dispose() {
+    _heartbeat?.cancel();
     if (widget.client == null) _client.close();
     if (widget.deviceController == null) _device.dispose();
     super.dispose();
@@ -140,7 +145,11 @@ class _DevicePanelState extends State<DevicePanel> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                FilledButton(onPressed: () => c.activate(_code.text), child: const Text('Ativar tablet')),
+                FilledButton(onPressed: () {
+                  final code = _code.text;
+                  _code.clear();
+                  c.activate(code);
+                }, child: const Text('Ativar tablet')),
               ]);
           }
         },

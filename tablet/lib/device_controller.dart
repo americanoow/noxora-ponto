@@ -41,22 +41,26 @@ class DeviceController extends ChangeNotifier {
   final http.Client _client;
   final String _baseUrl;
   final DateTime Function() _now;
+  Future<void>? _operation;
+  bool _disposed = false;
 
   DeviceState state = DeviceState.loading;
   DeviceScope? scope;
   String? message;
 
-  Future<void> init() async {
-    final credential = await store.read();
-    if (credential == null) {
-      _set(DeviceState.unactivated);
-      return;
-    }
-    await heartbeat();
+  Future<void> init() => heartbeat();
+
+  // Heartbeat, ativação e rotação nunca alteram o armazenamento em paralelo.
+  Future<void> _exclusive(Future<void> Function() action) {
+    if (_disposed) return Future<void>.value();
+    return _operation ??= Future<void>.microtask(action).whenComplete(() => _operation = null);
   }
 
-  Future<void> activate(String code) async {
+  Future<void> activate(String code) => _exclusive(() => _activate(code));
+
+  Future<void> _activate(String code) async {
     message = null;
+    _set(DeviceState.loading);
     try {
       final response = await _client
           .post(
@@ -67,8 +71,11 @@ class DeviceController extends ChangeNotifier {
           .timeout(const Duration(seconds: 10));
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 201) {
-        await store.write(StoredCredential(token: '${body['token']}', issuedAt: _now()));
-        scope = DeviceScope.fromJson(body);
+        final nextScope = DeviceScope.fromJson(body);
+        final token = body['token'] as String;
+        if (token.isEmpty) throw const FormatException('Credencial vazia.');
+        await store.write(StoredCredential(token: token, issuedAt: _now()));
+        scope = nextScope;
         _set(DeviceState.active);
       } else if (response.statusCode == 429) {
         _set(DeviceState.unactivated, 'Muitas tentativas. Aguarde um minuto.');
@@ -76,17 +83,19 @@ class DeviceController extends ChangeNotifier {
         _set(DeviceState.unactivated, 'Código inválido ou expirado.');
       }
     } catch (_) {
-      _set(DeviceState.unactivated, 'Não foi possível contatar o servidor.');
+      _set(DeviceState.unactivated, 'Não foi possível concluir a ativação. Verifique a conexão e o armazenamento seguro.');
     }
   }
 
-  Future<void> heartbeat() async {
-    final credential = await store.read();
-    if (credential == null) {
-      _set(DeviceState.unactivated);
-      return;
-    }
+  Future<void> heartbeat() => _exclusive(_heartbeat);
+
+  Future<void> _heartbeat() async {
     try {
+      final credential = await store.read();
+      if (credential == null) {
+        _set(DeviceState.unactivated);
+        return;
+      }
       final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/device/heartbeat/'),
@@ -100,17 +109,17 @@ class DeviceController extends ChangeNotifier {
         if (_now().difference(credential.issuedAt) > rotateAfter) await _rotate(credential);
       } else if (response.statusCode == 401) {
         // Revogado ou expirado: a credencial local não serve mais.
-        await store.clear();
         scope = null;
         _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await store.clear();
       } else if (response.statusCode == 403) {
         // Empresa suspensa: mantém a credencial, que volta a valer quando o acesso for restabelecido.
-        _set(DeviceState.offline, 'Acesso suspenso para esta empresa. Procure o administrador.');
+        _set(DeviceState.offline, 'Acesso suspenso. Procure o administrador.');
       } else {
         _set(DeviceState.offline, 'Servidor indisponível. Tentaremos novamente.');
       }
     } catch (_) {
-      _set(DeviceState.offline, 'Sem conexão com o servidor.');
+      _set(DeviceState.offline, 'Não foi possível verificar o acesso ou ler a credencial segura.');
     }
   }
 
@@ -121,7 +130,15 @@ class DeviceController extends ChangeNotifier {
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
-        await store.write(StoredCredential(token: '${body['token']}', issuedAt: _now()));
+        final token = body['token'] as String;
+        if (token.isEmpty) throw const FormatException('Credencial vazia.');
+        await store.write(StoredCredential(token: token, issuedAt: _now()));
+      } else if (response.statusCode == 401) {
+        scope = null;
+        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await store.clear();
+      } else if (response.statusCode == 403) {
+        _set(DeviceState.offline, 'Acesso suspenso. Procure o administrador.');
       }
     } catch (_) {
       // Mantém a credencial atual; nova tentativa no próximo heartbeat.
@@ -132,8 +149,16 @@ class DeviceController extends ChangeNotifier {
       {'Content-Type': 'application/json', 'Authorization': 'Device $token'};
 
   void _set(DeviceState next, [String? text]) {
+    if (_disposed) return;
     state = next;
     message = text;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _client.close();
+    super.dispose();
   }
 }

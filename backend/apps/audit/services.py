@@ -1,6 +1,6 @@
 from .models import AuditLog
 
-_SENSITIVE = ("password", "senha", "token", "secret", "biometr", "authorization", "cookie")
+_SENSITIVE = ("password", "senha", "token", "secret", "biometr", "authorization", "cookie", "activation_code")
 
 
 def _clean(metadata):

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Credencial do dispositivo emitida pelo servidor, com a data de emissão (para rotação).
@@ -23,35 +25,29 @@ class SecureTokenStore implements TokenStore {
             );
 
   final FlutterSecureStorage _storage;
-  static const _tokenKey = 'device_token';
-  static const _issuedKey = 'device_token_issued_at';
+  static const _credentialKey = 'device_credential_v1';
 
   @override
   Future<StoredCredential?> read() async {
-    try {
-      final token = await _storage.read(key: _tokenKey);
-      final issued = await _storage.read(key: _issuedKey);
-      if (token == null || token.isEmpty) return null;
-      return StoredCredential(
-        token: token,
-        issuedAt: DateTime.tryParse(issued ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      );
-    } catch (_) {
-      // Falha de leitura (ex.: ambiente sem Keystore) equivale a "sem credencial".
-      return null;
-    }
+    final raw = await _storage.read(key: _credentialKey);
+    if (raw == null) return null;
+    final value = jsonDecode(raw) as Map<String, dynamic>;
+    final token = value['token'] as String;
+    if (token.isEmpty) throw const FormatException('Credencial vazia.');
+    return StoredCredential(token: token, issuedAt: DateTime.parse(value['issued_at'] as String));
   }
 
   @override
   Future<void> write(StoredCredential credential) async {
-    await _storage.write(key: _tokenKey, value: credential.token);
-    await _storage.write(key: _issuedKey, value: credential.issuedAt.toUtc().toIso8601String());
+    await _storage.write(key: _credentialKey, value: jsonEncode({
+      'token': credential.token,
+      'issued_at': credential.issuedAt.toUtc().toIso8601String(),
+    }));
   }
 
   @override
   Future<void> clear() async {
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _issuedKey);
+    await _storage.delete(key: _credentialKey);
   }
 }
 

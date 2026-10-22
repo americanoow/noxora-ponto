@@ -1,3 +1,5 @@
+from threading import Lock
+
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.utils import timezone
@@ -27,7 +29,10 @@ class DeviceAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request):
-        parts = get_authorization_header(request).split()
+        try:
+            parts = get_authorization_header(request).split()
+        except UnicodeEncodeError:
+            raise AuthenticationFailed("Credencial inválida.") from None
         if len(parts) != 2 or parts[0].lower() != KEYWORD:
             return None
         try:
@@ -72,12 +77,26 @@ class IsDevice(BasePermission):
         return request.auth is not None and hasattr(request, "device")
 
 
-class DeviceRateThrottle(SimpleRateThrottle):
+class LocalSerializedThrottle(SimpleRateThrottle):
+    # DRF faz read/modify/write. Serializar evita perder tentativas entre threads.
+    # Produção multiprocesso ainda exige cache E operação atômica compartilhados.
+    _lock = Lock()
+
+    def allow_request(self, request, view):
+        with self._lock:
+            return super().allow_request(request, view)
+
+
+class DeviceRateThrottle(LocalSerializedThrottle):
     scope = "device"
 
     def get_cache_key(self, request, view):
-        auth = request.auth
-        return self.cache_format % {
-            "scope": self.scope,
-            "ident": getattr(auth, "pk", self.get_ident(request)),
-        }
+        return self.cache_format % {"scope": self.scope, "ident": request.device.pk}
+
+
+class ActivationRateThrottle(LocalSerializedThrottle):
+    scope = "device_activation"
+
+    def get_cache_key(self, request, view):
+        # Não confiar em cabeçalhos do cliente até configurar proxy confiável.
+        return self.cache_format % {"scope": self.scope, "ident": request.META.get("REMOTE_ADDR", "")}

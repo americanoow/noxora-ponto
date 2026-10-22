@@ -26,6 +26,10 @@ const CONNECTIVITY: Record<Connectivity, string> = {
 };
 
 export function DevicesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
+  return <DevicesPanel key={`${companyId}:${canEdit}`} companyId={companyId} canEdit={canEdit} />;
+}
+
+function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [units, setUnits] = useState<Unit[]>([]);
   const [error, setError] = useState<string | null>(null);
