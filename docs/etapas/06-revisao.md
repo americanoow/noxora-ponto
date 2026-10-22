@@ -72,5 +72,7 @@ Correção implementada e validada pelo Claude após apontamento do Codex (o Cod
 
 ## Revisão complementar necessária?
 
-**Sim**, restrita às correções: mexem em ordem de bloqueios e transações das marcações (integridade/duplicação) e em limite de tentativas de código de exceção (segurança). Será enviada apenas a lista de correções, sem repetir a revisão inteira. O resultado será registrado abaixo, em "Revisão complementar".
+**Sim**, restrita às correções: mexem em ordem de bloqueios e transações das marcações (integridade/duplicação) e em limite de tentativas de código de exceção (segurança). Foi preparada com apenas a lista de correções (`docs/controle/prompt-codex-06.md`), sem repetir a revisão inteira.
+
+**Situação: NÃO realizada.** A única chamada falhou em 2026-10-22 por indisponibilidade do modelo do Codex (`Selected model is at capacity`), que **não é limite de uso**. O modelo não foi trocado e não houve nova tentativa (projeto pausado a pedido do usuário). Até a revisão complementar acontecer, as três correções estão **implementadas e validadas apenas pelo Claude**, com testes de regressão; nenhuma aprovação do Codex é afirmada. Quando executada, o resultado entra abaixo, em "Revisão complementar".
 

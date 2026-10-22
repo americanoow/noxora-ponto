@@ -1,39 +1,25 @@
-Revise a etapa 6 (Reconhecimento facial) do Noxora Ponto.
+Revise as CORREÇÕES da etapa 6 (Reconhecimento facial) do Noxora Ponto. Esta é uma revisão complementar curta: não refaça a revisão da etapa inteira.
 
 Sua função é somente revisão. Não altere arquivos, não implemente correções, não crie commits e não acione outra IA.
 
-Objetivo: infraestrutura de identificação facial 1:1 em volta de um motor biométrico plugável. O motor real está BLOQUEADO por decisão de produto (custo/licença); o simulador existe só para testes e não comprova eficácia. Não avalie algoritmo biométrico nem proponha serviço pago.
+Objetivo: confirmar se as 3 correções feitas pelo Claude resolvem os apontamentos da sua revisão anterior sem criar novo defeito de integridade, concorrência ou segurança. O relatório anterior está em `docs/etapas/06-revisao.md` (seção "Análise e correções do Claude").
 
-Critérios de aceite (da etapa):
-- Cadastro biométrico protegido (consentimento, template criptografado, sem imagem persistida, sem exposição em logs/respostas/auditoria/relatórios/backups indevidos).
-- Verificação 1:1 por matrícula, com estados claros de sucesso, falha e indisponibilidade, tratamento de qualidade insuficiente e integração com detecção de apresentação (vivacidade).
-- Alternativa autorizada de identificação para exceções.
-- Controle de acesso, retenção e exclusão do cadastro biométrico.
-- Marcação de ponto com identificação facial ou exceção, sem perder nem duplicar marcações (idempotência).
-- Simulador identificado e impedido de funcionar como validação real em produção.
+Critérios de aceite relevantes: marcação sem perda nem duplicação (idempotência); verificação facial e exceção autorizada de uso único; proteção contra adivinhação do código de exceção; sem deadlock entre verificação facial e marcação.
 
-Alterações: `git diff a45d0d6..HEAD` (etapa 6 completa: apps/biometrics, provedores na marcação em apps/timeclock, escopo do dispositivo em apps/devices, settings, frontend BiometricsActions, tablet device_controller). Atenção: o trecho de segurança abaixo foi escrito por uma execução anterior do Codex sob a regra antiga e foi apenas inspecionado pelo Claude, não revisado: `backend/apps/biometrics/security.py` (BoundedJSONParser, filtro de relatório de exceções, middleware com `process_exception`), `checks.py` (checks de deploy), migration `0002_exceptionbudget` e `reserve_exception_attempt` (cota no banco), token de verificação assinado (`verification_token`), HMAC do código de exceção, bloqueios `select_for_update` por funcionário.
+Alterações: `git diff edcece3..da6d194` (backend e tablet). Resumo:
+1. Todos os `select_for_update()` do código de aplicação viraram `select_for_update(no_key=True)` (FOR NO KEY UPDATE) para não conflitar com o FOR KEY SHARE das chaves estrangeiras. Teste de reprodução com barreiras: `test_verificacao_e_marcacao_concorrentes_nao_geram_deadlock` (falhava com DeadlockDetected antes; passa depois).
+2. `reserve_exception_attempt` continua reservando antes; novo `refund_exception_attempt` devolve a tentativa quando a marcação é gravada (apps/timeclock/views.py e apps/biometrics/services.py).
+3. Tablet (Dart): a nova tentativa renova a identificação mantendo o mesmo `client_event_id`; 400/404 em reenvio encerra a tentativa, com a premissa de que o servidor consulta o evento existente antes de validar matrícula, identificação ou política (teste de contrato: `test_evento_gravado_e_devolvido_antes_de_validar_identificacao_ou_matricula`).
 
-Testes já executados pelo Claude: backend 320 passam em SQLite e 327 em PostgreSQL 17.5 real; ruff e `makemigrations --check` limpos; frontend 54 testes, lint, typecheck e build limpos. Dart não compilado (SDK ausente).
+Testes já executados pelo Claude: backend 328 passam em SQLite e 336 em PostgreSQL 17.5 real (inclui concorrência); ruff e `makemigrations --check` limpos. Dart não executado (SDK ausente).
 
-Riscos e dúvidas conhecidos:
-- `process_exception` em rotas sensíveis devolve 500 genérico (o log registra apenas "Internal Server Error", sem traceback): é intencional? há contorno que vaze dado?
-- Contagem de tentativas de exceção e de falhas faciais: contorno por alternar matrícula/aparelho, concorrência, DoS contra um colega.
-- Ordem das transações: consumo do token (face/exceção) + gravação da marcação; reenvio do mesmo evento com token já consumido.
-- Chave biométrica em variável de ambiente (KMS é etapa 14/15); exclusão zera o conteúdo mas cópias em páginas/backups antigos podem persistir.
-- Modo `face` da empresa sem motor real: tablets só marcam por exceção.
+Riscos e dúvidas conhecidos (verifique em especial):
+- Resta algum ciclo de espera entre os bloqueios (dispositivo, funcionário, token/autorização, contador de NSR, cota) nos caminhos de marcação, verificação, rotação de credencial e revogação? Há caso em que NO KEY UPDATE seja insuficiente (por exemplo, atualização de coluna de chave)?
+- Contorno da cota: rajada concorrente que exceda 10 palpites, devolução indevida (dupla devolução, resposta perdida), ou devolução que reabra espaço para adivinhação.
+- Premissa do Dart: existe caminho em que o evento foi gravado e, mesmo assim, o reenvio recebe 400 ou 404 (por exemplo, validação do serializer antes da consulta do evento, mudança de vínculo do funcionário, permissões)? Se existir, o encerramento da tentativa no tablet seria perigoso (marcação duplicada).
 
-Comece pelas alterações e consulte dependências quando necessário. Procure defeitos concretos que comprometam funcionamento, segurança, integridade ou critérios de aceite.
+Comece pelo diff e consulte dependências quando necessário. Procure defeitos concretos. Evite sugestões cosméticas e refatorações opcionais. Não repita a suíte de testes. Faça apenas verificações pontuais sem escrita.
 
-Evite sugestões cosméticas, refatorações opcionais e repetição de pontos equivalentes. Não repita a suíte de testes já executada. Faça apenas verificações pontuais sem escrita quando forem necessárias.
-
-Para cada problema, informe:
-- Gravidade.
-- Arquivo e linha, quando aplicável.
-- Cenário que provoca o defeito.
-- Consequência.
-- Direção recomendada para a correção.
-
-Diferencie defeitos confirmados de suspeitas que precisam de verificação.
+Para cada problema, informe: gravidade; arquivo e linha, quando aplicável; cenário que provoca o defeito; consequência; direção recomendada para a correção. Diferencie defeitos confirmados de suspeitas que precisam de verificação.
 
 Finalize com os bloqueios para conclusão da etapa e as limitações da revisão. Se não encontrar problemas relevantes, informe isso objetivamente. Não escreva código de correção.
