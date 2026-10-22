@@ -1,3 +1,4 @@
+from django.core import signing
 from django.db import transaction
 from django.http import Http404
 from rest_framework.exceptions import ValidationError
@@ -14,6 +15,11 @@ from apps.operations.views import admin_company, reader_company
 
 from . import engines, services
 from .models import Outcome
+from .security import BoundedJSONParser
+
+
+class BiometricView(APIView):
+    parser_classes = [BoundedJSONParser]
 
 
 def _employee_or_404(company, employee_id, *, request=None, scoped=False):
@@ -58,7 +64,7 @@ def _status(employee) -> dict:
 # ---------- Painel ----------
 
 
-class BiometricStatusView(APIView):
+class BiometricStatusView(BiometricView):
     def get(self, request, company_id, employee_id):
         company = admin_company(request, company_id)
         return Response(_status(_employee_or_404(company, employee_id)))
@@ -68,6 +74,7 @@ class BiometricStatusView(APIView):
         company = admin_company(request, company_id)
         employee = _employee_or_404(company, employee_id)
         with transaction.atomic():
+            employee = Employee.objects.select_for_update().get(pk=employee.pk)
             template = services.active_template(employee)
             if template is None:
                 raise Http404
@@ -76,14 +83,20 @@ class BiometricStatusView(APIView):
         return Response(_status(employee))
 
 
-class ConsentView(APIView):
+class ConsentView(BiometricView):
     def post(self, request, company_id, employee_id):
         company = admin_company(request, company_id)
         employee = _employee_or_404(company, employee_id)
-        version = str(request.data.get("policy_version", "")).strip()
+        version = request.data.get("policy_version", "")
+        if not isinstance(version, str):
+            raise ValidationError({"policy_version": "Informe uma versão textual."})
+        version = version.strip()
         if not version or len(version) > 32:
             raise ValidationError({"policy_version": "Informe a versão da política (até 32 caracteres)."})
-        evidence = str(request.data.get("evidence_ref", "")).strip()[:200]
+        evidence = request.data.get("evidence_ref", "")
+        if not isinstance(evidence, str) or len(evidence) > 200:
+            raise ValidationError({"evidence_ref": "Referência inválida."})
+        evidence = evidence.strip()
         with transaction.atomic():
             services.grant_consent(
                 employee=employee, user=request.user, policy_version=version, evidence_ref=evidence
@@ -102,7 +115,7 @@ class ConsentView(APIView):
         return Response(_status(employee))
 
 
-class EnrollView(APIView):
+class EnrollView(BiometricView):
     def post(self, request, company_id, employee_id):
         company = admin_company(request, company_id)
         employee = _employee_or_404(company, employee_id)
@@ -116,7 +129,7 @@ class EnrollView(APIView):
         return Response(_status(employee), status=201)
 
 
-class ExceptionView(APIView):
+class ExceptionView(BiometricView):
     """Autoriza UMA marcação por exceção (sem face). Administrador ou gestor do escopo do funcionário."""
 
     def post(self, request, company_id, employee_id):
@@ -138,11 +151,13 @@ class ExceptionView(APIView):
             )
         # O código aparece só nesta resposta: informe-o ao funcionário, que o digita no tablet.
         return Response(
-            {"authorization_id": auth.pk, "code": code, "expires_at": auth.expires_at}, status=201
+            {"authorization_id": auth.pk, "code": code, "expires_at": auth.expires_at},
+            status=201,
+            headers={"Cache-Control": "no-store"},
         )
 
 
-class IdentificationModeView(APIView):
+class IdentificationModeView(BiometricView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
         return Response({"mode": company.identification_mode})
@@ -171,6 +186,8 @@ class IdentificationModeView(APIView):
 
 
 class FaceVerifyView(DeviceView):
+    parser_classes = [BoundedJSONParser]
+
     """Verifica a captura contra o template do funcionário (1:1, escopo da unidade do aparelho)."""
 
     def post(self, request):
@@ -185,5 +202,8 @@ class FaceVerifyView(DeviceView):
         body = {"outcome": attempt.outcome, "liveness": attempt.liveness}
         if attempt.outcome == Outcome.SUCCESS:
             body.update(verification_id=attempt.pk, expires_at=attempt.expires_at)
+            body["verification_token"] = signing.dumps(
+                [attempt.pk, str(attempt.device_id), attempt.employee_id], salt="biometric-verification-v1"
+            )
         status = 503 if attempt.outcome == Outcome.ENGINE_UNAVAILABLE else 200
-        return Response(body, status=status)
+        return Response(body, status=status, headers={"Cache-Control": "no-store"})

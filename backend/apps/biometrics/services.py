@@ -2,9 +2,11 @@ import base64
 import binascii
 import datetime
 import hashlib
+import hmac
 import secrets
 
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -18,6 +20,7 @@ from .models import (
     BiometricConsent,
     BiometricTemplate,
     ExceptionAuthorization,
+    ExceptionBudget,
     Outcome,
     TemplateStatus,
     VerificationAttempt,
@@ -69,8 +72,14 @@ def grant_consent(*, employee, user, policy_version, evidence_ref=""):
         )
 
 
+@transaction.atomic
 def delete_template(template, *, user, reason):
     """Apaga o conteúdo criptografado, mantendo só os metadados para auditoria."""
+    Employee.objects.select_for_update().get(pk=template.employee_id)
+    template.refresh_from_db()
+    VerificationAttempt.objects.filter(employee_id=template.employee_id, consumed_at__isnull=True).update(
+        expires_at=timezone.now()
+    )
     template.status = TemplateStatus.DELETED
     template.ciphertext = b""
     template.nonce = b""
@@ -97,7 +106,11 @@ def revoke_consent(*, employee, user):
         return consent
 
 
+@transaction.atomic
 def enroll(*, employee, user, images_b64):
+    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    if active_consent(employee) is None:
+        raise ValidationError({"detail": "Registre o consentimento antes do cadastro facial."})
     if not isinstance(images_b64, list) or not (1 <= len(images_b64) <= settings.BIOMETRIC_MAX_IMAGES):
         raise ValidationError({"images": f"Envie de 1 a {settings.BIOMETRIC_MAX_IMAGES} imagens."})
     images = [decode_image(v, "images") for v in images_b64]
@@ -152,7 +165,9 @@ def _attempt(device, employee, outcome, **extra):
 
 def _locked(employee) -> bool:
     since = timezone.now() - datetime.timedelta(seconds=settings.BIOMETRIC_LOCKOUT_WINDOW_SECONDS)
-    recent = VerificationAttempt.objects.filter(employee=employee, created_at__gte=since).order_by("-id")
+    recent = VerificationAttempt.objects.filter(
+        employee=employee, created_at__gte=since, outcome__in=(*FAILURE_OUTCOMES, Outcome.SUCCESS)
+    ).order_by("-id")
     failures = 0
     for outcome in recent.values_list("outcome", flat=True)[: settings.BIOMETRIC_LOCKOUT_FAILURES + 1]:
         if outcome in FAILURE_OUTCOMES:
@@ -162,8 +177,12 @@ def _locked(employee) -> bool:
     return failures >= settings.BIOMETRIC_LOCKOUT_FAILURES
 
 
+@transaction.atomic
 def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
     """Compara a captura com o template do funcionário. Sempre registra a tentativa (sem imagem)."""
+    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    if employee.company_id != device.company_id or not employee.is_active:
+        raise IdentificationRejected({"identification": "Funcionário indisponível."})
     if active_consent(employee) is None:
         return _attempt(device, employee, Outcome.NO_CONSENT)
     template = active_template(employee)
@@ -173,6 +192,8 @@ def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
         return _attempt(device, employee, Outcome.LOCKED)
     try:
         engine = engines.get_engine()
+        if (engine.name, engine.version) != (template.engine, template.engine_version):
+            return _attempt(device, employee, Outcome.ENGINE_UNAVAILABLE)
         stored = crypto.decrypt(
             template.key_id,
             template.nonce,
@@ -213,6 +234,19 @@ class FaceProvider:
 
     def verify(self, *, device, employee, payload) -> IdentificationResult:
         vid = _int_id(payload.get("verification_id"), "verification_id")
+        token = payload.get("verification_token")
+        if not isinstance(token, str) or len(token) > 256:
+            raise IdentificationRejected({"identification": "Verificação facial inválida ou expirada."})
+        try:
+            signed = signing.loads(
+                token, salt="biometric-verification-v1", max_age=settings.BIOMETRIC_VERIFICATION_TTL_SECONDS
+            )
+        except signing.BadSignature:
+            raise IdentificationRejected(
+                {"identification": "Verificação facial inválida ou expirada."}
+            ) from None
+        if signed != [vid, str(device.pk), employee.pk]:
+            raise IdentificationRejected({"identification": "Verificação facial inválida ou expirada."})
         now = timezone.now()
         attempt = (
             VerificationAttempt.objects.select_for_update()
@@ -232,7 +266,9 @@ class FaceProvider:
             or attempt.expires_at <= now
         ):
             raise IdentificationRejected({"identification": "Verificação facial inválida ou expirada."})
-        if attempt.engine == "simulator" and not settings.BIOMETRIC_ALLOW_SIMULATOR:
+        if active_consent(employee) is None or active_template(employee) is None:
+            raise IdentificationRejected({"identification": "Cadastro facial indisponível."})
+        if attempt.engine == "simulator" and not (settings.DEBUG and settings.BIOMETRIC_ALLOW_SIMULATOR):
             raise IdentificationRejected({"identification": "Motor simulador não é aceito."})
         if device.company.identification_mode == "face" and attempt.liveness != "passed":
             raise IdentificationRejected({"identification": "A empresa exige prova de vivacidade aprovada."})
@@ -245,14 +281,25 @@ class FaceProvider:
 
 
 def _exception_code_hash(employee_id: int, code: str) -> str:
-    return hashlib.sha256(f"noxora-exception:{employee_id}:{code}".encode()).hexdigest()
+    return hmac.new(
+        settings.SECRET_KEY.encode(), f"noxora-exception:{employee_id}:{code}".encode(), hashlib.sha256
+    ).hexdigest()
 
 
+@transaction.atomic
 def create_exception(*, company, employee, user, reason):
     """Cria a autorização e devolve (autorização, código). O código de 8 dígitos só existe aqui, em claro."""
-    reason = (reason or "").strip()
+    if not isinstance(reason, str):
+        raise ValidationError({"reason": "Informe um motivo textual."})
+    reason = reason.strip()
     if len(reason) < 5:
         raise ValidationError({"reason": "Informe o motivo (mínimo de 5 caracteres)."})
+    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    if employee.company_id != company.pk or not employee.is_active:
+        raise ValidationError({"detail": "Funcionário indisponível."})
+    ExceptionAuthorization.objects.filter(employee=employee, consumed_at__isnull=True).update(
+        expires_at=timezone.now()
+    )
     code = f"{secrets.randbelow(10**8):08d}"
     expires = timezone.now() + datetime.timedelta(minutes=settings.EXCEPTION_AUTHORIZATION_TTL_MINUTES)
     auth = ExceptionAuthorization.objects.create(
@@ -306,5 +353,33 @@ def purge_inactive(*, days: int, dry_run: bool = False) -> int:
     count = templates.count()
     if not dry_run:
         for template in templates:
-            delete_template(template, user=None, reason="retention_purge")
+            with transaction.atomic():
+                employee = Employee.objects.select_for_update().get(pk=template.employee_id)
+                if not employee.is_active and employee.inactivated_at and employee.inactivated_at <= limit:
+                    delete_template(template, user=None, reason="retention_purge")
     return count
+
+
+@transaction.atomic
+def reserve_exception_attempt(*, device, employee=None):
+    """Executar antes da transação de marcação: recusa não devolve a cota.
+
+    Conta inclusive códigos malformados; alternar matrícula não renova a cota do
+    aparelho, nem alternar aparelhos renova a do funcionário.
+    """
+    now = timezone.now()
+    scopes = [f"device:{device.pk}"]
+    if employee is not None:
+        scopes.append(f"employee:{employee.pk}")
+    allowed = True
+    for scope in sorted(scopes):
+        ExceptionBudget.objects.get_or_create(scope=scope, defaults={"window_started_at": now})
+        budget = ExceptionBudget.objects.select_for_update().get(pk=scope)
+        if (now - budget.window_started_at).total_seconds() >= 60:
+            budget.window_started_at, budget.count = now, 0
+        if budget.count >= 10:
+            allowed = False
+        else:
+            budget.count += 1
+            budget.save(update_fields=["window_started_at", "count"])
+    return allowed

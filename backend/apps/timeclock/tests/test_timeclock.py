@@ -609,8 +609,7 @@ def test_falha_apos_insert_reverte_registro_e_nsr(setup):
     tenant, unit, device, client, employee = setup
     punch(client)
     with mock.patch.object(NsrCounter, "save", side_effect=RuntimeError("falha")):
-        with pytest.raises(RuntimeError):
-            punch(client)
+        assert punch(client).status_code == 500
     assert TimeRecord.objects.count() == 1
     assert services.verify_unit_chain(unit) == []
     assert punch(client).json()["record"]["nsr"] == 2

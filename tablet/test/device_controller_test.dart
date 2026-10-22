@@ -312,13 +312,15 @@ void faceTests() {
       sent = jsonDecode(r.body) as Map<String, dynamic>;
       headers = r.headers;
       return http.Response(
-        jsonEncode({'outcome': 'success', 'liveness': 'passed', 'verification_id': 12}),
+        jsonEncode({'outcome': 'success', 'liveness': 'passed', 'verification_id': 12, 'verification_token': 'signed-token'}),
         200,
       );
     });
     final result = await c.verifyFace(' 100 ', Uint8List.fromList([1, 2, 3]));
     expect(result, isA<FaceVerified>());
     expect((result as FaceVerified).verificationId, 12);
+    expect(result.verificationToken, 'signed-token');
+    expect(result.identification['verification_token'], 'signed-token');
     expect(sent['registration'], '100');
     expect(base64Decode(sent['image'] as String), [1, 2, 3]);
     expect(headers['Authorization'], 'Device 7.s');
@@ -363,9 +365,9 @@ void faceTests() {
       bodies.add(jsonDecode(r.body) as Map<String, dynamic>);
       return http.Response(jsonEncode(punchOk), 201);
     });
-    await c.punch('100', identification: {'method': 'face', 'verification_id': 12});
+    await c.punch('100', identification: {'method': 'face', 'verification_id': 12, 'verification_token': 'signed-token'});
     await c.punch('200', identification: {'method': 'authorized_exception', 'code': '12345678'});
-    expect(bodies[0]['identification'], {'method': 'face', 'verification_id': 12});
+    expect(bodies[0]['identification'], {'method': 'face', 'verification_id': 12, 'verification_token': 'signed-token'});
     expect(bodies[1]['identification'], {'method': 'authorized_exception', 'code': '12345678'});
     c.dispose();
   });

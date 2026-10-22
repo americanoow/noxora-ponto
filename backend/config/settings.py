@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.biometrics.security.BiometricPrivacyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -168,7 +169,12 @@ BIOMETRIC_ENGINES = {"simulator": "apps.biometrics.engines.SimulatorEngine"}
 BIOMETRIC_ALLOW_SIMULATOR = DEBUG
 if not DEBUG and BIOMETRIC_ENGINE == "simulator":
     raise RuntimeError("O motor biométrico simulador só pode ser usado com DJANGO_DEBUG=true.")
-BIOMETRIC_KEYS = json.loads(os.environ.get("BIOMETRIC_KEYS", "") or "{}")
+try:
+    BIOMETRIC_KEYS = json.loads(os.environ.get("BIOMETRIC_KEYS", "") or "{}")
+    if not isinstance(BIOMETRIC_KEYS, dict):
+        raise ValueError
+except (ValueError, TypeError):
+    raise RuntimeError("BIOMETRIC_KEYS deve ser um objeto JSON válido.") from None
 BIOMETRIC_ACTIVE_KEY_ID = os.environ.get("BIOMETRIC_ACTIVE_KEY_ID", "").strip()
 if DEBUG and not BIOMETRIC_KEYS:
     BIOMETRIC_KEYS = {
@@ -177,9 +183,14 @@ if DEBUG and not BIOMETRIC_KEYS:
         ).decode()
     }
     BIOMETRIC_ACTIVE_KEY_ID = "dev"
-for _key_id, _key in BIOMETRIC_KEYS.items():
-    if len(base64.b64decode(_key)) != 32:
-        raise RuntimeError(f"A chave biométrica '{_key_id}' deve ter 32 bytes (base64).")
+try:
+    for _key_id, _key in BIOMETRIC_KEYS.items():
+        if not isinstance(_key, str) or len(base64.b64decode(_key, validate=True)) != 32:
+            raise ValueError
+except (ValueError, TypeError):
+    raise RuntimeError("Chaves biométricas devem ter 32 bytes em base64 estrito.") from None
+if not DEBUG and BIOMETRIC_ENGINE and (BIOMETRIC_ENGINE not in BIOMETRIC_ENGINES or not BIOMETRIC_KEYS):
+    raise RuntimeError("Motor biométrico desconhecido ou sem chaves configuradas.")
 if BIOMETRIC_KEYS and BIOMETRIC_ACTIVE_KEY_ID not in BIOMETRIC_KEYS:
     raise RuntimeError("BIOMETRIC_ACTIVE_KEY_ID deve apontar para uma chave de BIOMETRIC_KEYS.")
 BIOMETRIC_VERIFICATION_TTL_SECONDS = 60  # validade do token de verificação facial (uso único)
@@ -188,3 +199,5 @@ BIOMETRIC_LOCKOUT_WINDOW_SECONDS = 600
 BIOMETRIC_MAX_IMAGE_BYTES = 1_000_000
 BIOMETRIC_MAX_IMAGES = 5
 EXCEPTION_AUTHORIZATION_TTL_MINUTES = 15
+
+DEFAULT_EXCEPTION_REPORTER_FILTER = "apps.biometrics.security.BiometricExceptionFilter"

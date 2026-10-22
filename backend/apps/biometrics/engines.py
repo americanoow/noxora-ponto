@@ -7,7 +7,7 @@ memória durante a chamada; o que persiste é o template, sempre criptografado.
 
 import hashlib
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from django.conf import settings
@@ -30,7 +30,7 @@ class PoorQuality(EngineError):
 
 @dataclass(frozen=True)
 class EnrollResult:
-    template: bytes
+    template: bytes = field(repr=False)
     quality: float | None = None
 
 
@@ -65,10 +65,16 @@ class SimulatorEngine(BiometricEngine):
     is_simulator = True
 
     @staticmethod
+    def _require_debug():
+        if not (settings.DEBUG and settings.BIOMETRIC_ALLOW_SIMULATOR):
+            raise EngineUnavailable("Simulador não permitido.")
+
+    @staticmethod
     def _is_image(data: bytes) -> bool:
         return data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n")
 
     def enroll(self, images):
+        self._require_debug()
         if not images or not all(self._is_image(i) for i in images):
             raise PoorQuality("Imagem inválida.")
         if b"BLUR" in images[0]:
@@ -76,6 +82,7 @@ class SimulatorEngine(BiometricEngine):
         return EnrollResult(template=b"SIM1" + hashlib.sha256(images[0]).digest(), quality=1.0)
 
     def verify(self, template, probe):
+        self._require_debug()
         if not self._is_image(probe):
             raise PoorQuality("Imagem inválida.")
         if b"BLUR" in probe:
@@ -91,4 +98,7 @@ def get_engine() -> BiometricEngine:
     path = settings.BIOMETRIC_ENGINES.get(name)
     if not name or not path:
         raise EngineUnavailable("Motor biométrico não configurado.")
-    return import_string(path)()
+    engine = import_string(path)()
+    if engine.is_simulator and not (settings.DEBUG and settings.BIOMETRIC_ALLOW_SIMULATOR):
+        raise EngineUnavailable("Simulador não permitido.")
+    return engine

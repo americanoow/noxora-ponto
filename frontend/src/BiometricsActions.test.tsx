@@ -128,3 +128,34 @@ describe("IdentificationModePanel", () => {
     expect(await screen.findByLabelText("Modo de identificação")).toBeDisabled();
   });
 });
+
+it("fechar e reabrir não reapresenta o código de exceção", async () => {
+  routes["POST /api/companies/7/employees/5/identification-exceptions/"] = () => ({
+    body: { authorization_id: 9, code: "12345678", expires_at: "2026-10-22T00:15:00Z" },
+  });
+  vi.spyOn(window, "prompt").mockReturnValue("Câmera danificada");
+  render(<BiometricsActions {...props} canEdit={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "Identificação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Autorizar marcação por exceção" }));
+  expect(await screen.findByLabelText("Código de exceção")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Identificação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Identificação" }));
+  expect(screen.queryByLabelText("Código de exceção")).not.toBeInTheDocument();
+});
+
+it("recusa imagens grandes antes de ler ou enviar e limpa o seletor", async () => {
+  routes["GET /api/companies/7/employees/5/biometric/"] = () => ({
+    body: status({ consent: { policy_version: "v1", granted_at: "x" } }),
+  });
+  const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+  render(<BiometricsActions {...props} canEdit />);
+  fireEvent.click(screen.getByRole("button", { name: "Identificação" }));
+  const input = await screen.findByLabelText(/Fotos para o cadastro/);
+  fireEvent.change(input, {
+    target: { files: [new File([new Uint8Array(1_000_001)], "foto.jpg")] },
+  });
+  expect(await screen.findByRole("alert")).toHaveTextContent(/máximo 1 MB/);
+  expect(read).not.toHaveBeenCalled();
+  expect(calls.some((c) => c.key.includes("/enroll/"))).toBe(false);
+  expect(input).toHaveValue("");
+});

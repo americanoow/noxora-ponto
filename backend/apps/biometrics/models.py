@@ -118,3 +118,11 @@ class ExceptionAuthorization(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
+
+
+class ExceptionBudget(models.Model):
+    """Cota compartilhada por processos, sem código ou imagem."""
+
+    scope = models.CharField(max_length=80, primary_key=True)
+    window_started_at = models.DateTimeField()
+    count = models.PositiveIntegerField(default=0)

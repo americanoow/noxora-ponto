@@ -29,7 +29,13 @@ def _key(key_id: str) -> bytes:
     raw = settings.BIOMETRIC_KEYS.get(key_id)
     if not raw:
         raise CryptoUnavailable("Chave biométrica indisponível.")
-    return base64.b64decode(raw)
+    try:
+        key = base64.b64decode(raw, validate=True)
+        if len(key) != 32:
+            raise ValueError
+        return key
+    except (ValueError, TypeError):
+        raise CryptoUnavailable("Chave biométrica inválida.") from None
 
 
 def encrypt(plaintext: bytes, aad: bytes) -> tuple[str, bytes, bytes]:
@@ -43,5 +49,5 @@ def encrypt(plaintext: bytes, aad: bytes) -> tuple[str, bytes, bytes]:
 def decrypt(key_id: str, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
     try:
         return AESGCM(_key(key_id)).decrypt(bytes(nonce), bytes(ciphertext), aad)
-    except InvalidTag as exc:
-        raise DecryptionFailed("Template não pôde ser verificado.") from exc
+    except (InvalidTag, ValueError, TypeError):
+        raise DecryptionFailed("Template não pôde ser verificado.") from None

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { errorMessage } from "./auth";
 import {
   type BiometricStatus,
@@ -25,6 +25,7 @@ interface Props {
 
 /** Biometria (somente administrador) e exceção autorizada (administrador ou gestor do escopo). */
 export function BiometricsActions({ companyId, employeeId, employeeName, canEdit }: Props) {
+  const generation = useRef(0);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<BiometricStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +42,8 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
 
   const toggle = () => {
     const next = !open;
+    generation.current += 1;
+    setGrant(null);
     setOpen(next);
     if (next && canEdit) act(() => getBiometricStatus(companyId, employeeId));
   };
@@ -49,6 +52,10 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
     if (!files || files.length === 0) return;
     setError(null);
     try {
+      if (files.length > 5 || Array.from(files).some((f) => f.size > 1_000_000)) {
+        setError("Envie até 5 imagens de no máximo 1 MB cada.");
+        return;
+      }
       const images = await Promise.all(Array.from(files).map(fileToBase64));
       act(() => enrollFace(companyId, employeeId, images));
     } catch (e) {
@@ -62,8 +69,12 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
     );
     if (!reason?.trim()) return;
     setError(null);
+    setGrant(null);
+    const current = ++generation.current;
     authorizeException(companyId, employeeId, reason.trim())
-      .then(setGrant)
+      .then((value) => {
+        if (current === generation.current) setGrant(value);
+      })
       .catch((e) => setError(errorMessage(e)));
   };
 
@@ -121,7 +132,10 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
                       type="file"
                       accept="image/jpeg,image/png"
                       multiple
-                      onChange={(e) => void onFiles(e.target.files)}
+                      onChange={(e) => {
+                        void onFiles(e.target.files);
+                        e.target.value = "";
+                      }}
                     />
                   </label>
                   {status.template && (

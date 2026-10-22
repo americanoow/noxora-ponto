@@ -80,8 +80,14 @@ sealed class FaceOutcome {
 }
 
 class FaceVerified extends FaceOutcome {
-  const FaceVerified(this.verificationId);
+  const FaceVerified(this.verificationId, this.verificationToken);
   final int verificationId;
+  final String verificationToken;
+  Map<String, dynamic> get identification => {
+        'method': 'face',
+        'verification_id': verificationId,
+        'verification_token': verificationToken,
+      };
 }
 
 /// Não verificado: [outcome] é o código do servidor (no_match, liveness_failed, poor_quality, ...).
@@ -338,7 +344,10 @@ class DeviceController extends ChangeNotifier {
       final outcome = '${body['outcome']}';
       if (response.statusCode == 200 && outcome == 'success') {
         final id = body['verification_id'];
-        if (id is int) return FaceVerified(id);
+        final verificationToken = body['verification_token'];
+        if (id is int && verificationToken is String && verificationToken.isNotEmpty) {
+          return FaceVerified(id, verificationToken);
+        }
       }
       if (response.statusCode == 503) return const FaceUnavailable('Verificação facial indisponível.');
       return FaceDenied(outcome, _faceMessages[outcome] ?? 'Verificação não concluída.');

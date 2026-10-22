@@ -1,11 +1,12 @@
 from django.db import transaction
 from django.http import Http404
 from django.utils.dateparse import parse_date
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit import services as audit
+from apps.biometrics.security import BoundedJSONParser
 from apps.companies.models import Company
 from apps.devices.views import DeviceView
 from apps.operations import services as ops_services
@@ -20,12 +21,24 @@ from .serializers import EmployerSerializer, PunchSerializer, employer_dict, rec
 
 
 class PunchView(DeviceView):
+    parser_classes = [BoundedJSONParser]
+
     """POST: registra a marcação. 201 = nova; 200 = reenvio do mesmo evento (devolve o original)."""
 
     def post(self, request):
         data = PunchSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
+        if (v["identification"] or {}).get("method") == "authorized_exception":
+            from apps.biometrics.services import reserve_exception_attempt
+
+            # Retry já gravado não exige nova tentativa de identificação.
+            if not TimeRecord.objects.filter(
+                device=request.device, client_event_id=v["client_event_id"]
+            ).exists():
+                employee = ops_services.employee_for_device(request.device, v["registration"])
+                if not reserve_exception_attempt(device=request.device, employee=employee):
+                    raise Throttled(wait=60)
         record, created = services.record_punch(
             device=request.device,
             registration=v["registration"],

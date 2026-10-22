@@ -15,6 +15,7 @@ from apps.biometrics.models import (
     BiometricConsent,
     BiometricTemplate,
     ExceptionAuthorization,
+    ExceptionBudget,
     Outcome,
     VerificationAttempt,
 )
@@ -25,6 +26,12 @@ from apps.operations.models import Employee, Unit
 from apps.timeclock.models import TimeRecord
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def simulator_debug(settings):
+    settings.DEBUG = True
+
 
 JPEG = b"\xff\xd8\xff\xe0FOTO-DA-MARIA"
 OUTRA = b"\xff\xd8\xff\xe0FOTO-DE-OUTRA-PESSOA"
@@ -92,13 +99,24 @@ def world(tenant_a):
 
 
 def verify(client, image=JPEG, registration="1"):
-    return client.post(
+    response = client.post(
         "/api/device/face/verify/", {"registration": registration, "image": b64(image)}, format="json"
     )
+    if "verification_token" in response.json():
+        if not hasattr(client, "face_tokens"):
+            client.face_tokens = {}
+        client.face_tokens[response.json()["verification_id"]] = response.json()["verification_token"]
+    return response
 
 
 def punch(client, **identification):
     body = {"registration": "1", "client_event_id": str(uuid.uuid4())}
+    if identification.get("method") == "face":
+        vid = identification.get("verification_id")
+        if isinstance(vid, int):
+            identification.setdefault(
+                "verification_token", getattr(client, "face_tokens", {}).get(vid, "invalid")
+            )
     if identification:
         body["identification"] = identification
     return client.post("/api/device/punches/", body, format="json")
@@ -406,12 +424,21 @@ def test_verificacao_e_de_uso_unico_expira_e_nao_serve_a_outro(world, tenant_b):
     other_body = {
         "registration": other.registration,
         "client_event_id": str(uuid.uuid4()),
-        "identification": {"method": "face", "verification_id": vid3},
+        "identification": {
+            "method": "face",
+            "verification_id": vid3,
+            "verification_token": client.face_tokens[vid3],
+        },
     }
     assert client.post("/api/device/punches/", other_body, format="json").status_code == 400
     # de outro dispositivo
     _, token2 = make_device(tenant.company, unit, "Outro")
-    assert punch(tablet(token2), method="face", verification_id=vid3).status_code == 400
+    assert (
+        punch(
+            tablet(token2), method="face", verification_id=vid3, verification_token=client.face_tokens[vid3]
+        ).status_code
+        == 400
+    )
     assert TimeRecord.objects.count() == 1
     # tipos inválidos e ids inexistentes
     for bad in (None, True, "1", 10**9, [1], {"a": 1}):
@@ -423,8 +450,7 @@ def test_falha_na_marcacao_nao_consome_a_verificacao(world):
     enroll_via_api(tenant, employee)
     vid = verify(client).json()["verification_id"]
     with mock.patch("apps.timeclock.services._insert", side_effect=RuntimeError("disco cheio")):
-        with pytest.raises(RuntimeError):
-            punch(client, method="face", verification_id=vid)
+        assert punch(client, method="face", verification_id=vid).status_code == 500
     assert VerificationAttempt.objects.get(pk=vid).consumed_at is None
     assert punch(client, method="face", verification_id=vid).status_code == 201
 
@@ -437,7 +463,11 @@ def test_reenvio_do_mesmo_evento_devolve_a_marcacao_original(world):
     body = {
         "registration": "1",
         "client_event_id": event,
-        "identification": {"method": "face", "verification_id": vid},
+        "identification": {
+            "method": "face",
+            "verification_id": vid,
+            "verification_token": client.face_tokens[vid],
+        },
     }
     first = client.post("/api/device/punches/", body, format="json")
     again = client.post(
@@ -471,7 +501,7 @@ def test_modo_facial_exige_vivacidade_aprovada(world):
     tenant.company.save()
 
     class SemVivacidade(engines.SimulatorEngine):
-        name = "sem-vivacidade"
+        name = "simulator"
         is_simulator = False
 
         def verify(self, template, probe):
@@ -570,6 +600,7 @@ def test_excecao_com_codigo_errado_expirado_ou_de_outro_funcionario_e_recusada(w
     }
     assert client.post("/api/device/punches/", other_body, format="json").status_code == 400
     assert TimeRecord.objects.count() == 0
+    ExceptionBudget.objects.all().delete()
     ExceptionAuthorization.objects.update(expires_at=timezone.now() - datetime.timedelta(seconds=1))
     assert punch(client, method="authorized_exception", code=code).status_code == 400
     assert TimeRecord.objects.count() == 0
@@ -675,3 +706,277 @@ def test_purge_exclui_somente_templates_de_inativos_antigos(tenant_a):
     assert alive == {recent.pk, active.pk}
     deleted = BiometricTemplate.objects.get(status="deleted", employee=old)
     assert bytes(deleted.ciphertext) == b"" and deleted.delete_reason == "retention_purge"
+
+
+# Regressões da revisão adversarial.
+def test_bloqueio_nao_e_deslocado_por_qualidade_ou_tentativas_bloqueadas(world):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    for _ in range(4):
+        assert verify(client, OUTRA).json()["outcome"] == "no_match"
+    for _ in range(8):
+        assert verify(client, BLUR).json()["outcome"] == "poor_quality"
+    assert verify(client, OUTRA).json()["outcome"] == "no_match"
+    for _ in range(12):
+        assert verify(client).json()["outcome"] == "locked"
+
+
+@pytest.mark.parametrize("action", ["biometric/consent/", "biometric/", "replace"])
+def test_exclusao_revogacao_substituicao_invalidam_tokens(world, action):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    vid = verify(client).json()["verification_id"]
+    admin = tenant.client("company_admin")
+    if action == "replace":
+        assert (
+            admin.post(
+                url(tenant.company, employee, "biometric/enroll/"), {"images": [b64(JPEG)]}, format="json"
+            ).status_code
+            == 201
+        )
+    else:
+        assert admin.delete(url(tenant.company, employee, action)).status_code == 200
+    assert punch(client, method="face", verification_id=vid).status_code == 400
+    assert not TimeRecord.objects.exists()
+
+
+@pytest.mark.parametrize("debug,allow", [(False, True), (True, False), (False, False)])
+def test_todas_entradas_simulador_recusadas(world, settings, debug, allow):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    vid = verify(client).json()["verification_id"]
+    settings.DEBUG, settings.BIOMETRIC_ALLOW_SIMULATOR = debug, allow
+    assert verify(client).status_code == 503
+    assert punch(client, method="face", verification_id=vid).status_code == 400
+    with pytest.raises(engines.EngineUnavailable):
+        engines.SimulatorEngine().enroll([JPEG])
+    with pytest.raises(engines.EngineUnavailable):
+        engines.SimulatorEngine().verify(b"template", JPEG)
+    assert (
+        tenant.client("company_admin")
+        .post(url(tenant.company, employee, "biometric/enroll/"), {"images": [b64(JPEG)]}, format="json")
+        .status_code
+        == 400
+    )
+
+
+def test_cota_excecao_persiste_apos_rollback_e_independe_de_matricula(world):
+    tenant, unit, device, client, employee = world
+    for _ in range(10):
+        assert punch(client, method="authorized_exception", code="00000000").status_code == 400
+    other = make_employee(tenant.company, unit, "2")
+    response = client.post(
+        "/api/device/punches/",
+        {
+            "registration": other.registration,
+            "client_event_id": str(uuid.uuid4()),
+            "identification": {"method": "authorized_exception", "code": "00000000"},
+        },
+        format="json",
+    )
+    assert response.status_code == 429
+    _, token = make_device(tenant.company, unit, "Outro")
+    assert punch(tablet(token), method="authorized_exception", code="00000000").status_code == 429
+    ExceptionBudget.objects.update(window_started_at=timezone.now() - datetime.timedelta(minutes=2))
+    assert punch(client, method="authorized_exception", code="00000000").status_code == 400
+
+
+def test_nova_excecao_invalida_anterior_e_nao_permite_cache(world):
+    tenant, _, _, client, employee = world
+    admin = tenant.client("company_admin")
+    path = exception_url(tenant.company, employee)
+    first = admin.post(path, {"reason": "Câmera quebrada"}, format="json")
+    second = admin.post(path, {"reason": "Câmera quebrada"}, format="json")
+    assert first["Cache-Control"] == second["Cache-Control"] == "no-store"
+    assert punch(client, method="authorized_exception", code=first.json()["code"]).status_code == 400
+    assert punch(client, method="authorized_exception", code=second.json()["code"]).status_code == 201
+
+
+@pytest.mark.parametrize("body", [[], [1], None, True, "texto"])
+def test_json_nao_objeto_rejeitado(world, body):
+    tenant, _, _, client, employee = world
+    import json
+
+    assert (
+        client.post("/api/device/face/verify/", json.dumps(body), content_type="application/json").status_code
+        == 400
+    )
+    assert (
+        tenant.client("company_admin")
+        .post(exception_url(tenant.company, employee), json.dumps(body), content_type="application/json")
+        .status_code
+        == 400
+    )
+
+
+def test_corpo_grande_limitado_antes_do_json(world, settings):
+    *_, client, _ = world
+    settings.BIOMETRIC_MAX_IMAGE_BYTES = 10
+    with mock.patch("apps.biometrics.security.JSONParser.parse") as parser:
+        assert (
+            client.post("/api/device/face/verify/", b"x" * 70000, content_type="application/json").status_code
+            == 400
+        )
+    parser.assert_not_called()
+
+
+def test_erro_nao_expoe_imagem_codigo_ou_template_em_debug(world, caplog):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    secret = "BIOMETRIC-SECRET-SENTINEL"
+    with mock.patch.object(engines.SimulatorEngine, "verify", side_effect=RuntimeError(secret)):
+        response = verify(client)
+    assert response.status_code == 500
+    assert secret not in response.content.decode() + caplog.text
+    assert b64(JPEG) not in response.content.decode() + caplog.text
+    assert secret not in repr(engines.EnrollResult(secret.encode()))
+
+
+def test_deploy_recusa_simulador_e_motor_sem_chave(settings):
+    from apps.biometrics.checks import biometric_deployment_checks
+
+    assert "biometrics.E001" in {e.id for e in biometric_deployment_checks(None)}
+    settings.BIOMETRIC_ENGINE = "real-ainda-ausente"
+    settings.BIOMETRIC_ALLOW_SIMULATOR = False
+    settings.BIOMETRIC_KEYS = {}
+    assert {e.id for e in biometric_deployment_checks(None)} == {"biometrics.E002", "biometrics.E003"}
+
+
+def test_chave_invalida_e_nonce_corrompido_falham_fechados(settings):
+    settings.BIOMETRIC_KEYS = {"bad": "***"}
+    with pytest.raises(crypto.CryptoUnavailable):
+        crypto.decrypt("bad", b"0" * 12, b"ciphertext", b"aad")
+    settings.BIOMETRIC_KEYS = {"test": b64(b"0" * 32)}
+    with pytest.raises(crypto.DecryptionFailed):
+        crypto.decrypt("test", b"", b"ciphertext", b"aad")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("method", ["face", "authorized_exception"])
+def test_token_concorrente_postgresql(tenant_a, method):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections, connection
+
+    from apps.timeclock.services import IdentificationRejected, record_punch
+
+    if connection.vendor != "postgresql":
+        pytest.skip("Concorrência exige PostgreSQL real")
+    unit = make_unit(tenant_a.company)
+    device, token = make_device(tenant_a.company, unit)
+    employee = make_employee(tenant_a.company, unit)
+    if method == "face":
+        enroll_via_api(tenant_a, employee)
+        verified = verify(tablet(token)).json()
+        identification = {
+            "method": method,
+            "verification_id": verified["verification_id"],
+            "verification_token": verified["verification_token"],
+        }
+    else:
+        _, code = services.create_exception(
+            company=tenant_a.company,
+            employee=employee,
+            user=tenant_a.users["company_admin"],
+            reason="Câmera quebrada",
+        )
+        identification = {"method": method, "code": code}
+    barrier = Barrier(2)
+
+    def run():
+        close_old_connections()
+        try:
+            barrier.wait(timeout=10)
+            record_punch(
+                device=device, registration="1", client_event_id=uuid.uuid4(), identification=identification
+            )
+            return True
+        except IdentificationRejected:
+            return False
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(run) for _ in range(2)]
+        assert sorted(job.result(timeout=20) for job in jobs) == [False, True]
+    assert TimeRecord.objects.count() == 1
+
+
+@pytest.mark.parametrize("token", [None, "", "forged", [], True])
+def test_id_sequencial_nao_substitui_token_assinado(world, token):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    vid = verify(client).json()["verification_id"]
+    assert punch(client, method="face", verification_id=vid, verification_token=token).status_code == 400
+    assert not TimeRecord.objects.exists()
+    assert VerificationAttempt.objects.get(pk=vid).consumed_at is None
+    assert punch(client, method="face", verification_id=vid).status_code == 201
+
+
+def test_consentimento_verificado_antes_de_processar_imagens(world):
+    tenant, _, _, _, employee = world
+    with mock.patch.object(engines.SimulatorEngine, "enroll") as engine:
+        response = tenant.client("company_admin").post(
+            url(tenant.company, employee, "biometric/enroll/"), {"images": [b64(JPEG)]}, format="json"
+        )
+    assert response.status_code == 400
+    engine.assert_not_called()
+
+
+@pytest.mark.parametrize("method", [[], {}, True, 1, "inexistente"])
+def test_modo_facial_nao_aceita_metodo_inesperado(world, method):
+    tenant, _, _, client, _ = world
+    tenant.company.identification_mode = "face"
+    tenant.company.save()
+    assert punch(client, method=method).status_code == 400
+    assert not TimeRecord.objects.exists()
+
+
+@pytest.mark.parametrize("reason", [[], {}, True, 1, None])
+def test_excecao_motivo_de_tipo_inesperado(world, reason):
+    tenant, _, _, _, employee = world
+    assert (
+        tenant.client("company_admin")
+        .post(exception_url(tenant.company, employee), {"reason": reason}, format="json")
+        .status_code
+        == 400
+    )
+
+
+def test_nao_verifica_template_de_outro_motor(world):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    BiometricTemplate.objects.update(engine_version="incompativel")
+    with mock.patch.object(engines.SimulatorEngine, "verify") as engine:
+        assert verify(client).status_code == 503
+    engine.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_falhas_concorrentes_respeitam_bloqueio_postgresql(tenant_a):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import connection
+
+    if connection.vendor != "postgresql":
+        pytest.skip("Concorrência exige PostgreSQL real")
+    unit = make_unit(tenant_a.company)
+    device, _ = make_device(tenant_a.company, unit)
+    employee = make_employee(tenant_a.company, unit)
+    enroll_via_api(tenant_a, employee)
+    for _ in range(4):
+        services.verify_face(device=device, employee=employee, image=OUTRA)
+    barrier = Barrier(2)
+
+    def run():
+        try:
+            barrier.wait(timeout=10)
+            return services.verify_face(device=device, employee=employee, image=OUTRA).outcome
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(run) for _ in range(2)]
+        assert sorted(job.result(timeout=20) for job in jobs) == ["locked", "no_match"]

@@ -9,6 +9,7 @@ from rest_framework.exceptions import AuthenticationFailed, NotFound, Permission
 
 from apps.devices.models import Device
 from apps.operations import services as ops_services
+from apps.operations.models import Employee
 
 from . import hashing
 from .models import NsrCounter, TimeRecord
@@ -95,6 +96,9 @@ def record_punch(
     if employee is None:
         raise NotFound("Matrícula não encontrada nesta unidade.")
 
+    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    if identification is not None and not isinstance(identification, dict):
+        raise IdentificationRejected({"identification": "Identificação inválida."})
     payload = identification or {"method": RegistrationOnlyProvider.method}
     method = payload.get("method")
     provider = PROVIDERS.get(method) if isinstance(method, str) else None
