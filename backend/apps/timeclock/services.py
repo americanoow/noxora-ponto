@@ -100,7 +100,17 @@ def record_punch(
     provider = PROVIDERS.get(method) if isinstance(method, str) else None
     if provider is None:
         raise ValidationError({"identification": "Método de identificação desconhecido."})
-    result = provider.verify(device=device, employee=employee, payload=payload)
+    # Política da empresa: no modo facial só valem verificação facial ou exceção autorizada.
+    if device.company.identification_mode == "face" and method not in ("face", "authorized_exception"):
+        raise IdentificationRejected({"identification": "Esta empresa exige verificação facial."})
+    try:
+        result = provider.verify(device=device, employee=employee, payload=payload)
+    except IdentificationRejected:
+        # Corrida do mesmo evento: o primeiro envio já consumiu o token e gravou a marcação.
+        existing = _existing(device, client_event_id)
+        if existing is not None:
+            return existing, False
+        raise
 
     try:
         with transaction.atomic():

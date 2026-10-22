@@ -12,6 +12,13 @@ class Company(models.Model):
     tax_id_type = models.CharField(max_length=4, blank=True, choices=[("CNPJ", "CNPJ"), ("CPF", "CPF")])
     tax_id = models.CharField("CNPJ/CPF (só dígitos)", max_length=14, blank=True)
     cei_caepf_cno = models.CharField("CEI/CAEPF/CNO", max_length=20, blank=True)
+    # Como o trabalhador se identifica no tablet. "face" exige verificação facial com vivacidade aprovada
+    # (ou exceção autorizada); "registration" aceita só a matrícula (não é identificação forte).
+    identification_mode = models.CharField(
+        max_length=12,
+        default="registration",
+        choices=[("registration", "Matrícula"), ("face", "Verificação facial")],
+    )
 
     class Meta:
         ordering = ["name", "id"]

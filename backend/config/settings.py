@@ -1,5 +1,8 @@
 """Configuração do Noxora Ponto. Toda configuração sensível vem de variáveis de ambiente."""
 
+import base64
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -43,6 +46,7 @@ INSTALLED_APPS = [
     "apps.operations",
     "apps.devices",
     "apps.timeclock",
+    "apps.biometrics",
     "apps.audit",
 ]
 
@@ -154,3 +158,33 @@ TIMECLOCK_ALLOW_REGISTRATION_ONLY = env_bool("TIMECLOCK_ALLOW_REGISTRATION_ONLY"
 TIMECLOCK_COLLECTOR_CODE = "01"  # provisório: ver docs/requisitos-rep-p.md, pendência 5
 # Número de registro do REP-P no INPI (art. 79, VII / art. 91). Externo: vazio até existir.
 REP_P_INPI_REGISTRATION = os.environ.get("REP_P_INPI_REGISTRATION", "").strip()
+
+# Biometria (etapa 6). Nunca guardar imagem: só o template, criptografado com AES-256-GCM.
+# BIOMETRIC_KEYS = JSON {"id-da-chave": "<32 bytes em base64>"}; BIOMETRIC_ACTIVE_KEY_ID: chave de escrita.
+# Em produção a chave deve vir de um cofre/KMS (etapa 14/15); aqui é variável de ambiente.
+BIOMETRIC_ENGINE = os.environ.get("BIOMETRIC_ENGINE", "simulator" if DEBUG else "").strip()
+BIOMETRIC_ENGINES = {"simulator": "apps.biometrics.engines.SimulatorEngine"}
+# O simulador só é aceito em desenvolvimento (DJANGO_DEBUG=true na carga das configurações).
+BIOMETRIC_ALLOW_SIMULATOR = DEBUG
+if not DEBUG and BIOMETRIC_ENGINE == "simulator":
+    raise RuntimeError("O motor biométrico simulador só pode ser usado com DJANGO_DEBUG=true.")
+BIOMETRIC_KEYS = json.loads(os.environ.get("BIOMETRIC_KEYS", "") or "{}")
+BIOMETRIC_ACTIVE_KEY_ID = os.environ.get("BIOMETRIC_ACTIVE_KEY_ID", "").strip()
+if DEBUG and not BIOMETRIC_KEYS:
+    BIOMETRIC_KEYS = {
+        "dev": base64.b64encode(
+            hashlib.sha256(b"noxora-dev-biometric:" + SECRET_KEY.encode()).digest()
+        ).decode()
+    }
+    BIOMETRIC_ACTIVE_KEY_ID = "dev"
+for _key_id, _key in BIOMETRIC_KEYS.items():
+    if len(base64.b64decode(_key)) != 32:
+        raise RuntimeError(f"A chave biométrica '{_key_id}' deve ter 32 bytes (base64).")
+if BIOMETRIC_KEYS and BIOMETRIC_ACTIVE_KEY_ID not in BIOMETRIC_KEYS:
+    raise RuntimeError("BIOMETRIC_ACTIVE_KEY_ID deve apontar para uma chave de BIOMETRIC_KEYS.")
+BIOMETRIC_VERIFICATION_TTL_SECONDS = 60  # validade do token de verificação facial (uso único)
+BIOMETRIC_LOCKOUT_FAILURES = 5  # falhas seguidas que bloqueiam a verificação facial do funcionário
+BIOMETRIC_LOCKOUT_WINDOW_SECONDS = 600
+BIOMETRIC_MAX_IMAGE_BYTES = 1_000_000
+BIOMETRIC_MAX_IMAGES = 5
+EXCEPTION_AUTHORIZATION_TTL_MINUTES = 15
