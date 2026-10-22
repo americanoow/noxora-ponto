@@ -27,6 +27,7 @@ class UndeletableStore extends MemoryTokenStore {
 }
 
 void main() {
+  punchTests();
   test('falha ao apagar token após revogação na rotação não mantém tablet ativo', () async {
     final store = UndeletableStore()
       ..value = StoredCredential(token: '7.velho', issuedAt: DateTime.utc(2020));
@@ -162,5 +163,98 @@ void main() {
     await c.init();
     expect(c.state, DeviceState.active);
     expect((await store.read())?.token, '8.novo');
+  });
+}
+
+// ---------- Marcação de ponto ----------
+
+const punchOk = {
+  'duplicate': false,
+  'record': {'nsr': 3},
+  'receipt': {
+    'nsr': 3,
+    'worker': {'name': 'Maria'},
+    'occurred_at': '2026-10-21T23:30:15-03:00',
+    'hash_sha256': 'abcdef0123456789abcdef',
+  },
+};
+
+DeviceController activeController(MockClientHandler handler, {MemoryTokenStore? store}) => build(
+      store ?? (MemoryTokenStore()..value = StoredCredential(token: '7.s', issuedAt: DateTime.now())),
+      handler,
+    );
+
+void punchTests() {
+  test('marcação enviada com credencial, identificador de evento UUID e retorna o NSR', () async {
+    late Map<String, dynamic> sent;
+    late Map<String, String> headers;
+    final c = activeController((r) async {
+      sent = jsonDecode(r.body) as Map<String, dynamic>;
+      headers = r.headers;
+      return http.Response(jsonEncode(punchOk), 201);
+    });
+    final outcome = await c.punch(' 100 ', declaredKind: 'entry');
+    expect(outcome, isA<PunchRecorded>());
+    expect((outcome as PunchRecorded).nsr, 3);
+    expect(outcome.duplicate, isFalse);
+    expect(sent['registration'], '100');
+    expect(sent['declared_kind'], 'entry');
+    expect(sent['client_event_id'], matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
+    expect(headers['Authorization'], 'Device 7.s');
+    c.dispose();
+  });
+
+  test('sem resposta, o reenvio reutiliza o mesmo evento; após sucesso, um novo evento', () async {
+    final ids = <String>[];
+    var attempt = 0;
+    final c = activeController((r) async {
+      ids.add((jsonDecode(r.body) as Map<String, dynamic>)['client_event_id'] as String);
+      attempt++;
+      if (attempt == 1) throw http.ClientException('rede');
+      return http.Response(jsonEncode(punchOk), 200);
+    });
+    expect(await c.punch('100'), isA<PunchUnconfirmed>());
+    expect(await c.punch('100'), isA<PunchRecorded>());
+    expect(ids[0], ids[1]);
+    await c.punch('100');
+    expect(ids[2], isNot(ids[0]));
+    c.dispose();
+  });
+
+  test('matrícula diferente após falha de rede gera novo evento', () async {
+    final ids = <String>[];
+    var attempt = 0;
+    final c = activeController((r) async {
+      ids.add((jsonDecode(r.body) as Map<String, dynamic>)['client_event_id'] as String);
+      if (++attempt == 1) throw http.ClientException('rede');
+      return http.Response(jsonEncode(punchOk), 201);
+    });
+    await c.punch('100');
+    await c.punch('200');
+    expect(ids[0], isNot(ids[1]));
+    c.dispose();
+  });
+
+  test('matrícula não encontrada encerra a tentativa sem gravar', () async {
+    final c = activeController((_) async => http.Response('{}', 404));
+    expect(await c.punch('999'), isA<PunchRejected>());
+    c.dispose();
+  });
+
+  test('credencial revogada durante a marcação desativa o tablet e informa que nada foi gravado', () async {
+    final store = MemoryTokenStore()..value = StoredCredential(token: '7.s', issuedAt: DateTime.now());
+    final c = activeController((_) async => http.Response('{}', 401), store: store);
+    final outcome = await c.punch('100');
+    expect(outcome, isA<PunchRejected>());
+    expect((outcome as PunchRejected).message, contains('não registrada'));
+    expect(c.state, DeviceState.revoked);
+    expect(await store.read(), isNull);
+    c.dispose();
+  });
+
+  test('matrícula vazia não chama a rede', () async {
+    final c = activeController((_) async => throw StateError('não deve chamar a rede'));
+    expect(await c.punch('   '), isA<PunchRejected>());
+    c.dispose();
   });
 }

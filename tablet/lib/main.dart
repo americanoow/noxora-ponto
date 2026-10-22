@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api_client.dart';
 import 'device_controller.dart';
+import 'punch_panel.dart';
 import 'token_store.dart';
 
 void main() => runApp(const NoxoraApp());
@@ -123,7 +124,11 @@ class _DevicePanelState extends State<DevicePanel> {
             case DeviceState.loading:
               return const Text('Verificando o dispositivo…');
             case DeviceState.active:
-              return Text('Tablet "${c.scope?.name}" — ${c.scope?.company} / ${c.scope?.unit}');
+              return Column(mainAxisSize: MainAxisSize.min, children: [
+                Text('Tablet "${c.scope?.name}" — ${c.scope?.company} / ${c.scope?.unit}'),
+                const SizedBox(height: 16),
+                PunchPanel(controller: c),
+              ]);
             case DeviceState.offline:
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(c.message ?? 'Sem conexão.'),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DevicesTab } from "./DevicesTab";
+import { EmployerTab, RecordsTab } from "./TimeclockTab";
 import { errorMessage } from "./auth";
 import {
   type Employee,
@@ -24,13 +25,15 @@ import {
   updateUnit,
 } from "./operationsApi";
 
-type Tab = "units" | "employees" | "import" | "schedules" | "devices";
+type Tab = "units" | "employees" | "import" | "schedules" | "devices" | "records" | "employer";
 const TABS: [Tab, string][] = [
+  ["records", "Marcações"],
   ["employees", "Funcionários"],
   ["units", "Unidades e setores"],
   ["schedules", "Jornadas"],
   ["devices", "Tablets"],
   ["import", "Importação"],
+  ["employer", "Empregador"],
 ];
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
@@ -96,6 +99,8 @@ function OperationsPanel({ companyId, canEdit }: { companyId: number; canEdit: b
       {tab === "units" && <UnitsTab companyId={companyId} canEdit={canEdit} />}
       {tab === "schedules" && <SchedulesTab companyId={companyId} canEdit={canEdit} />}
       {tab === "devices" && <DevicesTab companyId={companyId} canEdit={canEdit} />}
+      {tab === "records" && <RecordsTab companyId={companyId} />}
+      {tab === "employer" && <EmployerTab companyId={companyId} canEdit={canEdit} />}
       {tab === "import" && canEdit && <ImportTab companyId={companyId} />}
     </section>
   );

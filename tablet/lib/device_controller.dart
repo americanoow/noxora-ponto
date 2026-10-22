@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -26,6 +27,50 @@ class DeviceScope {
 }
 
 enum DeviceState { loading, unactivated, active, revoked, offline }
+
+/// Resultado de uma tentativa de marcação.
+sealed class PunchOutcome {
+  const PunchOutcome();
+}
+
+/// Marcação gravada pelo servidor (ou reenvio de uma já gravada: [duplicate]).
+class PunchRecorded extends PunchOutcome {
+  const PunchRecorded({
+    required this.nsr,
+    required this.workerName,
+    required this.occurredAt,
+    required this.hash,
+    required this.duplicate,
+  });
+  final int nsr;
+  final String workerName;
+  final String occurredAt;
+  final String hash;
+  final bool duplicate;
+}
+
+/// Recusa definitiva (matrícula inválida etc.): nada foi gravado e a tentativa se encerra.
+class PunchRejected extends PunchOutcome {
+  const PunchRejected(this.message);
+  final String message;
+}
+
+/// Sem confirmação do servidor: a marcação pode ou não ter sido gravada. A próxima tentativa com
+/// a mesma matrícula reutiliza o mesmo identificador de evento, então não duplica.
+class PunchUnconfirmed extends PunchOutcome {
+  const PunchUnconfirmed(this.message);
+  final String message;
+}
+
+String _newEventId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // versão 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variante RFC 4122
+  final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-${hex.substring(20)}';
+}
 
 /// Ciclo de vida do tablet: ativação, heartbeat, rotação e tratamento de revogação.
 ///
@@ -143,6 +188,74 @@ class DeviceController extends ChangeNotifier {
     } catch (_) {
       // Mantém a credencial atual; nova tentativa no próximo heartbeat.
     }
+  }
+
+  // Tentativa em aberto (sem resposta definitiva): preserva o evento para o reenvio ser idempotente.
+  String? _pendingRegistration;
+  String? _pendingEventId;
+  bool _punching = false;
+
+  /// Registra uma marcação. [declaredKind]: '', 'entry', 'break_start', 'break_end' ou 'exit'
+  /// (informativo; a apuração decide). Nunca grava localmente: a fila offline é da etapa 7.
+  Future<PunchOutcome> punch(String registration, {String declaredKind = ''}) async {
+    final reg = registration.trim();
+    if (reg.isEmpty) return const PunchRejected('Informe a matrícula.');
+    if (_punching) return const PunchUnconfirmed('Aguarde a conclusão do registro anterior.');
+    _punching = true;
+    try {
+      final credential = await store.read();
+      if (credential == null) return const PunchRejected('Tablet não ativado.');
+      if (_pendingRegistration != reg || _pendingEventId == null) {
+        _pendingRegistration = reg;
+        _pendingEventId = _newEventId();
+      }
+      final response = await _client
+          .post(
+            Uri.parse('$_baseUrl/api/device/punches/'),
+            headers: _headers(credential.token),
+            body: jsonEncode({
+              'registration': reg,
+              'client_event_id': _pendingEventId,
+              'declared_kind': declaredKind,
+              'device_reported_at': _now().toUtc().toIso8601String(),
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final receipt = body['receipt'] as Map<String, dynamic>;
+        _clearPending();
+        return PunchRecorded(
+          nsr: (receipt['nsr'] as num).toInt(),
+          workerName: '${(receipt['worker'] as Map<String, dynamic>)['name']}',
+          occurredAt: '${receipt['occurred_at']}',
+          hash: '${receipt['hash_sha256']}',
+          duplicate: body['duplicate'] == true,
+        );
+      }
+      if (response.statusCode == 401) {
+        // Credencial revogada/expirada: a marcação NÃO foi gravada.
+        _clearPending();
+        scope = null;
+        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await store.clear();
+        return const PunchRejected('Tablet desativado. Marcação não registrada.');
+      }
+      if (response.statusCode == 404 || response.statusCode == 400) {
+        _clearPending();
+        return const PunchRejected('Matrícula não encontrada nesta unidade. Marcação não registrada.');
+      }
+      return const PunchUnconfirmed('Servidor indisponível. Tente novamente: não haverá duplicidade.');
+    } catch (_) {
+      return const PunchUnconfirmed('Sem confirmação do servidor. Tente novamente: não haverá duplicidade.');
+    } finally {
+      _punching = false;
+    }
+  }
+
+  void _clearPending() {
+    _pendingRegistration = null;
+    _pendingEventId = null;
   }
 
   Map<String, String> _headers(String token) =>
