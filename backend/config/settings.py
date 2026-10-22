@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "apps.companies",
     "apps.operations",
     "apps.devices",
+    "apps.timeclock",
     "apps.audit",
 ]
 
@@ -146,3 +147,10 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+# Núcleo de marcação (REP-P). Identificação só por matrícula NÃO é identificação forte: serve ao
+# desenvolvimento até a verificação facial (etapa 6). Desligue com TIMECLOCK_ALLOW_REGISTRATION_ONLY=false.
+TIMECLOCK_ALLOW_REGISTRATION_ONLY = env_bool("TIMECLOCK_ALLOW_REGISTRATION_ONLY", True)
+TIMECLOCK_COLLECTOR_CODE = "01"  # provisório: ver docs/requisitos-rep-p.md, pendência 5
+# Número de registro do REP-P no INPI (art. 79, VII / art. 91). Externo: vazio até existir.
+REP_P_INPI_REGISTRATION = os.environ.get("REP_P_INPI_REGISTRATION", "").strip()

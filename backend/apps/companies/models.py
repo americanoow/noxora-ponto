@@ -6,6 +6,12 @@ class Company(models.Model):
     name = models.CharField("nome", max_length=200)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Dados do empregador exigidos no Comprovante de Registro de Ponto (Portaria 671, art. 79, III).
+    # Alterações são auditadas com valores anteriores e novos.
+    legal_name = models.CharField("razão social ou nome", max_length=200, blank=True)
+    tax_id_type = models.CharField(max_length=4, blank=True, choices=[("CNPJ", "CNPJ"), ("CPF", "CPF")])
+    tax_id = models.CharField("CNPJ/CPF (só dígitos)", max_length=14, blank=True)
+    cei_caepf_cno = models.CharField("CEI/CAEPF/CNO", max_length=20, blank=True)
 
     class Meta:
         ordering = ["name", "id"]

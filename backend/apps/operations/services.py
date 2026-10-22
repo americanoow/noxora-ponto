@@ -142,3 +142,16 @@ def replace_schedule_days(schedule, days):
             )
         locked.days.all().delete()
         ScheduleDay.objects.bulk_create([ScheduleDay(schedule=locked, **day) for day in days])
+
+
+def employee_for_device(device, registration):
+    """Funcionário ativo, de matrícula exata, lotado hoje na unidade do dispositivo (ou None).
+
+    Fonte única do escopo do terminal: consulta de matrícula e marcação usam a mesma regra.
+    """
+    current = Assignment.objects.filter(employee=OuterRef("pk"), unit_id=device.unit_id).filter(current_q())
+    return (
+        Employee.objects.filter(company_id=device.company_id, registration=registration, is_active=True)
+        .filter(Exists(current))
+        .first()
+    )

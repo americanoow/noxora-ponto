@@ -1,5 +1,4 @@
 from django.db import transaction
-from django.db.models import Exists, OuterRef
 from django.http import Http404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -9,7 +8,6 @@ from rest_framework.views import APIView
 
 from apps.audit import services as audit
 from apps.operations import services as ops_services
-from apps.operations.models import Assignment, Employee
 from apps.operations.views import _visible_units, admin_company, is_admin, reader_company
 
 from . import services
@@ -250,15 +248,7 @@ class RosterLookupView(DeviceView):
         registration = request.query_params.get("registration", "").strip()
         if not registration:
             raise ValidationError({"registration": "Informe a matrícula."})
-        device = request.device
-        current = Assignment.objects.filter(employee=OuterRef("pk"), unit_id=device.unit_id).filter(
-            ops_services.current_q()
-        )
-        employee = (
-            Employee.objects.filter(company_id=device.company_id, registration=registration, is_active=True)
-            .filter(Exists(current))
-            .first()
-        )
+        employee = ops_services.employee_for_device(request.device, registration)
         if employee is None:
             raise Http404
         return Response(

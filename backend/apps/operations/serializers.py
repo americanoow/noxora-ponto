@@ -7,7 +7,7 @@ from .models import ScheduleDay, Sector, Unit, WorkSchedule
 class UnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = Unit
-        fields = ["id", "name", "timezone", "is_active"]
+        fields = ["id", "name", "timezone", "address", "is_active"]
 
     def validate_name(self, value):
         return value.strip()

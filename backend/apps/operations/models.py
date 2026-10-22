@@ -10,6 +10,8 @@ class Unit(models.Model):
     company = models.ForeignKey("companies.Company", on_delete=models.PROTECT, related_name="units")
     name = models.CharField(max_length=120)
     timezone = models.CharField(max_length=64, default="America/Sao_Paulo")
+    # Local da prestação do serviço / endereço do estabelecimento (comprovante, art. 79, IV).
+    address = models.CharField(max_length=300, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
