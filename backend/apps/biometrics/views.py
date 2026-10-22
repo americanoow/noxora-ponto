@@ -74,7 +74,7 @@ class BiometricStatusView(BiometricView):
         company = admin_company(request, company_id)
         employee = _employee_or_404(company, employee_id)
         with transaction.atomic():
-            employee = Employee.objects.select_for_update().get(pk=employee.pk)
+            employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
             template = services.active_template(employee)
             if template is None:
                 raise Http404

@@ -60,7 +60,7 @@ def active_template(employee):
 
 def grant_consent(*, employee, user, policy_version, evidence_ref=""):
     with transaction.atomic():
-        locked = Employee.objects.select_for_update().get(pk=employee.pk)
+        locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
         if active_consent(locked):
             raise ValidationError({"detail": "O consentimento já está registrado."})
         return BiometricConsent.objects.create(
@@ -75,7 +75,7 @@ def grant_consent(*, employee, user, policy_version, evidence_ref=""):
 @transaction.atomic
 def delete_template(template, *, user, reason):
     """Apaga o conteúdo criptografado, mantendo só os metadados para auditoria."""
-    Employee.objects.select_for_update().get(pk=template.employee_id)
+    Employee.objects.select_for_update(no_key=True).get(pk=template.employee_id)
     template.refresh_from_db()
     VerificationAttempt.objects.filter(employee_id=template.employee_id, consumed_at__isnull=True).update(
         expires_at=timezone.now()
@@ -94,7 +94,7 @@ def delete_template(template, *, user, reason):
 def revoke_consent(*, employee, user):
     """Revogar o consentimento exclui o template."""
     with transaction.atomic():
-        locked = Employee.objects.select_for_update().get(pk=employee.pk)
+        locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
         consent = active_consent(locked)
         if consent is None:
             raise ValidationError({"detail": "Não há consentimento ativo."})
@@ -108,7 +108,7 @@ def revoke_consent(*, employee, user):
 
 @transaction.atomic
 def enroll(*, employee, user, images_b64):
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if active_consent(employee) is None:
         raise ValidationError({"detail": "Registre o consentimento antes do cadastro facial."})
     if not isinstance(images_b64, list) or not (1 <= len(images_b64) <= settings.BIOMETRIC_MAX_IMAGES):
@@ -130,7 +130,7 @@ def enroll(*, employee, user, images_b64):
     except crypto.CryptoUnavailable:
         raise ValidationError({"detail": "Proteção de chaves biométricas não configurada."}) from None
     with transaction.atomic():
-        locked = Employee.objects.select_for_update().get(pk=employee.pk)
+        locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
         if active_consent(locked) is None:
             raise ValidationError({"detail": "Registre o consentimento antes do cadastro facial."})
         old = active_template(locked)
@@ -180,7 +180,7 @@ def _locked(employee) -> bool:
 @transaction.atomic
 def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
     """Compara a captura com o template do funcionário. Sempre registra a tentativa (sem imagem)."""
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if employee.company_id != device.company_id or not employee.is_active:
         raise IdentificationRejected({"identification": "Funcionário indisponível."})
     if active_consent(employee) is None:
@@ -249,7 +249,7 @@ class FaceProvider:
             raise IdentificationRejected({"identification": "Verificação facial inválida ou expirada."})
         now = timezone.now()
         attempt = (
-            VerificationAttempt.objects.select_for_update()
+            VerificationAttempt.objects.select_for_update(no_key=True)
             .filter(
                 pk=vid,
                 device=device,
@@ -294,7 +294,7 @@ def create_exception(*, company, employee, user, reason):
     reason = reason.strip()
     if len(reason) < 5:
         raise ValidationError({"reason": "Informe o motivo (mínimo de 5 caracteres)."})
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if employee.company_id != company.pk or not employee.is_active:
         raise ValidationError({"detail": "Funcionário indisponível."})
     ExceptionAuthorization.objects.filter(employee=employee, consumed_at__isnull=True).update(
@@ -324,7 +324,7 @@ class ExceptionProvider:
             raise IdentificationRejected({"identification": "Código de exceção inválido ou expirado."})
         now = timezone.now()
         auth = (
-            ExceptionAuthorization.objects.select_for_update()
+            ExceptionAuthorization.objects.select_for_update(no_key=True)
             .filter(
                 employee=employee,
                 company_id=device.company_id,
@@ -354,7 +354,7 @@ def purge_inactive(*, days: int, dry_run: bool = False) -> int:
     if not dry_run:
         for template in templates:
             with transaction.atomic():
-                employee = Employee.objects.select_for_update().get(pk=template.employee_id)
+                employee = Employee.objects.select_for_update(no_key=True).get(pk=template.employee_id)
                 if not employee.is_active and employee.inactivated_at and employee.inactivated_at <= limit:
                     delete_template(template, user=None, reason="retention_purge")
     return count
@@ -374,7 +374,7 @@ def reserve_exception_attempt(*, device, employee=None):
     allowed = True
     for scope in sorted(scopes):
         ExceptionBudget.objects.get_or_create(scope=scope, defaults={"window_started_at": now})
-        budget = ExceptionBudget.objects.select_for_update().get(pk=scope)
+        budget = ExceptionBudget.objects.select_for_update(no_key=True).get(pk=scope)
         if (now - budget.window_started_at).total_seconds() >= 60:
             budget.window_started_at, budget.count = now, 0
         if budget.count >= 10:
@@ -383,3 +383,16 @@ def reserve_exception_attempt(*, device, employee=None):
             budget.count += 1
             budget.save(update_fields=["window_started_at", "count"])
     return allowed
+
+
+@transaction.atomic
+def refund_exception_attempt(*, device, employee=None):
+    """Devolve a cota de uma tentativa que terminou em marcação gravada (sucesso legítimo)."""
+    scopes = [f"device:{device.pk}"]
+    if employee is not None:
+        scopes.append(f"employee:{employee.pk}")
+    for scope in sorted(scopes):
+        budget = ExceptionBudget.objects.select_for_update(no_key=True).filter(pk=scope).first()
+        if budget is not None and budget.count > 0:
+            budget.count -= 1
+            budget.save(update_fields=["count"])

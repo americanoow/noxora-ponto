@@ -29,6 +29,7 @@ class PunchView(DeviceView):
         data = PunchSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
+        reserved = None
         if (v["identification"] or {}).get("method") == "authorized_exception":
             from apps.biometrics.services import reserve_exception_attempt
 
@@ -39,6 +40,7 @@ class PunchView(DeviceView):
                 employee = ops_services.employee_for_device(request.device, v["registration"])
                 if not reserve_exception_attempt(device=request.device, employee=employee):
                     raise Throttled(wait=60)
+                reserved = employee
         record, created = services.record_punch(
             device=request.device,
             registration=v["registration"],
@@ -48,6 +50,12 @@ class PunchView(DeviceView):
             identification=v["identification"],
             credential=request.auth,
         )
+        if reserved is not None:
+            # A cota existe para limitar ADIVINHAÇÃO de código; marcação válida não a consome.
+            # Falhas (código errado, rollback, exceção) não chegam aqui e continuam contadas.
+            from apps.biometrics.services import refund_exception_attempt
+
+            refund_exception_attempt(device=request.device, employee=reserved)
         return Response(
             {"duplicate": not created, "record": record_dict(record), "receipt": build_receipt(record)},
             status=201 if created else 200,
@@ -131,7 +139,7 @@ class EmployerView(APIView):
     @transaction.atomic
     def patch(self, request, company_id):
         company = admin_company(request, company_id)
-        company = Company.objects.select_for_update().get(pk=company.pk)
+        company = Company.objects.select_for_update(no_key=True).get(pk=company.pk)
         data = EmployerSerializer(data=request.data, context={"company": company})
         data.is_valid(raise_exception=True)
         changes = data.validated_data

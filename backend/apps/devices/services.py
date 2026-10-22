@@ -31,7 +31,7 @@ def format_code(code: str) -> str:
 @transaction.atomic
 def new_activation_code(device) -> tuple[str, ActivationCode]:
     """Invalida códigos anteriores ainda não usados e gera um novo (retornado uma única vez)."""
-    device = Device.objects.select_for_update().get(pk=device.pk)
+    device = Device.objects.select_for_update(no_key=True).get(pk=device.pk)
     now = timezone.now()
     device.activation_codes.filter(used_at__isnull=True).update(used_at=now)
     code = "".join(secrets.choice(ALPHABET) for _ in range(CODE_LENGTH))
@@ -84,8 +84,8 @@ def activate(raw_code: str, *, app_version: str = "", hardware_hint: str = ""):
         candidate = ActivationCode.objects.filter(code_hash=_hash(code)).first()
         if candidate is None:
             raise ValidationError({"detail": INVALID_CODE})
-        device = Device.objects.select_for_update().get(pk=candidate.device_id)
-        record = ActivationCode.objects.select_for_update().get(pk=candidate.pk)
+        device = Device.objects.select_for_update(no_key=True).get(pk=candidate.device_id)
+        record = ActivationCode.objects.select_for_update(no_key=True).get(pk=candidate.pk)
         now = timezone.now()
         if (
             record is None
@@ -111,7 +111,7 @@ def activate(raw_code: str, *, app_version: str = "", hardware_hint: str = ""):
 
 @transaction.atomic
 def revoke(device):
-    device.refresh_from_db(from_queryset=Device.objects.select_for_update())
+    device.refresh_from_db(from_queryset=Device.objects.select_for_update(no_key=True))
     now = timezone.now()
     device.credentials.filter(revoked_at__isnull=True).update(revoked_at=now)
     device.activation_codes.filter(used_at__isnull=True).update(used_at=now)
@@ -123,7 +123,7 @@ def revoke(device):
 @transaction.atomic
 def reissue(device):
     """Renovação: derruba as credenciais atuais e volta a aguardar ativação com código novo."""
-    device.refresh_from_db(from_queryset=Device.objects.select_for_update())
+    device.refresh_from_db(from_queryset=Device.objects.select_for_update(no_key=True))
     now = timezone.now()
     device.credentials.filter(revoked_at__isnull=True).update(revoked_at=now)
     device.status = DeviceStatus.PENDING
@@ -135,8 +135,8 @@ def reissue(device):
 def rotate(credential):
     """Retry retorna a mesma sucessora, sem prolongar a janela nem multiplicar tokens."""
     with transaction.atomic():
-        device = Device.objects.select_for_update().get(pk=credential.device_id)
-        locked = DeviceCredential.objects.select_for_update().get(pk=credential.pk)
+        device = Device.objects.select_for_update(no_key=True).get(pk=credential.device_id)
+        locked = DeviceCredential.objects.select_for_update(no_key=True).get(pk=credential.pk)
         now = timezone.now()
         if (
             locked.revoked_at is not None

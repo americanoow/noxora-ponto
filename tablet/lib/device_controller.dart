@@ -269,6 +269,9 @@ class DeviceController extends ChangeNotifier {
         'device_reported_at': _now().toUtc().toIso8601String(),
         if (identification != null) 'identification': identification,
       });
+      // Renova a identificação (código de exceção ou token facial) sem trocar o evento: se o envio
+      // anterior chegou a ser gravado, o servidor devolve a marcação original antes de validar nada.
+      if (identification != null) payload['identification'] = identification;
       final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/device/punches/'),
@@ -301,10 +304,10 @@ class DeviceController extends ChangeNotifier {
         return const PunchRejected('Tablet desativado. Marcação não registrada.');
       }
       if (response.statusCode == 404 || response.statusCode == 400) {
-        if (!wasUnconfirmed) _pendingPunches.remove(reg);
-        if (wasUnconfirmed) {
-          return const PunchUnconfirmed('Tentativa anterior sem confirmação. Procure o administrador.');
-        }
+        // O servidor consulta o evento existente ANTES de validar matrícula ou identificação
+        // (contrato coberto por teste no backend). Logo, 400/404 prova que este evento não foi
+        // gravado: a tentativa se encerra e a próxima usará um evento novo.
+        _pendingPunches.remove(reg);
         return PunchRejected(response.statusCode == 404
             ? 'Matrícula não encontrada nesta unidade. Marcação não registrada.'
             : 'Dados ou identificação recusados. Marcação não registrada.');

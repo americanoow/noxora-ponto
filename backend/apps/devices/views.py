@@ -34,7 +34,7 @@ def _devices_for(request, company):
 def _device_or_404(request, company, device_id):
     query = _devices_for(request, company)
     if request.method in ("POST", "PATCH"):
-        query = query.select_for_update(of=("self",))
+        query = query.select_for_update(of=("self",), no_key=True)
     device = query.filter(pk=device_id).first()
     if device is None:
         raise Http404
@@ -223,7 +223,7 @@ class RotateCredentialView(DeviceView):
 class LocationView(DeviceView):
     @transaction.atomic
     def post(self, request):
-        device = Device.objects.select_for_update().get(pk=request.device.pk)
+        device = Device.objects.select_for_update(no_key=True).get(pk=request.device.pk)
         request.auth.refresh_from_db()
         if (
             device.status != "active"

@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -980,3 +980,157 @@ def test_falhas_concorrentes_respeitam_bloqueio_postgresql(tenant_a):
     with ThreadPoolExecutor(max_workers=2) as pool:
         jobs = [pool.submit(run) for _ in range(2)]
         assert sorted(job.result(timeout=20) for job in jobs) == ["locked", "no_match"]
+
+
+# ---------- Ordem de bloqueios (PostgreSQL) ----------
+
+
+@pytest.mark.skipif(connection.vendor != "postgresql", reason="Bloqueios de linha exigem PostgreSQL real")
+@pytest.mark.django_db(transaction=True)
+def test_verificacao_e_marcacao_concorrentes_nao_geram_deadlock(world):
+    """Regressão: a verificação segura o funcionário e insere a tentativa (a FK pede lock no dispositivo);
+    a marcação segura o dispositivo e pede o funcionário. Com FOR UPDATE nos dois, o ciclo fecha."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections
+
+    from apps.operations import services as ops_services
+    from apps.timeclock import services as timeclock
+
+    tenant, _, device, _, employee = world
+    admin = tenant.users["company_admin"]
+    services.grant_consent(employee=employee, user=admin, policy_version="v1")
+    services.enroll(employee=employee, user=admin, images_b64=[b64(JPEG)])
+    barrier = Barrier(2)
+    real_attempt = services._attempt
+    real_lookup = ops_services.employee_for_device
+
+    def attempt_after_barrier(*args, **kwargs):
+        barrier.wait(timeout=10)  # a verificação já segura o funcionário
+        return real_attempt(*args, **kwargs)
+
+    def lookup_after_barrier(*args, **kwargs):
+        barrier.wait(timeout=10)  # a marcação já segura o dispositivo
+        return real_lookup(*args, **kwargs)
+
+    def run_verify():
+        close_old_connections()
+        try:
+            return services.verify_face(device=device, employee=employee, image=JPEG).outcome
+        finally:
+            close_old_connections()
+
+    def run_punch():
+        close_old_connections()
+        try:
+            record, created = timeclock.record_punch(
+                device=device, registration="1", client_event_id=uuid.uuid4()
+            )
+            return created
+        finally:
+            close_old_connections()
+
+    with (
+        mock.patch.object(services, "_attempt", attempt_after_barrier),
+        mock.patch.object(ops_services, "employee_for_device", lookup_after_barrier),
+    ):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            verify_future, punch_future = pool.submit(run_verify), pool.submit(run_punch)
+            assert verify_future.result(timeout=30) == "success"
+            assert punch_future.result(timeout=30) is True
+    assert TimeRecord.objects.count() == 1
+
+
+# ---------- Cota de tentativas por exceção ----------
+
+
+def _punch_exception(client, registration, code):
+    body = {
+        "registration": registration,
+        "client_event_id": str(uuid.uuid4()),
+        "identification": {"method": "authorized_exception", "code": code},
+    }
+    return client.post("/api/device/punches/", body, format="json")
+
+
+def _new_exception_code(tenant, employee):
+    return (
+        tenant.client("company_admin")
+        .post(exception_url(tenant.company, employee), {"reason": "Câmera danificada"}, format="json")
+        .json()["code"]
+    )
+
+
+def test_marcacoes_validas_por_excecao_nao_esgotam_a_cota(world):
+    """Regressão (revisão da etapa 6): 12 funcionários diferentes, mesmo aparelho, mesmo minuto."""
+    from apps.biometrics.models import ExceptionBudget
+
+    tenant, unit, device, client, _ = world
+    employees = [make_employee(tenant.company, unit, str(100 + i), f"Pessoa {i}") for i in range(12)]
+    for employee in employees:
+        code = _new_exception_code(tenant, employee)
+        assert _punch_exception(client, employee.registration, code).status_code == 201
+    assert TimeRecord.objects.count() == 12
+    # nada sobrou na cota: só falhas contam
+    assert ExceptionBudget.objects.get(scope=f"device:{device.pk}").count == 0
+
+
+def test_adivinhacao_de_codigo_continua_limitada_e_nao_e_devolvida(world):
+    from apps.biometrics.models import ExceptionBudget
+
+    tenant, unit, device, client, employee = world
+    valid = _new_exception_code(tenant, employee)
+    wrong = f"{(int(valid) + 1) % 10**8:08d}"
+    results = [_punch_exception(client, employee.registration, wrong).status_code for _ in range(12)]
+    assert results[:10] == [400] * 10 and 429 in results[10:]
+    assert ExceptionBudget.objects.get(scope=f"device:{device.pk}").count == 10
+    # com a cota esgotada, até o código correto é recusado antes de ser avaliado
+    assert _punch_exception(client, employee.registration, valid).status_code == 429
+    assert TimeRecord.objects.count() == 0
+
+
+def test_sucesso_devolve_so_a_propria_tentativa_e_erro_interno_nao_devolve(world):
+    from apps.biometrics.models import ExceptionBudget
+
+    tenant, unit, device, client, employee = world
+    valid = _new_exception_code(tenant, employee)
+    wrong = f"{(int(valid) + 1) % 10**8:08d}"
+    for _ in range(3):
+        assert _punch_exception(client, employee.registration, wrong).status_code == 400
+    assert _punch_exception(client, employee.registration, valid).status_code == 201
+    assert ExceptionBudget.objects.get(scope=f"device:{device.pk}").count == 3  # as 3 falhas seguem contadas
+    # erro interno após reservar: a tentativa não é devolvida (sem sucesso gravado)
+    again = _new_exception_code(tenant, employee)
+    with mock.patch("apps.timeclock.services._insert", side_effect=RuntimeError("disco cheio")):
+        # rota sensível: o middleware devolve 500 genérico (sem vazar a exceção)
+        assert _punch_exception(client, employee.registration, again).status_code == 500
+    assert ExceptionBudget.objects.get(scope=f"device:{device.pk}").count == 4
+
+
+# ---------- Contrato usado pelo tablet para retomar tentativas sem confirmação ----------
+
+
+def test_evento_gravado_e_devolvido_antes_de_validar_identificacao_ou_matricula(world):
+    """O Dart conclui que 400/404 no reenvio prova que o evento NÃO foi gravado, porque o servidor
+    consulta o evento existente antes de validar matrícula, identificação ou política."""
+    tenant, _, _, client, employee = world
+    event = str(uuid.uuid4())
+    first = client.post(
+        "/api/device/punches/", {"registration": "1", "client_event_id": event}, format="json"
+    )
+    assert first.status_code == 201
+    tenant.company.identification_mode = "face"  # a política passou a exigir face depois da gravação
+    tenant.company.save()
+    variations = [
+        {"registration": "999"},  # matrícula inexistente
+        {"identification": {"method": "authorized_exception", "code": "00000000"}},  # código inválido
+        {"identification": {"method": "face", "verification_id": 987654, "verification_token": "x"}},
+        {"identification": {"method": "registration"}},  # método agora proibido pela política
+    ]
+    for extra in variations:
+        body = {"registration": "1", "client_event_id": event, **extra}
+        again = client.post("/api/device/punches/", body, format="json")
+        assert again.status_code == 200 and again.json()["duplicate"] is True, extra
+        assert again.json()["record"]["id"] == first.json()["record"]["id"]
+    assert TimeRecord.objects.count() == 1

@@ -18,7 +18,7 @@ def resolve_company(request, company_id, *, lock=False):
     e cada acesso é auditado. Os endpoints decidem o que isso permite.
     """
     request.membership = None
-    companies = Company.objects.select_for_update() if lock else Company.objects
+    companies = Company.objects.select_for_update(no_key=True) if lock else Company.objects
     company = companies.filter(pk=company_id).first()
     if company is None:
         raise IsolationError()

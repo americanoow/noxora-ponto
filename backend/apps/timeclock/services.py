@@ -75,7 +75,7 @@ def record_punch(
     """
     # Mesmo bloqueio usado por revogação/renovação. A autenticação HTTP pode ter
     # ocorrido antes de uma revogação concorrente.
-    device = Device.objects.select_for_update().get(pk=device.pk)
+    device = Device.objects.select_for_update(no_key=True).get(pk=device.pk)
     if credential is not None:
         credential.refresh_from_db()
         if (
@@ -96,7 +96,7 @@ def record_punch(
     if employee is None:
         raise NotFound("Matrícula não encontrada nesta unidade.")
 
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if identification is not None and not isinstance(identification, dict):
         raise IdentificationRejected({"identification": "Identificação inválida."})
     payload = identification or {"method": RegistrationOnlyProvider.method}
@@ -131,7 +131,9 @@ def record_punch(
 def _insert(device, employee, client_event_id, declared_kind, device_reported_at, identification):
     unit = device.unit
     NsrCounter.objects.get_or_create(unit=unit)
-    counter = NsrCounter.objects.select_for_update().get(unit=unit)  # serializa NSR e cadeia por unidade
+    counter = NsrCounter.objects.select_for_update(no_key=True).get(
+        unit=unit
+    )  # serializa NSR e cadeia por unidade
     nsr = counter.last_nsr + 1
 
     now = timezone.now()
@@ -188,7 +190,7 @@ def verify_unit_chain(unit) -> list[str]:
     problems = []
     # Leitura consistente com a alocação: uma inserção concorrente não deve
     # produzir um falso alerta entre a leitura dos registros e a do contador.
-    counter = NsrCounter.objects.select_for_update().filter(unit=unit).first()
+    counter = NsrCounter.objects.select_for_update(no_key=True).filter(unit=unit).first()
     prev_hash, expected_nsr = "", 1
     last = None
     for r in TimeRecord.objects.filter(unit=unit).order_by("nsr").iterator():

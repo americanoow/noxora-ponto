@@ -106,14 +106,16 @@ def assign_unit(employee, company, unit, sector, valid_from):
     ):
         raise ValidationError({"sector": "Setor inválido para a unidade."})
     with transaction.atomic():
-        unit = Unit.objects.select_for_update().get(pk=unit.pk, company=company)
+        unit = Unit.objects.select_for_update(no_key=True).get(pk=unit.pk, company=company)
         if not unit.is_active:
             raise ValidationError({"unit": "Unidade inválida."})
         if sector is not None:
-            sector = Sector.objects.select_for_update().get(pk=sector.pk, company=company, unit=unit)
+            sector = Sector.objects.select_for_update(no_key=True).get(
+                pk=sector.pk, company=company, unit=unit
+            )
             if not sector.is_active:
                 raise ValidationError({"sector": "Setor inválido para a unidade."})
-        locked = Employee.objects.select_for_update().get(pk=employee.pk, company=company)
+        locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk, company=company)
         last = _validate_interval_start(locked.assignments, valid_from, "valid_from")
         _close_previous(last, valid_from)
         return Assignment.objects.create(employee=locked, unit=unit, sector=sector, valid_from=valid_from)
@@ -123,10 +125,10 @@ def assign_schedule(employee, company, schedule, valid_from):
     if schedule.company_id != company.pk or not schedule.is_active:
         raise ValidationError({"schedule": "Jornada inválida."})
     with transaction.atomic():
-        schedule = WorkSchedule.objects.select_for_update().get(pk=schedule.pk, company=company)
+        schedule = WorkSchedule.objects.select_for_update(no_key=True).get(pk=schedule.pk, company=company)
         if not schedule.is_active:
             raise ValidationError({"schedule": "Jornada inválida."})
-        locked = Employee.objects.select_for_update().get(pk=employee.pk, company=company)
+        locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk, company=company)
         last = _validate_interval_start(locked.schedule_assignments, valid_from, "valid_from")
         _close_previous(last, valid_from)
         return EmployeeSchedule.objects.create(employee=locked, schedule=schedule, valid_from=valid_from)
@@ -135,7 +137,7 @@ def assign_schedule(employee, company, schedule, valid_from):
 def replace_schedule_days(schedule, days):
     """Troca os dias da jornada. Só permitido enquanto nenhuma atribuição a usa (preserva o histórico)."""
     with transaction.atomic():
-        locked = WorkSchedule.objects.select_for_update().get(pk=schedule.pk)
+        locked = WorkSchedule.objects.select_for_update(no_key=True).get(pk=schedule.pk)
         if locked.assignments.exists():
             raise ValidationError(
                 {"days": "Esta jornada já foi atribuída e não pode ser alterada. Crie uma nova jornada."}

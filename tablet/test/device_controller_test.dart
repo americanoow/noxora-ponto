@@ -215,18 +215,72 @@ void punchTests() {
     c.dispose();
   });
 
-  for (final status in [400, 401, 404]) {
-    test('recusa $status após falha não afirma ausência do registro anterior', () async {
+  test('401 após falha não afirma ausência do registro anterior (credencial pode ter sido revogada)', () async {
+    var count = 0;
+    final c = activeController((r) async {
+      if (++count == 1) throw http.ClientException('rede');
+      return http.Response('{}', 401);
+    });
+    expect(await c.punch('100'), isA<PunchUnconfirmed>());
+    expect(await c.punch('100'), isA<PunchUnconfirmed>());
+    c.dispose();
+  });
+
+  for (final status in [400, 404]) {
+    test('recusa $status após falha encerra a tentativa: o servidor prova que o evento não foi gravado', () async {
+      final ids = <String>[];
       var count = 0;
       final c = activeController((r) async {
+        ids.add((jsonDecode(r.body) as Map<String, dynamic>)['client_event_id'] as String);
         if (++count == 1) throw http.ClientException('rede');
-        return http.Response('{}', status);
+        if (count == 2) return http.Response('{}', status);
+        return http.Response(jsonEncode(punchOk), 201);
       });
       expect(await c.punch('100'), isA<PunchUnconfirmed>());
-      expect(await c.punch('100'), isA<PunchUnconfirmed>());
+      expect(await c.punch('100'), isA<PunchRejected>());
+      // a pendência foi encerrada: a próxima tentativa usa um evento novo
+      expect(await c.punch('100'), isA<PunchRecorded>());
+      expect(ids[1], ids[0]);
+      expect(ids[2], isNot(ids[0]));
       c.dispose();
     });
   }
+
+  test('novo código de exceção após falha de rede reaproveita o evento e troca a identificação', () async {
+    final sent = <Map<String, dynamic>>[];
+    final c = activeController((r) async {
+      sent.add(jsonDecode(r.body) as Map<String, dynamic>);
+      if (sent.length == 1) throw http.ClientException('rede');
+      return http.Response(jsonEncode(punchOk), 201);
+    });
+    expect(
+      await c.punch('100', identification: {'method': 'authorized_exception', 'code': '11111111'}),
+      isA<PunchUnconfirmed>(),
+    );
+    // o primeiro código expirou ou foi substituído: o funcionário informa o novo
+    expect(
+      await c.punch('100', identification: {'method': 'authorized_exception', 'code': '22222222'}),
+      isA<PunchRecorded>(),
+    );
+    expect(sent[1]['client_event_id'], sent[0]['client_event_id']);
+    expect(sent[1]['identification'], {'method': 'authorized_exception', 'code': '22222222'});
+    expect(sent[1]['device_reported_at'], sent[0]['device_reported_at']);
+    c.dispose();
+  });
+
+  test('token facial vencido após falha de rede: nova verificação reaproveita o evento', () async {
+    final sent = <Map<String, dynamic>>[];
+    final c = activeController((r) async {
+      sent.add(jsonDecode(r.body) as Map<String, dynamic>);
+      if (sent.length == 1) throw http.ClientException('rede');
+      return http.Response(jsonEncode(punchOk), 201);
+    });
+    await c.punch('100', identification: {'method': 'face', 'verification_id': 1, 'verification_token': 'velho'});
+    await c.punch('100', identification: {'method': 'face', 'verification_id': 2, 'verification_token': 'novo'});
+    expect(sent[1]['client_event_id'], sent[0]['client_event_id']);
+    expect((sent[1]['identification'] as Map)['verification_token'], 'novo');
+    c.dispose();
+  });
 
   test('marcação enviada com credencial, identificador de evento UUID e retorna o NSR', () async {
     late Map<String, dynamic> sent;
