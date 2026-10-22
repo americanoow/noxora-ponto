@@ -2,7 +2,8 @@
 
 IMPORTANTE: a especificação vigente do AFD está no portal gov.br (a Portaria MTP 1.486/2022 revogou
 os anexos com os layouts). Esta versão implementa o layout histórico lido no texto consolidado e
-precisa ser conferida com a especificação vigente (ver docs/requisitos-rep-p.md, pendência 1).
+foi comparada ao AFD 004 do portal na revisão. Preenchimento e vetor de hash ainda exigem
+validação especializada (ver docs/requisitos-rep-p.md, pendência 1 e seção 3).
 Por isso cada registro guarda `hash_version`: uma nova versão pode ser adotada sem reescrever o passado.
 """
 

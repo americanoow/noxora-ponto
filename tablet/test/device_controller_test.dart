@@ -185,6 +185,47 @@ DeviceController activeController(MockClientHandler handler, {MemoryTokenStore? 
     );
 
 void punchTests() {
+  test('alternar matrícula preserva o evento e payload anterior', () async {
+    final sent = <Map<String, dynamic>>[];
+    final c = activeController((r) async {
+      sent.add(jsonDecode(r.body) as Map<String, dynamic>);
+      if (sent.length == 1) throw http.ClientException('rede');
+      return http.Response(jsonEncode(punchOk), 200);
+    });
+    await c.punch('100', declaredKind: 'entry');
+    await c.punch('200');
+    expect(await c.punch('100', declaredKind: 'exit'), isA<PunchRecorded>());
+    expect(sent[2], sent[0]);
+    expect(sent[1]['client_event_id'], isNot(sent[0]['client_event_id']));
+    c.dispose();
+  });
+
+  test('resposta incompleta não descarta o evento pendente', () async {
+    final ids = <String>[];
+    final c = activeController((r) async {
+      ids.add((jsonDecode(r.body) as Map<String, dynamic>)['client_event_id'] as String);
+      if (ids.length == 1) return http.Response('{"receipt":{}}', 201);
+      return http.Response(jsonEncode(punchOk), 200);
+    });
+    expect(await c.punch('100'), isA<PunchUnconfirmed>());
+    expect(await c.punch('100'), isA<PunchRecorded>());
+    expect(ids[0], ids[1]);
+    c.dispose();
+  });
+
+  for (final status in [400, 401, 404]) {
+    test('recusa $status após falha não afirma ausência do registro anterior', () async {
+      var count = 0;
+      final c = activeController((r) async {
+        if (++count == 1) throw http.ClientException('rede');
+        return http.Response('{}', status);
+      });
+      expect(await c.punch('100'), isA<PunchUnconfirmed>());
+      expect(await c.punch('100'), isA<PunchUnconfirmed>());
+      c.dispose();
+    });
+  }
+
   test('marcação enviada com credencial, identificador de evento UUID e retorna o NSR', () async {
     late Map<String, dynamic> sent;
     late Map<String, String> headers;

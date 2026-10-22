@@ -17,8 +17,15 @@ class PunchSerializer(serializers.Serializer):
     def validate_registration(self, value):
         return value.strip()
 
+    def validate_identification(self, value):
+        if value and not isinstance(value.get("method"), str):
+            raise serializers.ValidationError("Informe um método de identificação textual.")
+        return value
+
 
 def validate_cnpj(raw: str) -> str:
+    if any(not (ch.isascii() and ch.isdigit()) and ch not in ".-/ " for ch in raw):
+        raise ValueError("CNPJ inválido.")
     digits = "".join(ch for ch in raw if ch.isdigit())
     if len(digits) != 14 or len(set(digits)) == 1:
         raise ValueError("CNPJ inválido.")
@@ -35,7 +42,7 @@ def validate_cnpj(raw: str) -> str:
 
 class EmployerSerializer(serializers.Serializer):
     legal_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
-    tax_id_type = serializers.ChoiceField(choices=["CNPJ", "CPF"], required=False)
+    tax_id_type = serializers.ChoiceField(choices=["CNPJ", "CPF"], required=False, allow_blank=True)
     tax_id = serializers.CharField(max_length=20, required=False, allow_blank=True)
     cei_caepf_cno = serializers.CharField(max_length=20, required=False, allow_blank=True)
 
@@ -62,11 +69,15 @@ class EmployerSerializer(serializers.Serializer):
         return attrs
 
 
-def employer_dict(company) -> dict:
+def employer_dict(company, *, mask_document=False) -> dict:
     return {
         "legal_name": company.legal_name,
         "tax_id_type": company.tax_id_type,
-        "tax_id": company.tax_id,
+        "tax_id": (
+            ops_services.mask_cpf(company.tax_id)
+            if mask_document and company.tax_id_type == "CPF"
+            else company.tax_id
+        ),
         "cei_caepf_cno": company.cei_caepf_cno,
     }
 

@@ -191,8 +191,7 @@ class DeviceController extends ChangeNotifier {
   }
 
   // Tentativa em aberto (sem resposta definitiva): preserva o evento para o reenvio ser idempotente.
-  String? _pendingRegistration;
-  String? _pendingEventId;
+  final Map<String, Map<String, dynamic>> _pendingPunches = {};
   bool _punching = false;
 
   /// Registra uma marcação. [declaredKind]: '', 'entry', 'break_start', 'break_end' ou 'exit'
@@ -202,48 +201,59 @@ class DeviceController extends ChangeNotifier {
     if (reg.isEmpty) return const PunchRejected('Informe a matrícula.');
     if (_punching) return const PunchUnconfirmed('Aguarde a conclusão do registro anterior.');
     _punching = true;
+    final wasUnconfirmed = _pendingPunches.containsKey(reg);
     try {
       final credential = await store.read();
-      if (credential == null) return const PunchRejected('Tablet não ativado.');
-      if (_pendingRegistration != reg || _pendingEventId == null) {
-        _pendingRegistration = reg;
-        _pendingEventId = _newEventId();
+      if (credential == null) {
+        return wasUnconfirmed
+            ? const PunchUnconfirmed('Tentativa anterior sem confirmação. Procure o administrador.')
+            : const PunchRejected('Tablet não ativado.');
       }
+      final payload = _pendingPunches.putIfAbsent(reg, () => {
+        'registration': reg,
+        'client_event_id': _newEventId(),
+        'declared_kind': declaredKind,
+        'device_reported_at': _now().toUtc().toIso8601String(),
+      });
       final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/device/punches/'),
             headers: _headers(credential.token),
-            body: jsonEncode({
-              'registration': reg,
-              'client_event_id': _pendingEventId,
-              'declared_kind': declaredKind,
-              'device_reported_at': _now().toUtc().toIso8601String(),
-            }),
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200 || response.statusCode == 201) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         final receipt = body['receipt'] as Map<String, dynamic>;
-        _clearPending();
-        return PunchRecorded(
+        final outcome = PunchRecorded(
           nsr: (receipt['nsr'] as num).toInt(),
           workerName: '${(receipt['worker'] as Map<String, dynamic>)['name']}',
           occurredAt: '${receipt['occurred_at']}',
           hash: '${receipt['hash_sha256']}',
           duplicate: body['duplicate'] == true,
         );
+        _pendingPunches.remove(reg);
+        return outcome;
       }
       if (response.statusCode == 401) {
-        // Credencial revogada/expirada: a marcação NÃO foi gravada.
-        _clearPending();
+        // A recusa atual não prova que uma tentativa anterior não foi gravada.
+        if (!wasUnconfirmed) _pendingPunches.remove(reg);
         scope = null;
         _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
         await store.clear();
+        if (wasUnconfirmed) {
+          return const PunchUnconfirmed('Tablet desativado. Tentativa anterior sem confirmação. Procure o administrador.');
+        }
         return const PunchRejected('Tablet desativado. Marcação não registrada.');
       }
       if (response.statusCode == 404 || response.statusCode == 400) {
-        _clearPending();
-        return const PunchRejected('Matrícula não encontrada nesta unidade. Marcação não registrada.');
+        if (!wasUnconfirmed) _pendingPunches.remove(reg);
+        if (wasUnconfirmed) {
+          return const PunchUnconfirmed('Tentativa anterior sem confirmação. Procure o administrador.');
+        }
+        return PunchRejected(response.statusCode == 404
+            ? 'Matrícula não encontrada nesta unidade. Marcação não registrada.'
+            : 'Dados ou identificação recusados. Marcação não registrada.');
       }
       return const PunchUnconfirmed('Servidor indisponível. Tente novamente: não haverá duplicidade.');
     } catch (_) {
@@ -251,11 +261,6 @@ class DeviceController extends ChangeNotifier {
     } finally {
       _punching = false;
     }
-  }
-
-  void _clearPending() {
-    _pendingRegistration = null;
-    _pendingEventId = null;
   }
 
   Map<String, String> _headers(String token) =>

@@ -1,24 +1,26 @@
 {
-  "etapa": 5,
-  "tarefa": "Núcleo de marcação de ponto",
+  "etapa": 6,
+  "tarefa": "Reconhecimento facial",
   "fase": "implementação",
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapa 4 revisada pelo Codex (9 correções) e conferida pelo Claude: backend 202 testes (1 ignorado, concorrência PostgreSQL), frontend 39, lint e migrations limpos (SQLite).",
-  "proxima_acao": "Etapa 5: levantar requisitos oficiais do REP-P/Portaria 671/2021 (fontes vigentes), documentar o que é confirmado e o que exige validação externa, e então implementar o núcleo de marcação.",
-  "ultimo_checkpoint": "etapa-4-aceita",
+  "ultima_tarefa_concluida": "Etapa 5 revisada pelo Codex e conferida: backend 259 testes passam em PostgreSQL 17.5 real (1 ignorado, específico do SQLite) e 255 em SQLite; frontend 44; lint e migrations limpos. Concorrência, TRUNCATE e gatilhos validados em PostgreSQL.",
+  "proxima_acao": "Etapa 6: avaliar motor biométrico (Flutter/Android/offline/licença/custo) SEM contratar serviço pago; implementar a interface de integração, cadastro protegido, verificação 1:1, estados de falha e proteção dos dados; registrar bloqueios.",
+  "ultimo_checkpoint": "etapa-5-aceita",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
-    "Docker ausente: PostgreSQL 17 e concorrência real (reset, convites, revogações, vigências, jornadas, importação, ativação/rotação de tablets) não validados",
-    "Flutter ausente: analyze/testes/APK debug e armazenamento seguro em Android real não executados",
+    "Flutter ausente: analyze/testes/APK debug e armazenamento seguro em Android real não executados (inclui fluxo de marcação)",
     "CI nunca executada",
-    "Aplicar migrations em banco persistente: checar e-mails duplicados por caixa (accounts.0002) e justificativas de localização só com espaços (devices.0003)",
+    "Migrations em banco persistente com dados reais: checar e-mails duplicados por caixa (accounts.0002), justificativas de localização só com espaços (devices.0003), marcações legadas sem snapshot (timeclock.0003)",
     "SMTP real não configurado; MFA não avaliado; throttling e dedupe em cache local",
     "Exclusão de sobreposição de vigências no banco (btree_gist) pendente",
-    "Revogação offline de tablets só tratável na etapa 7",
-    "Retenção/base jurídica das evidências de localização: validação especializada"
+    "Revogação offline de tablets e fila persistente de marcações: etapa 7",
+    "Retenção/base jurídica das evidências de localização: validação especializada",
+    "D41 (etapa 14): rotina exclusiva de append no PostgreSQL; hoje INSERT arbitrário por papel com permissão de escrita é possível e só é DETECTADO (verify_timeclock)",
+    "Requisitos REP-P: ver docs/requisitos-rep-p.md seção 2 (layout vigente do AFD/vetor do hash, estabelecimento, ARP completa, prazo de guarda, ICP-Brasil/INPI/Atestado, identificação, HLB, alta disponibilidade)",
+    "Carga/desempenho de marcações simultâneas em PostgreSQL: etapa 14"
   ],
   "retomada_manual_obrigatoria": false
 }

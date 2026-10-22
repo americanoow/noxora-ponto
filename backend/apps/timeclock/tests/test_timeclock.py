@@ -534,3 +534,203 @@ def test_endereco_da_unidade_pode_ser_informado(tenant_a):
         format="json",
     )
     assert r.status_code == 201 and r.json()["address"] == "Av. Brasil, 1"
+
+
+@pytest.mark.parametrize("query", ["?from=2026-02-30", "?to=2026-13-01"])
+def test_datas_impossiveis_retornam_400(setup, query):
+    tenant, *_ = setup
+    assert tenant.client("company_admin").get(list_url(tenant.company, query)).status_code == 400
+
+
+@pytest.mark.parametrize("method", [[], {}, 12, None])
+def test_identificacao_malformada_nao_gera_500(setup, method):
+    *_, client, _employee = setup
+    assert punch(client, identification={"method": method}).status_code == 400
+    assert not TimeRecord.objects.exists()
+
+
+def test_cnpj_nao_descarta_letras_ou_digitos_unicode(tenant_a):
+    admin = tenant_a.client("company_admin")
+    for value in ("x11222333000181", "１１２２２３３３０００１８１"):
+        assert (
+            admin.patch(
+                employer_url(tenant_a.company), {"tax_id_type": "CNPJ", "tax_id": value}, format="json"
+            ).status_code
+            == 400
+        )
+
+
+def test_cpf_empregador_nao_vaza_em_auditoria_gestor_ou_terminal(setup):
+    tenant, *_rest, client, _employee = setup
+    admin = tenant.client("company_admin")
+    admin.patch(employer_url(tenant.company), {"tax_id_type": "CPF", "tax_id": CPF}, format="json")
+    assert CPF not in str(AuditLog.objects.get(action="employer.updated").metadata)
+    assert CPF not in str(tenant.client("manager").get(employer_url(tenant.company)).json())
+    assert CPF not in str(punch(client).json())
+    admin.patch(employer_url(tenant.company), {"tax_id_type": "CNPJ", "tax_id": CNPJ}, format="json")
+    assert all(CPF not in str(log.metadata) for log in AuditLog.objects.filter(action="employer.updated"))
+
+
+def test_comprovante_nao_muda_com_cadastro_ou_configuracao(setup, settings):
+    tenant, unit, device, client, employee = setup
+    event = uuid.uuid4()
+    original = punch(client, event=event).json()
+    tenant.company.legal_name = "Novo nome"
+    tenant.company.save()
+    Unit.objects.filter(pk=unit.pk).update(address="Novo endereco", name="Nova sede")
+    settings.REP_P_INPI_REGISTRATION = "novo"
+    assert punch(client, event=event).json()["receipt"] == original["receipt"]
+    url = f"/api/device/punches/{original['record']['id']}/receipt/"
+    assert client.get(url).json() == original["receipt"]
+
+
+def test_revogacao_entre_autenticacao_e_servico_nao_grava(setup):
+    from rest_framework.exceptions import AuthenticationFailed
+
+    tenant, unit, device, client, employee = setup
+    stale_credential = device.credentials.first()
+    device_services.revoke(Device.objects.get(pk=device.pk))
+    with pytest.raises(AuthenticationFailed):
+        services.record_punch(
+            device=device, credential=stale_credential, registration="1", client_event_id=uuid.uuid4()
+        )
+    assert not TimeRecord.objects.exists()
+
+
+def test_empresa_inativa_nao_registra(setup):
+    tenant, unit, device, client, employee = setup
+    tenant.company.is_active = False
+    tenant.company.save()
+    assert punch(client).status_code == 403
+    assert not TimeRecord.objects.exists()
+
+
+def test_falha_apos_insert_reverte_registro_e_nsr(setup):
+    tenant, unit, device, client, employee = setup
+    punch(client)
+    with mock.patch.object(NsrCounter, "save", side_effect=RuntimeError("falha")):
+        with pytest.raises(RuntimeError):
+            punch(client)
+    assert TimeRecord.objects.count() == 1
+    assert services.verify_unit_chain(unit) == []
+    assert punch(client).json()["record"]["nsr"] == 2
+
+
+@pytest.mark.parametrize(
+    "tz_name,moment,offset,local_date",
+    [
+        ("America/Sao_Paulo", "2026-10-22T01:30:00+00:00", -180, "2026-10-21"),
+        ("Asia/Kathmandu", "2026-10-22T20:00:00+00:00", 345, "2026-10-23"),
+        ("America/St_Johns", "2026-01-22T02:00:00+00:00", -210, "2026-01-21"),
+        ("America/New_York", "2026-11-01T05:30:00+00:00", -240, "2026-11-01"),
+        ("America/New_York", "2026-11-01T06:30:00+00:00", -300, "2026-11-01"),
+    ],
+)
+def test_data_local_e_offset_no_instante(setup, tz_name, moment, offset, local_date):
+    tenant, unit, device, client, employee = setup
+    Unit.objects.filter(pk=unit.pk).update(timezone=tz_name)
+    with mock.patch.object(services.timezone, "now", return_value=datetime.datetime.fromisoformat(moment)):
+        # Serviço sem credencial: relógio congelado não interfere na expiração do token de teste.
+        record, _ = services.record_punch(device=device, registration="1", client_event_id=uuid.uuid4())
+    assert record.occurred_offset_minutes == offset
+    assert record.occurred_local_date.isoformat() == local_date
+    assert services.verify_unit_chain(unit) == []
+
+
+def test_fks_protegem_exclusao_indireta(setup):
+    from django.db.models.deletion import ProtectedError
+
+    tenant, unit, device, client, employee = setup
+    punch(client)
+    for obj in (tenant.company, unit, device, employee):
+        with pytest.raises(ProtectedError):
+            obj.delete()
+    assert TimeRecord.objects.count() == 1
+
+
+def test_contador_sem_registros_e_detectado(setup):
+    _, unit, *_ = setup
+    NsrCounter.objects.create(unit=unit, last_nsr=8, last_hash="x")
+    assert "Contador" in str(services.verify_unit_chain(unit))
+
+
+@pytest.mark.skipif(connection.vendor != "postgresql", reason="TRUNCATE requer PostgreSQL")
+def test_postgresql_bloqueia_truncate(setup):
+    *_, client, _employee = setup
+    punch(client)
+    with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("TRUNCATE timeclock_timerecord CASCADE")
+    assert TimeRecord.objects.count() == 1
+
+
+@pytest.mark.skipif(connection.vendor != "postgresql", reason="Concorrencia exige PostgreSQL real")
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("same_event,same_device", [(True, True), (False, True), (False, False)])
+def test_nsr_concorrente_postgresql(setup, same_event, same_device):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections
+
+    tenant, unit, device, client, employee = setup
+    other = device if same_device else make_device(tenant.company, unit, "Outro")[0]
+    event = uuid.uuid4()
+    barrier = Barrier(2)
+
+    def attempt(index):
+        close_old_connections()
+        try:
+            barrier.wait(timeout=10)
+            record, created = services.record_punch(
+                device=device if index == 0 else other,
+                registration="1",
+                client_event_id=event if same_event else uuid.uuid4(),
+            )
+            return record.pk, created
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(attempt, index) for index in range(2)]
+        results = [future.result(timeout=20) for future in futures]
+    expected = 1 if same_event else 2
+    assert sum(created for _, created in results) == expected
+    assert len({pk for pk, _ in results}) == expected
+    assert list(TimeRecord.objects.order_by("nsr").values_list("nsr", flat=True)) == list(
+        range(1, expected + 1)
+    )
+    assert NsrCounter.objects.get(unit=unit).last_nsr == expected
+    assert services.verify_unit_chain(unit) == []
+
+
+@pytest.mark.skipif(connection.vendor != "sqlite", reason="REPLACE especifico do SQLite")
+def test_sqlite_replace_nao_contorna_imutabilidade(setup):
+    *_, client, _employee = setup
+    punch(client)
+    fields = [field.column for field in TimeRecord._meta.concrete_fields]
+    columns = ", ".join(connection.ops.quote_name(field) for field in fields)
+    values = ", ".join(
+        "'adulterado'" if field == "registration" else connection.ops.quote_name(field) for field in fields
+    )
+    with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT OR REPLACE INTO timeclock_timerecord ({columns}) "
+            f"SELECT {values} FROM timeclock_timerecord"
+        )
+    assert TimeRecord.objects.get().registration == "1"
+
+
+def test_empregador_aceita_formulario_parcial_sem_documento(tenant_a):
+    response = tenant_a.client("company_admin").patch(
+        employer_url(tenant_a.company),
+        {"legal_name": "Empresa", "tax_id_type": "", "tax_id": "", "cei_caepf_cno": ""},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["legal_name"] == "Empresa"
+
+
+def test_relogio_muito_distante_cabe_no_campo_do_postgresql(setup):
+    *_, client, _employee = setup
+    assert punch(client, device_reported_at="9999-01-01T00:00:00Z").status_code == 201
+    assert TimeRecord.objects.get().clock_skew_seconds > 2**31

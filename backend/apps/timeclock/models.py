@@ -65,12 +65,13 @@ class TimeRecord(models.Model):
     collector_code = models.CharField(max_length=2, default="01")
     # Informações do aparelho, preservadas como foram enviadas. O horário oficial é o do servidor.
     device_reported_at = models.DateTimeField(null=True, blank=True)
-    clock_skew_seconds = models.IntegerField(null=True, blank=True)
+    clock_skew_seconds = models.BigIntegerField(null=True, blank=True)
 
     # Instantâneos no momento da marcação (cadastro pode mudar depois; o registro não).
     cpf = models.CharField(max_length=11, blank=True)
     employee_name = models.CharField(max_length=200)
     registration = models.CharField(max_length=30)
+    receipt_snapshot = models.JSONField(null=True, editable=False)
 
     # Informativo, fora do hash: o que o trabalhador indicou no terminal. A apuração (etapa 8) decide.
     declared_kind = models.CharField(max_length=12, blank=True, choices=DeclaredKind.choices)

@@ -6,9 +6,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit import services as audit
+from apps.companies.models import Company
 from apps.devices.views import DeviceView
 from apps.operations import services as ops_services
-from apps.operations.views import Pagination, admin_company, reader_company
+from apps.operations.views import Pagination, admin_company, is_admin, reader_company
 
 from . import services
 from .models import TimeRecord
@@ -32,6 +33,7 @@ class PunchView(DeviceView):
             declared_kind=v["declared_kind"],
             device_reported_at=v["device_reported_at"],
             identification=v["identification"],
+            credential=request.auth,
         )
         return Response(
             {"duplicate": not created, "record": record_dict(record), "receipt": build_receipt(record)},
@@ -77,7 +79,10 @@ class TimeRecordListView(APIView):
                 qs = qs.filter(**{field: int(value)})
         for param, lookup in (("from", "occurred_local_date__gte"), ("to", "occurred_local_date__lte")):
             if value := p.get(param, ""):
-                parsed = parse_date(value)
+                try:
+                    parsed = parse_date(value)
+                except ValueError:
+                    parsed = None
                 if parsed is None:
                     raise ValidationError({param: "Use o formato AAAA-MM-DD."})
                 qs = qs.filter(**{lookup: parsed})
@@ -108,26 +113,33 @@ class TimeRecordDetailView(APIView):
 class EmployerView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
-        return Response(employer_dict(company))
+        return Response(employer_dict(company, mask_document=not is_admin(request)))
 
+    @transaction.atomic
     def patch(self, request, company_id):
         company = admin_company(request, company_id)
+        company = Company.objects.select_for_update().get(pk=company.pk)
         data = EmployerSerializer(data=request.data, context={"company": company})
         data.is_valid(raise_exception=True)
         changes = data.validated_data
         before = {k: getattr(company, k) for k in changes}
+        before_kind = company.tax_id_type
         with transaction.atomic():
             for field, value in changes.items():
                 setattr(company, field, value)
             if changes:
                 company.save(update_fields=list(changes))
-            # Dados do empregador não são segredo: antes/depois atendem à rastreabilidade (Anexo IX, 6.1).
+            after = {k: getattr(company, k) for k in changes}
+            # CPF do empregador também é dado pessoal. Nunca persistir o número na auditoria.
+            for values, kind in ((before, before_kind), (after, company.tax_id_type)):
+                if kind == "CPF" and "tax_id" in values:
+                    values["tax_id"] = "[omitido]"
             audit.record(
                 request,
                 "employer.updated",
                 company=company,
                 target=company,
                 before=before,
-                after={k: getattr(company, k) for k in changes},
+                after=after,
             )
         return Response(employer_dict(company))

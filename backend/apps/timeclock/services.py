@@ -5,12 +5,14 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied, ValidationError
 
+from apps.devices.models import Device
 from apps.operations import services as ops_services
 
 from . import hashing
 from .models import NsrCounter, TimeRecord
+from .receipt import snapshot_receipt
 
 
 class IdentificationResult(NamedTuple):
@@ -53,6 +55,7 @@ def _existing(device, client_event_id):
     )
 
 
+@transaction.atomic
 def record_punch(
     *,
     device,
@@ -61,6 +64,7 @@ def record_punch(
     declared_kind: str = "",
     device_reported_at: datetime.datetime | None = None,
     identification: dict | None = None,
+    credential=None,
 ):
     """Grava uma marcação. Retorna (registro, criado).
 
@@ -68,6 +72,21 @@ def record_punch(
     - Nunca bloqueia por escala, disponibilidade ou horário (Portaria 671, art. 74).
     - Horário oficial = relógio do servidor; o do aparelho é guardado como informação.
     """
+    # Mesmo bloqueio usado por revogação/renovação. A autenticação HTTP pode ter
+    # ocorrido antes de uma revogação concorrente.
+    device = Device.objects.select_for_update().get(pk=device.pk)
+    if credential is not None:
+        credential.refresh_from_db()
+        if (
+            credential.device_id != device.pk
+            or credential.revoked_at is not None
+            or credential.expires_at <= timezone.now()
+        ):
+            raise AuthenticationFailed("Credencial sem autorização.")
+    if device.status != "active":
+        raise AuthenticationFailed("Dispositivo sem autorização.")
+    if not device.company.is_active:
+        raise PermissionDenied("Empresa inativa.")
     existing = _existing(device, client_event_id)
     if existing is not None:
         return existing, False
@@ -77,7 +96,8 @@ def record_punch(
         raise NotFound("Matrícula não encontrada nesta unidade.")
 
     payload = identification or {"method": RegistrationOnlyProvider.method}
-    provider = PROVIDERS.get(payload.get("method"))
+    method = payload.get("method")
+    provider = PROVIDERS.get(method) if isinstance(method, str) else None
     if provider is None:
         raise ValidationError({"identification": "Método de identificação desconhecido."})
     result = provider.verify(device=device, employee=employee, payload=payload)
@@ -134,6 +154,7 @@ def _insert(device, employee, client_event_id, declared_kind, device_reported_at
         cpf=employee.cpf,
         employee_name=employee.full_name,
         registration=employee.registration,
+        receipt_snapshot=snapshot_receipt(device.company, unit),
         declared_kind=declared_kind,
         identification_method=identification.method,
         identification_ref=identification.reference,
@@ -147,13 +168,24 @@ def _insert(device, employee, client_event_id, declared_kind, device_reported_at
     return record
 
 
+@transaction.atomic
 def verify_unit_chain(unit) -> list[str]:
     """Confere NSR contíguo, encadeamento e hashes de uma unidade. Lista vazia = íntegra."""
     problems = []
+    # Leitura consistente com a alocação: uma inserção concorrente não deve
+    # produzir um falso alerta entre a leitura dos registros e a do contador.
+    counter = NsrCounter.objects.select_for_update().filter(unit=unit).first()
     prev_hash, expected_nsr = "", 1
     last = None
     for r in TimeRecord.objects.filter(unit=unit).order_by("nsr").iterator():
         last = r
+        if r.hash_version != hashing.HASH_VERSION:
+            problems.append(f"NSR {r.nsr}: versão de hash desconhecida")
+        local_date = r.occurred_at.astimezone(
+            datetime.timezone(datetime.timedelta(minutes=r.occurred_offset_minutes))
+        ).date()
+        if r.occurred_local_date != local_date:
+            problems.append(f"NSR {r.nsr}: data local inconsistente")
         if r.nsr != expected_nsr:
             problems.append(f"NSR {r.nsr}: esperado {expected_nsr} (lacuna ou duplicidade)")
             expected_nsr = r.nsr
@@ -173,7 +205,8 @@ def verify_unit_chain(unit) -> list[str]:
         if recomputed != r.record_hash:
             problems.append(f"NSR {r.nsr}: hash armazenado difere do recalculado")
         prev_hash, expected_nsr = r.record_hash, r.nsr + 1
-    counter = NsrCounter.objects.filter(unit=unit).first()
+    if last is None and counter is not None and (counter.last_nsr != 0 or counter.last_hash):
+        problems.append("Contador não vazio sem marcações")
     if last is not None and (
         counter is None or counter.last_nsr != last.nsr or counter.last_hash != last.record_hash
     ):

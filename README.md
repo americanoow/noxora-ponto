@@ -41,6 +41,16 @@ Respostas JSON: saúde `{"status":"ok"}`; prontidão `{"status":"ok","database":
 ou HTTP 503 com `{"status":"indisponivel","database":"falha"}`. São endpoints públicos,
 sem detalhes do banco. Prontidão verifica conectividade (`SELECT 1`), não migrations aplicadas.
 
+## PostgreSQL sem Docker (opcional, Windows)
+```powershell
+.\tools\postgres_local.ps1 setup    # baixa o PostgreSQL 17 portátil (~330 MB) para .local/ e confere o SHA-256
+.\tools\postgres_local.ps1 start    # porta 5433, somente 127.0.0.1, sem senha: apenas desenvolvimento
+$env:DATABASE_URL = (.\tools\postgres_local.ps1 env)
+cd backend; .\.venv\Scripts\python -m pytest -q    # suíte completa em PostgreSQL real (concorrência, gatilhos)
+.\tools\postgres_local.ps1 stop
+```
+A primeira instalação é demorada (milhares de arquivos). Os testes de concorrência e de `TRUNCATE` só executam em PostgreSQL.
+
 ## Frontend
 ```powershell
 cd frontend

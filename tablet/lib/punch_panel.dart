@@ -72,6 +72,7 @@ class _PunchPanelState extends State<PunchPanel> {
   }
 
   Future<void> _submit() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _outcome = null;
@@ -139,7 +140,7 @@ class _OutcomeView extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge),
           Text('${o.workerName} — NSR ${o.nsr}'),
           Text(o.occurredAt),
-          Text('Código ${o.hash.substring(0, 12)}…'),
+          Text('Código ${o.hash.length > 12 ? o.hash.substring(0, 12) : o.hash}…'),
         ]),
       PunchRejected() => Text(o.message, style: const TextStyle(color: Colors.red)),
       PunchUnconfirmed() => Text(o.message, style: const TextStyle(color: Colors.orange)),

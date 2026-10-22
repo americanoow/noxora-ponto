@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from django.core.cache import cache
 from rest_framework.test import APIClient
@@ -6,6 +8,31 @@ from apps.accounts.models import User
 from apps.companies.models import Company, Membership, Role
 
 PASSWORD = "senha-forte-12345"  # noqa: S105  (senha de teste)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _postgresql_flush_immutable_test_tables():
+    """Só o flush de teardown pode truncar ARP no banco descartável de testes.
+
+    Os gatilhos permanecem ativos durante todos os testes, incluindo SQL direto.
+    A alteração e o TRUNCATE do flush executam na mesma transação do Django.
+    """
+    from django.db.backends.postgresql.operations import DatabaseOperations
+
+    original = DatabaseOperations.sql_flush
+
+    def sql_flush(self, style, tables, **kwargs):
+        statements = original(self, style, tables, **kwargs)
+        if "timeclock_timerecord" in tables:
+            return [
+                'ALTER TABLE "timeclock_timerecord" DISABLE TRIGGER USER;',
+                *statements,
+                'ALTER TABLE "timeclock_timerecord" ENABLE TRIGGER USER;',
+            ]
+        return statements
+
+    with patch.object(DatabaseOperations, "sql_flush", sql_flush):
+        yield
 
 
 @pytest.fixture(autouse=True)

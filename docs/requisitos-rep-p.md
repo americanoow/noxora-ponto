@@ -28,7 +28,7 @@ Fonte lida: texto consolidado da Portaria MTP nº 671/2021 publicado pelo Minist
 
 ## 2. Pendências que exigem validação externa (não afirmar conformidade)
 
-1. **Especificação vigente do AFD/AEJ.** A Portaria MTP nº 1.486/2022 revogou os anexos com os layouts e passou a remeter a "especificações disponíveis no portal gov.br" (arts. 81 e 83). O PDF lido contém apenas a versão histórica do layout. Hash e AFD devem ser conferidos contra a especificação vigente no portal; por isso cada registro guarda `hash_version` e uma nova versão pode ser adotada sem reescrever o passado. Também a formatação exata da concatenação do hash (larguras, maiúsculas/minúsculas) é uma interpretação do layout.
+1. **Especificação do AFD/AEJ.** O AFD disponível no portal foi consultado na revisão (abaixo); a pendência agora é validar os bytes exatos usados no hash, o preenchimento dos campos e a cadeia com a ARP completa. AEJ não consultado nesta revisão. Manter `hash_version` e não reescrever registros antigos.
 2. **"Estabelecimento".** O NSR é por estabelecimento. O produto usa a **unidade** como estabelecimento. Confirmar se unidade ≡ estabelecimento (CNPJ/endereço) e como tratar várias unidades sob um mesmo estabelecimento.
 3. **Demais registros da ARP** (Anexo IX, 6.1–6.4: empregador, ajuste de relógio, empregado, eventos sensíveis) e a numeração NSR compartilhada com as marcações. Hoje só marcações consomem NSR; alterações cadastrais ficam na auditoria (append-only). Definir com especialista como entram na sequência.
 4. **Prazo mínimo legal de guarda.** O texto lido remete a "prazo mínimo legal" sem fixá-lo. Não foi definido política de retenção/expurgo; **nenhuma exclusão de marcação existe**.
@@ -38,3 +38,15 @@ Fonte lida: texto consolidado da Portaria MTP nº 671/2021 publicado pelo Minist
 8. **Certificados e registros externos**: certificado ICP-Brasil (PAdES/CAdES), registro no INPI, Atestado Técnico e Termo de Responsabilidade.
 9. **Marcação em unidade diferente da lotação** (empregado de passagem): hoje o terminal só encontra empregados lotados na unidade do aparelho (decisão D27). Avaliar se isso pode impedir marcação legítima.
 10. **Sincronismo com a Hora Legal Brasileira** (±30 s) e **alta disponibilidade** são requisitos de operação, ainda não demonstrados.
+
+## 3. Conferência técnica em 22/10/2026
+
+Fontes oficiais: [página REP do MTE](https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/inspecao-do-trabalho/fiscalizacao-do-trabalho/rep) e [leiaute AFD disponível no portal](https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/inspecao-do-trabalho/fiscalizacao-do-trabalho/leiaute-do-arquivo-fonte-de-dados-afd.pdf), seis páginas, versão 004 indicada no cabeçalho.
+
+O DH tem 24 caracteres, segundos fixos 00 e offset com sinal seguido de quatro dígitos; coincide com `format_dh`. O tipo 7 mantém NSR(9), CPF(12), dois DH(24), coletor(2), indicador online/offline(1) e hash(64). O cálculo inclui os sete primeiros campos e o hash anterior, se existir. O código 01 identifica aplicativo mobile.
+
+**Divergência a esclarecer:** a regra geral 7 determina preenchimento pela esquerda e espaços nas posições restantes; o código preenche NSR/CPF com zeros à esquerda. Não foi localizado vetor oficial que resolva essa interpretação, caixa hexadecimal ou interação com outros tipos de registro. Não alterar o algoritmo histórico silenciosamente: validar um vetor com especialista e, se necessário, adotar nova versão para registros futuros. O nome `v1-anexo-v-historico` foi preservado.
+
+**Limites técnicos encontrados:** UPDATE/DELETE e TRUNCATE PostgreSQL são protegidos; SQLite recebeu proteção contra substituição via REPLACE. INSERT de novas linhas com NSR/hash arbitrários continua permitido por SQL e bulk_create, e o contador pode ser adulterado. Isso impede afirmar integridade contra escrita direta. Proposta e evidências em [05-revisao.md](etapas/05-revisao.md).
+
+Comprovantes JSON novos preservam snapshot; legados sem snapshot sinalizam ausência, sem reconstruir o passado com cadastro atual. CPF do empregador fica mascarado no terminal/gestor e omitido da auditoria; administrador ainda o acessa para cadastro. Isso não substitui os campos e assinatura do futuro comprovante oficial.
