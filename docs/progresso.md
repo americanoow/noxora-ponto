@@ -24,3 +24,4 @@ Implementada e revisada com correções pelo Codex; conferência do Claude pende
 ## Histórico de pausas
 - 2026-10-21 (etapa 3): Codex atingiu limite de uso. Retomada manual autorizada pelo usuário às 23:25 do mesmo dia.
 - 2026-10-22 (etapa 6): Codex atingiu limite de uso durante a revisão (renovação informada pela ferramenta: 4:33 AM). Projeto pausado; retomada manual obrigatória.
+- 2026-10-22 11:37: retomada manual autorizada pelo usuário. Nova divisão de trabalho: Codex apenas revisa (sandbox somente leitura); Claude implementa, corrige e valida. Ver CLAUDE.md e AGENTS.md.

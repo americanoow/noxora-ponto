@@ -1,20 +1,39 @@
-Revise e corrija a etapa 6 (Reconhecimento facial) do Noxora Ponto.
+Revise a etapa 6 (Reconhecimento facial) do Noxora Ponto.
 
-Leia AGENTS.md, CLAUDE.md, docs/controle/estado.json, docs/avaliacao-motor-biometrico.md, docs/requisitos-rep-p.md, docs/decisoes-tecnicas.md (D43-D51) e docs/etapas/06-implementacao.md.
+Sua função é somente revisão. Não altere arquivos, não implemente correções, não crie commits e não acione outra IA.
 
-IMPORTANTE: o motor biométrico real está BLOQUEADO por decisão de produto (custo/licença). O simulador existe só para testes e não comprova eficácia. Não implemente algoritmo biométrico próprio, não contrate serviço, não adicione dependências de modelos. Sua tarefa é revisar e corrigir a infraestrutura em volta do motor.
+Objetivo: infraestrutura de identificação facial 1:1 em volta de um motor biométrico plugável. O motor real está BLOQUEADO por decisão de produto (custo/licença); o simulador existe só para testes e não comprova eficácia. Não avalie algoritmo biométrico nem proponha serviço pago.
 
-Escopo entregue: app biometrics (consentimento, template AES-256-GCM, tentativas, exceção autorizada por código, retenção), contrato BiometricEngine, endpoints do painel e do tablet, provedores `face` e `authorized_exception` na marcação, política por empresa, UI React e métodos Dart.
-Alterações a revisar: `git diff 52ab49a..HEAD` mais arquivos não commitados.
-Verificações já executadas: backend 285 testes em SQLite e 289 em PostgreSQL 17.5 real (.local via tools/postgres_local.ps1; porta 5433; DATABASE_URL=postgres://noxora@127.0.0.1:5433/noxora); frontend 51 testes, lint, typecheck, build ok.
-Pendências conhecidas: motor real; câmera no tablet; Flutter não compilado; KMS; base legal.
+Critérios de aceite (da etapa):
+- Cadastro biométrico protegido (consentimento, template criptografado, sem imagem persistida, sem exposição em logs/respostas/auditoria/relatórios/backups indevidos).
+- Verificação 1:1 por matrícula, com estados claros de sucesso, falha e indisponibilidade, tratamento de qualidade insuficiente e integração com detecção de apresentação (vivacidade).
+- Alternativa autorizada de identificação para exceções.
+- Controle de acesso, retenção e exclusão do cadastro biométrico.
+- Marcação de ponto com identificação facial ou exceção, sem perder nem duplicar marcações (idempotência).
+- Simulador identificado e impedido de funcionar como validação real em produção.
 
-Você está autorizado a corrigir diretamente defeitos dentro desta etapa, ajustar documentação e adicionar testes relevantes.
+Alterações: `git diff a45d0d6..HEAD` (etapa 6 completa: apps/biometrics, provedores na marcação em apps/timeclock, escopo do dispositivo em apps/devices, settings, frontend BiometricsActions, tablet device_controller). Atenção: o trecho de segurança abaixo foi escrito por uma execução anterior do Codex sob a regra antiga e foi apenas inspecionado pelo Claude, não revisado: `backend/apps/biometrics/security.py` (BoundedJSONParser, filtro de relatório de exceções, middleware com `process_exception`), `checks.py` (checks de deploy), migration `0002_exceptionbudget` e `reserve_exception_attempt` (cota no banco), token de verificação assinado (`verification_token`), HMAC do código de exceção, bloqueios `select_for_update` por funcionário.
 
-Foque em tentar QUEBRAR a proteção dos dados e o fluxo de identificação: vazamento de template/chave/imagem (respostas, logs, auditoria, tracebacks, repr, admin do Django, backups, migrations), criptografia (nonce, AAD, rotação, falha de chave, comparação), reuso/expiração/corrida do token de verificação (duas marcações simultâneas com o mesmo token; token de outro dispositivo, funcionário, empresa), bloqueio por tentativas (contorno por matrícula alternada, janela, concorrência), código de exceção (força bruta, enumeração, reuso, entropia, vínculo ao funcionário, canal de exposição, quem pode gerar), política por empresa (contorno do modo facial por método desconhecido, tipos inesperados no JSON), simulador em produção (todas as portas de entrada), IDOR/escopo (gestor fora do escopo, outra empresa, plataforma), consentimento/revogação/exclusão (template realmente apagado? histórico?), limites de tamanho e base64, DoS por imagens grandes, ordem das transações (consumo do token + gravação), regressões das etapas 1-5, e o frontend (nunca guardar imagem em storage; código exibido uma vez). Confira se `python manage.py check --deploy` e a configuração de produção recusam combinações inseguras de biometria.
+Testes já executados pelo Claude: backend 320 passam em SQLite e 327 em PostgreSQL 17.5 real; ruff e `makemigrations --check` limpos; frontend 54 testes, lint, typecheck e build limpos. Dart não compilado (SDK ausente).
 
-Não remova requisitos nem enfraqueça testes. Sem refatorações alheias. Mudança grande de arquitetura/custo/produto: registre a proposta e devolva o controle. Sem commit/push.
-Execute as verificações afetadas (backend: DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: .venv\Scripts\python -m pytest -p no:cacheprovider; se o PostgreSQL local estiver de pé em 127.0.0.1:5433, repita com ele; ruff; frontend: npm scripts) e registre o que passou, falhou ou não pôde ser executado.
+Riscos e dúvidas conhecidos:
+- `process_exception` em rotas sensíveis devolve 500 genérico (o log registra apenas "Internal Server Error", sem traceback): é intencional? há contorno que vaze dado?
+- Contagem de tentativas de exceção e de falhas faciais: contorno por alternar matrícula/aparelho, concorrência, DoS contra um colega.
+- Ordem das transações: consumo do token (face/exceção) + gravação da marcação; reenvio do mesmo evento com token já consumido.
+- Chave biométrica em variável de ambiente (KMS é etapa 14/15); exclusão zera o conteúdo mas cópias em páginas/backups antigos podem persistir.
+- Modo `face` da empresa sem motor real: tablets só marcam por exceção.
 
-Atualize docs/etapas/06-revisao.md com: problemas encontrados, correções, arquivos afetados, testes e resultados, pendências essenciais, melhorias opcionais, conclusão.
-Não inicie outra etapa nem acione outra IA. Respeite a regra de pausa por limites de uso.
+Comece pelas alterações e consulte dependências quando necessário. Procure defeitos concretos que comprometam funcionamento, segurança, integridade ou critérios de aceite.
+
+Evite sugestões cosméticas, refatorações opcionais e repetição de pontos equivalentes. Não repita a suíte de testes já executada. Faça apenas verificações pontuais sem escrita quando forem necessárias.
+
+Para cada problema, informe:
+- Gravidade.
+- Arquivo e linha, quando aplicável.
+- Cenário que provoca o defeito.
+- Consequência.
+- Direção recomendada para a correção.
+
+Diferencie defeitos confirmados de suspeitas que precisam de verificação.
+
+Finalize com os bloqueios para conclusão da etapa e as limitações da revisão. Se não encontrar problemas relevantes, informe isso objetivamente. Não escreva código de correção.
