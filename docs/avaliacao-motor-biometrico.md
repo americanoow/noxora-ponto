@@ -34,3 +34,6 @@ Nenhum dos candidatos foi validado em Android real. Reconhecimento **no aparelho
 - OpenCV Zoo, SFace e YuNet (READMEs/licenças): https://github.com/opencv/opencv_zoo
 - Google ML Kit, detecção de faces (Android): https://developers.google.com/ml-kit/vision/face-detection/android
 - InsightFace (pesos de modelos): https://github.com/deepinsight/insightface
+
+## Atualização da etapa 7 — alternativa offline definida
+Nenhum motor foi validado e o reconhecimento facial **não funciona offline** neste produto. A alternativa implementada é a marcação **por matrícula**, gravada como `registration_offline`, **sinalizada para revisão** e disponível apenas se o administrador ativar `offline_policy = registration_only` (padrão: desativada). Em empresas no modo `face` isso é um rebaixamento deliberado da identificação, visível no histórico. Exceção autorizada por código também **não** funciona offline (o código é validado no servidor). Detalhes e limites: decisões D52–D61 e [requisitos-rep-p.md](requisitos-rep-p.md), seção 3.

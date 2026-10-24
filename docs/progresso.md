@@ -14,6 +14,7 @@ Git, Python 3.15, Node 24, Codex CLI 0.163.0 disponíveis. **Ausentes:** Docker,
 | 4 | sim (Flutter não compilado) | backend 202 (SQLite, 1 ignorado), frontend 39 | sim, conferido pelo Claude: [relatório](etapas/04-revisao.md) | não | não |
 | 5 | sim (Flutter não compilado) | backend 259 em PostgreSQL 17.5 e 255 em SQLite; frontend 44 | sim, conferido pelo Claude: [relatório](etapas/05-revisao.md) | não (ver requisitos-rep-p.md) | não |
 | 6 | parcial: infraestrutura sim; motor real e câmera NÃO (bloqueado) | backend 336 em PostgreSQL e 328 em SQLite; frontend 54 | revisão principal feita (3 apontamentos corrigidos pelo Claude); revisão complementar NÃO feita (apenas Claude Code, por instrução do usuário); auto-revisão registrada | não | não |
+| 7 | sim (Dart não compilado) | backend 366 em PostgreSQL e 357 em SQLite; frontend 60; Dart não executado | **não** (apenas Claude Code, por instrução do usuário); auto-revisão registrada | não | não |
 
 ## Modelo
 Pedidos de troca de modelo (Opus 5.5 médio para decisões difíceis) são feitos ao usuário via `/model`; nenhum até agora.
@@ -27,3 +28,4 @@ Implementada e revisada com correções pelo Codex; conferência do Claude pende
 - 2026-10-22 11:37: retomada manual autorizada pelo usuário. Nova divisão de trabalho: Codex apenas revisa (sandbox somente leitura); Claude implementa, corrige e valida. Ver CLAUDE.md e AGENTS.md.
 - 2026-10-22: pausa pedida pelo usuário após a etapa 6. Revisão complementar do Codex não realizada (modelo em capacidade máxima, não é limite de uso). Aguardando retomada manual.
 - 2026-10-24: retomada autorizada pelo usuário. Instrução: usar apenas o Claude Code (sem Codex) e parar ao terminar a próxima etapa (etapa 7).
+- 2026-10-24: etapa 7 concluída só com o Claude Code. Pausa solicitada pelo usuário: etapa 8 não iniciada.

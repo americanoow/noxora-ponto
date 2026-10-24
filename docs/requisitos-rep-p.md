@@ -50,3 +50,14 @@ O DH tem 24 caracteres, segundos fixos 00 e offset com sinal seguido de quatro d
 **Limites técnicos encontrados:** UPDATE/DELETE e TRUNCATE PostgreSQL são protegidos; SQLite recebeu proteção contra substituição via REPLACE. INSERT de novas linhas com NSR/hash arbitrários continua permitido por SQL e bulk_create, e o contador pode ser adulterado. Isso impede afirmar integridade contra escrita direta. Proposta e evidências em [05-revisao.md](etapas/05-revisao.md).
 
 Comprovantes JSON novos preservam snapshot; legados sem snapshot sinalizam ausência, sem reconstruir o passado com cadastro atual. CPF do empregador fica mascarado no terminal/gestor e omitido da auditoria; administrador ainda o acessa para cadastro. Isso não substitui os campos e assinatura do futuro comprovante oficial.
+
+## 3. Marcação offline (etapa 7) — pendências para validação especializada
+
+O Anexo IX (itens 4 e 5) admite marcação **off-line "excepcionalmente"**, enviada "no primeiro momento em que o coletor entrar em modo on-line, garantidas as normas de segurança da informação". O produto implementa isso com limites explícitos (decisões D52–D61). Pontos que **não** estão resolvidos:
+
+11. **Condições da excepcionalidade**: o texto não define quando o off-line é admissível nem por quanto tempo. O produto limita por política da empresa (padrão desligada) e por idade do evento (35 dias).
+12. **Identificação offline**: só por matrícula (o reconhecimento facial não funciona offline). Avaliar se isso é "identificação inequívoca" (Anexo IX, 8.1) e a base legal; o registro fica marcado `registration_offline` e sinalizado.
+13. **Comprovante**: o art. 80 exige acesso ao comprovante após cada marcação. Offline o tablet entrega confirmação **provisória** sem NSR nem hash; o comprovante só existe depois da sincronização.
+14. **Hora**: a Hora Legal Brasileira com variação máxima de 30 s não é garantida offline. O servidor **estima** o horário corrigindo o relógio do tablet pelo último desvio medido e sinaliza dúvidas; `recorded_at` guarda o recebimento. Validar se essa estimativa é aceitável e como tratar divergências acima de 30 s.
+15. **NSR**: segue a ordem de **recebimento**, não a do evento (decisão D55). Validar com o especialista se isso atende ao requisito de sequência.
+16. **Segurança da informação do reenvio**: a fila no aparelho tem proteção em repouso (Keystore), mas não prova integridade contra aparelho com root; compensações no servidor (idempotência, sinalizações, limite de idade, auditoria do lote). Avaliar a suficiência.

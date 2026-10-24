@@ -1,16 +1,18 @@
 {
   "etapa": 7,
-  "tarefa": "Operação offline e sincronização (checkpoint de retomada)",
-  "fase": "implementação",
-  "ia_responsavel": "Claude",
-  "estado_geral": "em andamento",
-  "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapa 7: backend, frontend e tablet Dart escritos. Dart (OfflineQueue, integração no DeviceController, UI de pendências, 30 testes) NÃO foi compilado nem executado (Flutter ausente). Auto-revisão do Dart achou e corrigiu um laço infinito de reenvio.",
-  "proxima_acao": "Restam: documentos (decisões D52+, requisitos-rep-p, avaliação do motor, 07-revisao.md com auto-revisão e registro de que o Codex não foi usado), verificação final (SQLite, PostgreSQL, ruff, migrations, frontend) e commit final; depois PAUSAR e avisar o usuário. Apenas Claude Code. Não iniciar a etapa 8.",
-  "ultimo_checkpoint": "etapa-7-tablet-escrito",
+  "tarefa": "Operação offline e sincronização — implementada; pausa pedida pelo usuário",
+  "fase": "concluída (sem revisão do Codex)",
+  "ia_responsavel": "nenhuma (projeto pausado)",
+  "estado_geral": "pausado",
+  "motivo_pausa": "Pausa pedida pelo usuário ao concluir a etapa 7 (\"faça a retomada e pare na próxima etapa. apenas utilize o claude code\"). Não é limite de uso. A etapa 8 NÃO foi iniciada.",
+  "ultima_tarefa_concluida": "Etapa 7 implementada só com o Claude Code: backend (lote idempotente, correção de horário e flags, política offline), painel e tablet Dart (fila persistente, sincronização, UI de pendências). Verificação: PostgreSQL 366 / SQLite 357 testes, frontend 60, ruff e migrations limpos; Dart escrito mas NÃO compilado nem executado (Flutter ausente). Auto-revisão registrada em docs/etapas/07-revisao.md (achou e corrigiu laço infinito de reenvio no Dart). O Codex NÃO foi usado (instrução do usuário).",
+  "proxima_acao": "Após retomada manual do usuário: (opcional) pedir revisão do Codex da etapa 7 e das correções da etapa 6; decidir o motor biométrico real (desbloqueia o aceite da etapa 6); instalar o Flutter para compilar/testar o app do tablet; então iniciar a etapa 8 (apuração da jornada: horas, intervalos, atrasos, extras, meia-noite, fusos, regras versionadas, explicação do cálculo).",
+  "ultimo_checkpoint": "etapa-7-concluida",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
+    "Etapa 7: revisão do Codex NÃO realizada (apenas Claude Code, por instrução do usuário); há auto-revisão em 07-revisao.md",
+    "Etapa 7: Dart (fila offline, sincronização, UI) escrito e NÃO compilado/testado; reinício e armazenamento seguro não validados em Android real",
     "Etapa 6: revisão complementar do Codex NÃO feita (instrução do usuário: apenas Claude Code); correções validadas só pelo Claude (há auto-revisão em 06-revisao.md)",
     "Etapa 6: motor biométrico real BLOQUEADO (decisão de produto: custo/fornecedor/licença) — ver docs/avaliacao-motor-biometrico.md",
     "Etapa 6: captura por câmera no tablet não implementada; Flutter não compilado",
@@ -19,12 +21,12 @@
     "Migrations em banco persistente com dados reais: checar e-mails duplicados por caixa (accounts.0002), justificativas de localização só com espaços (devices.0003), marcações legadas sem snapshot (timeclock.0003)",
     "SMTP real não configurado; MFA não avaliado; throttling e dedupe em cache local",
     "Exclusão de sobreposição de vigências no banco (btree_gist) pendente",
-    "Revogação offline de tablets e fila persistente de marcações: etapa 7",
     "Retenção/base jurídica de localização e de biometria: validação especializada (LGPD art. 11, RIPD)",
     "D41 (etapa 14): rotina exclusiva de append no PostgreSQL; hoje INSERT arbitrário só é DETECTADO (verify_timeclock)",
     "Requisitos REP-P: docs/requisitos-rep-p.md seção 2",
     "Gestão de chaves biométricas em KMS/HSM e crypto-shredding: etapa 14/15",
-    "Carga/desempenho de marcações simultâneas em PostgreSQL: etapa 14"
+    "Carga/desempenho de marcações simultâneas em PostgreSQL: etapa 14",
+    "Etapa 7: validações especializadas de marcação offline (requisitos-rep-p.md seção 3); limite diário de eventos offline por aparelho; revisão/ajuste das marcações sinalizadas (etapa 9)"
   ],
-  "retomada_manual_obrigatoria": false
+  "retomada_manual_obrigatoria": true
 }

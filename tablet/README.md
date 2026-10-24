@@ -30,3 +30,9 @@ fora desta entrega; não use o APK debug em produção.
 Para tablet físico, rode o backend com `manage.py runserver 0.0.0.0:8000`, inclua o IP
 da máquina em `DJANGO_ALLOWED_HOSTS` e permita a porta apenas na rede de desenvolvimento.
 O emulador usa `10.0.2.2`; o backend não aceita automaticamente outros hosts.
+
+## Operação offline (etapa 7)
+- Sem conexão, e **somente se a empresa ativar** `offline_policy = registration_only` no painel, a marcação por matrícula é guardada numa fila persistente (armazenamento seguro do Android) e enviada em lote ao reconectar. Reconhecimento facial e código de exceção **não** funcionam offline.
+- A confirmação offline é **provisória** (horário do aparelho, sem NSR nem comprovante). Após a sincronização cada marcação recebe NSR; recusas ficam visíveis até alguém confirmar.
+- A fila é preservada se o tablet for revogado: ao reativar o mesmo cadastro (novo código), ela é enviada.
+- Testes: `test/offline_queue_test.dart` e `test/offline_sync_test.dart` (**escritos, não executados**: Flutter ausente nesta máquina).
