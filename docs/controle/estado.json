@@ -1,17 +1,17 @@
 {
-  "etapa": 6,
-  "tarefa": "Reconhecimento facial — correções feitas; revisão complementar do Codex PENDENTE",
-  "fase": "revisão complementar (pendente)",
-  "ia_responsavel": "nenhuma (projeto pausado)",
-  "estado_geral": "pausado",
-  "motivo_pausa": "Pausa pedida pelo usuário após concluir esta etapa (\"Após acabar essa etapa, pause o coding\"). Além disso, a única chamada da revisão complementar ao Codex falhou por indisponibilidade do modelo (evento turn.failed: \"Selected model is at capacity. Please try a different model.\"): NÃO é limite de uso. Nenhuma nova tentativa foi feita e o modelo não foi trocado.",
-  "ultima_tarefa_concluida": "Etapa 6: revisão principal (somente leitura) do Codex concluída e os 3 apontamentos tratados pelo Claude — deadlock verificação/marcação confirmado em PostgreSQL e corrigido (FOR NO KEY UPDATE em todos os bloqueios), cota de exceção não consumida por marcação válida (refund), retomada de tentativa no tablet (identificação renovada com o mesmo evento; 400/404 encerra a tentativa, premissa coberta por teste de contrato no backend). Commit da₆: da6d194. Verificação: backend 328 testes SQLite / 336 PostgreSQL 17.5, ruff e migrations limpos; testes Dart escritos e NÃO executados (Flutter ausente).",
-  "proxima_acao": "Após retomada manual do usuário: (1) reexecutar a revisão complementar curta da etapa 6 (tools/codex_handoff.ps1 -Etapa 6; prompt já em docs/controle/prompt-codex-06.md) quando o Codex estiver disponível; (2) analisar os apontamentos e corrigir os confirmados; (3) manter o aceite da etapa 6 BLOQUEADO até haver motor biométrico real e captura por câmera (decisão do usuário sobre custo/licença); (4) só então iniciar a etapa 7 (operação offline e sincronização).",
-  "ultimo_checkpoint": "etapa-6-correcoes-validadas",
+  "etapa": 7,
+  "tarefa": "Operação offline e sincronização",
+  "fase": "implementação",
+  "ia_responsavel": "Claude",
+  "estado_geral": "em andamento",
+  "motivo_pausa": null,
+  "ultima_tarefa_concluida": "Retomada manual autorizada pelo usuário em 2026-10-24 (\"faça a retomada e pare na próxima etapa. apenas utilize o claude code\"). Instruções do usuário: usar APENAS o Claude Code (sem Codex) e parar ao terminar a etapa 7. Etapa 6 encerrada do lado do Claude: correções validadas, auto-revisão registrada, revisão complementar do Codex NÃO feita (por instrução do usuário); aceite da etapa 6 segue bloqueado pela ausência de motor biométrico real. Linha de base: backend 336 PostgreSQL 17.5 / 328 SQLite, frontend 54, ruff limpo.",
+  "proxima_acao": "Implementar a etapa 7 só com o Claude Code: sincronização em lote idempotente no backend (horário original x recebimento, divergência de relógio, política de credenciais/funcionários), fila persistente e protegida no tablet (Dart), indicação de pendências; auto-revisão; registrar que o Codex não foi usado. Parar ao concluir a etapa 7 (não iniciar a etapa 8).",
+  "ultimo_checkpoint": "etapa-6-encerrada-lado-claude",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
-    "Etapa 6: revisão complementar das correções (ordem de bloqueios, cota de exceção, premissa do reenvio no tablet) NÃO realizada: Codex indisponível (modelo em capacidade máxima); correções estão validadas apenas pelo Claude",
+    "Etapa 6: revisão complementar do Codex NÃO feita (instrução do usuário: apenas Claude Code); correções validadas só pelo Claude (há auto-revisão em 06-revisao.md)",
     "Etapa 6: motor biométrico real BLOQUEADO (decisão de produto: custo/fornecedor/licença) — ver docs/avaliacao-motor-biometrico.md",
     "Etapa 6: captura por câmera no tablet não implementada; Flutter não compilado",
     "Flutter ausente: analyze/testes/APK debug e armazenamento seguro em Android real não executados (testes Dart escritos, não executados)",
@@ -26,5 +26,5 @@
     "Gestão de chaves biométricas em KMS/HSM e crypto-shredding: etapa 14/15",
     "Carga/desempenho de marcações simultâneas em PostgreSQL: etapa 14"
   ],
-  "retomada_manual_obrigatoria": true
+  "retomada_manual_obrigatoria": false
 }
