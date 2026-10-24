@@ -19,6 +19,14 @@ class Company(models.Model):
         default="registration",
         choices=[("registration", "Matrícula"), ("face", "Verificação facial")],
     )
+    # Marcação com o tablet sem conexão. Reconhecimento facial NÃO funciona offline; a única alternativa é
+    # a matrícula, que não é identificação forte: por isso vem desligada e, quando ligada, cada marcação
+    # offline é gravada como `registration_offline` e sinalizada para revisão.
+    offline_policy = models.CharField(
+        max_length=20,
+        default="disabled",
+        choices=[("disabled", "Desativada"), ("registration_only", "Por matrícula, com revisão")],
+    )
 
     class Meta:
         ordering = ["name", "id"]

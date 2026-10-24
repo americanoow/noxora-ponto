@@ -1,13 +1,13 @@
 {
   "etapa": 7,
-  "tarefa": "Operação offline e sincronização",
+  "tarefa": "Operação offline e sincronização (checkpoint de retomada)",
   "fase": "implementação",
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Retomada manual autorizada pelo usuário em 2026-10-24 (\"faça a retomada e pare na próxima etapa. apenas utilize o claude code\"). Instruções do usuário: usar APENAS o Claude Code (sem Codex) e parar ao terminar a etapa 7. Etapa 6 encerrada do lado do Claude: correções validadas, auto-revisão registrada, revisão complementar do Codex NÃO feita (por instrução do usuário); aceite da etapa 6 segue bloqueado pela ausência de motor biométrico real. Linha de base: backend 336 PostgreSQL 17.5 / 328 SQLite, frontend 54, ruff limpo.",
-  "proxima_acao": "Implementar a etapa 7 só com o Claude Code: sincronização em lote idempotente no backend (horário original x recebimento, divergência de relógio, política de credenciais/funcionários), fila persistente e protegida no tablet (Dart), indicação de pendências; auto-revisão; registrar que o Codex não foi usado. Parar ao concluir a etapa 7 (não iniciar a etapa 8).",
-  "ultimo_checkpoint": "etapa-6-encerrada-lado-claude",
+  "ultima_tarefa_concluida": "Etapa 7, passo 1: campos TimeRecord.sync_flags e Company.offline_policy, settings OFFLINE_*, migration 0005 que preserva os gatilhos (verificado em SQLite e PostgreSQL). O usuário avisou que os tokens podem acabar a qualquer momento e que fará a retomada em nova sessão: o plano completo e o checklist estão em docs/etapas/07-implementacao.md.",
+  "proxima_acao": "Retomar a etapa 7 pelo checklist de docs/etapas/07-implementacao.md (próximo item: backend — _insert com occurred_at/offline/sync_flags, resolve_offline_time, endpoint punches/batch/). Apenas Claude Code (sem Codex). Parar ao concluir a etapa 7.",
+  "ultimo_checkpoint": "etapa-7-campos-e-migration",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [

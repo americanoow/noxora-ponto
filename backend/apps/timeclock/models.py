@@ -72,6 +72,8 @@ class TimeRecord(models.Model):
     employee_name = models.CharField(max_length=200)
     registration = models.CharField(max_length=30)
     receipt_snapshot = models.JSONField(null=True, editable=False)
+    # Sinalizações de revisão (informativas, fora do hash): ver apps/timeclock/services.py (OFFLINE_FLAGS).
+    sync_flags = models.JSONField(default=list, blank=True)
 
     # Informativo, fora do hash: o que o trabalhador indicou no terminal. A apuração (etapa 8) decide.
     declared_kind = models.CharField(max_length=12, blank=True, choices=DeclaredKind.choices)
