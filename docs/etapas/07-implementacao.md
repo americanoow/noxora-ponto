@@ -1,6 +1,6 @@
 # Etapa 7 — Operação offline e sincronização
 
-**Status: EM ANDAMENTO (checkpoint de retomada; backend CONCLUÍDO e testado: SQLite 357, PostgreSQL 366).** Só Claude Code (instrução do usuário em 2026-10-24: sem Codex nesta etapa). **Parar ao concluir esta etapa; não iniciar a etapa 8.** O checklist abaixo é a fonte para retomar em outra sessão.
+**Status: EM ANDAMENTO (checkpoint de retomada; backend CONCLUÍDO (SQLite 357, PostgreSQL 366) e frontend CONCLUÍDO (60 testes)).** Só Claude Code (instrução do usuário em 2026-10-24: sem Codex nesta etapa). **Parar ao concluir esta etapa; não iniciar a etapa 8.** O checklist abaixo é a fonte para retomar em outra sessão.
 
 ## Decisões de desenho (já tomadas)
 1. **Reconhecimento facial não funciona offline** (nenhum motor foi validado em Android; template no aparelho amplia a exposição). Alternativa definida: marcação offline **por matrícula**, gravada como `registration_offline` e **sinalizada para revisão**, e só se o administrador habilitar `Company.offline_policy = registration_only` (padrão `disabled`). Não é identificação forte; vale também para empresas em modo `face` (rebaixamento deliberado e visível).
@@ -17,7 +17,7 @@
 - [x] Backend: `_insert` aceita `occurred_at`, `offline`, `sync_flags`, skew; `resolve_offline_time`; `process_offline_event`; endpoint `punches/batch/`; auditoria por lote
 - [x] Backend: política `offline_policy` no endpoint de identificação; `offline_policy` e `identification_mode` no escopo do dispositivo; `sync_flags` e filtro `offline` no histórico
 - [x] Backend: testes (lote feliz, reenvio idempotente, parcial, política desligada, regras de horário, funcionário inativo/outra empresa/sem lotação, revogado/expirado/reativado, duplicado no mesmo lote, limites, concorrência PostgreSQL, imutabilidade preservada, cadeia de hash válida)
-- [ ] Frontend: rótulos das flags, seletor `offline_policy`, filtro offline, testes
+- [x] Frontend: rótulos das flags, seletor `offline_policy`, filtro offline, testes
 - [ ] Tablet (Dart): `OfflineQueue` + armazenamento seguro, integração no `DeviceController` (enfileirar sem rede, sincronizar, 401/403/429/5xx, escopo persistido, amostra de relógio), indicação de pendências na UI, testes (não executáveis: Flutter ausente)
 - [ ] Documentos: decisões D52+, requisitos-rep-p.md (offline), avaliacao-motor-biometrico.md (alternativa offline), este arquivo (resultados), progresso e estado
 - [ ] Auto-revisão do Claude (sem Codex) e verificação final: SQLite, PostgreSQL, ruff, migrations, frontend

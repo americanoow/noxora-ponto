@@ -159,3 +159,46 @@ it("recusa imagens grandes antes de ler ou enviar e limpa o seletor", async () =
   expect(calls.some((c) => c.key.includes("/enroll/"))).toBe(false);
   expect(input).toHaveValue("");
 });
+
+describe("IdentificationModePanel: política offline", () => {
+  it("administrador ativa a marcação offline e vê o aviso de limitação", async () => {
+    routes["GET /api/companies/7/identification/"] = () => ({
+      body: { mode: "registration", offline_policy: "disabled" },
+    });
+    routes["PATCH /api/companies/7/identification/"] = () => ({
+      body: { mode: "registration", offline_policy: "registration_only" },
+    });
+    render(<IdentificationModePanel companyId={7} canEdit />);
+    const select = await screen.findByLabelText("Política de marcação offline");
+    expect(select).toHaveValue("disabled");
+    expect(screen.getByText(/O reconhecimento facial não funciona offline/)).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "registration_only" } });
+    await waitFor(() =>
+      expect(screen.getByLabelText("Política de marcação offline")).toHaveValue(
+        "registration_only",
+      ),
+    );
+    const patch = calls.find((c) => c.key.startsWith("PATCH"))!;
+    expect(JSON.parse(patch.init!.body as string)).toEqual({ offline_policy: "registration_only" });
+  });
+
+  it("gestor só consulta; resposta antiga sem o campo assume desativada", async () => {
+    routes["GET /api/companies/7/identification/"] = () => ({ body: { mode: "registration" } });
+    render(<IdentificationModePanel companyId={7} canEdit={false} />);
+    const select = await screen.findByLabelText("Política de marcação offline");
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue("disabled");
+  });
+
+  it("exibe erro de permissão ao alterar", async () => {
+    routes["GET /api/companies/7/identification/"] = () => ({
+      body: { mode: "registration", offline_policy: "disabled" },
+    });
+    routes["PATCH /api/companies/7/identification/"] = () => ({ status: 403 });
+    render(<IdentificationModePanel companyId={7} canEdit />);
+    fireEvent.change(await screen.findByLabelText("Política de marcação offline"), {
+      target: { value: "registration_only" },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("permissão");
+  });
+});

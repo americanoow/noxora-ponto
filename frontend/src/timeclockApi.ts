@@ -16,6 +16,7 @@ export interface TimeRecord {
   identification_method: string;
   cpf: string;
   hash_sha256: string;
+  sync_flags: string[];
 }
 
 export interface Employer {
@@ -25,9 +26,11 @@ export interface Employer {
   cei_caepf_cno: string;
 }
 
+/** Origem da marcação: "" = todas, "false" = online, "true" = offline (sincronizada depois). */
 export interface RecordFilters {
   from: string;
   to: string;
+  offline: "" | "true" | "false";
   page: number;
 }
 
@@ -37,6 +40,7 @@ export function listTimeRecords(c: number, f: RecordFilters) {
   const params = new URLSearchParams({ page: String(f.page) });
   if (f.from) params.set("from", f.from);
   if (f.to) params.set("to", f.to);
+  if (f.offline) params.set("offline", f.offline);
   return request<Page<TimeRecord>>("GET", `${base(c)}/time-records/?${params}`);
 }
 
@@ -53,6 +57,17 @@ export function formatLocalTime(iso: string, offsetMinutes: number): string {
     `${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}`
   );
 }
+
+/** Sinalizações de revisão gravadas na sincronização de marcações offline (ver apps/timeclock/services.py). */
+export const SYNC_FLAG_LABELS: Record<string, string> = {
+  clock_unverified: "relógio do tablet sem medição de desvio",
+  clock_skew_large: "relógio do tablet com desvio acima de 30 s",
+  clock_offset_stale: "desvio de relógio medido há muito tempo",
+  time_in_future: "horário no futuro, limitado ao recebimento",
+  before_device_activation: "horário anterior à ativação do tablet",
+  employee_inactive: "funcionário inativo na sincronização",
+  not_assigned_to_unit: "funcionário sem lotação nesta unidade na data",
+};
 
 export const KIND_LABELS: Record<string, string> = {
   "": "—",

@@ -39,10 +39,16 @@ export const deleteTemplate = (c: number, e: number) =>
 export const authorizeException = (c: number, e: number, reason: string) =>
   request<ExceptionGrant>("POST", `${emp(c, e)}/identification-exceptions/`, { reason });
 
+export type OfflinePolicy = "disabled" | "registration_only";
+export interface IdentificationPolicy {
+  mode: IdentificationMode;
+  offline_policy: OfflinePolicy;
+}
+
 export const getIdentificationMode = (c: number) =>
-  request<{ mode: IdentificationMode }>("GET", `/api/companies/${c}/identification/`);
-export const setIdentificationMode = (c: number, mode: IdentificationMode) =>
-  request<{ mode: IdentificationMode }>("PATCH", `/api/companies/${c}/identification/`, { mode });
+  request<IdentificationPolicy>("GET", `/api/companies/${c}/identification/`);
+export const setIdentificationPolicy = (c: number, changes: Partial<IdentificationPolicy>) =>
+  request<IdentificationPolicy>("PATCH", `/api/companies/${c}/identification/`, changes);
 
 /** Lê o arquivo como base64 SEM o prefixo data:. A imagem não é guardada em nenhum armazenamento do navegador. */
 export function fileToBase64(file: File): Promise<string> {

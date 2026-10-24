@@ -4,6 +4,8 @@ import {
   type BiometricStatus,
   type ExceptionGrant,
   type IdentificationMode,
+  type IdentificationPolicy,
+  type OfflinePolicy,
   authorizeException,
   deleteTemplate,
   enrollFace,
@@ -12,7 +14,7 @@ import {
   getIdentificationMode,
   grantConsent,
   revokeConsent,
-  setIdentificationMode,
+  setIdentificationPolicy,
 } from "./biometricsApi";
 import { useEffect } from "react";
 
@@ -167,7 +169,7 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
   );
 }
 
-/** Política de identificação da empresa: matrícula (não é identificação forte) ou verificação facial. */
+/** Política de identificação e de marcação offline da empresa. */
 export function IdentificationModePanel({
   companyId,
   canEdit,
@@ -175,41 +177,58 @@ export function IdentificationModePanel({
   companyId: number;
   canEdit: boolean;
 }) {
-  const [mode, setMode] = useState<IdentificationMode | null>(null);
+  const [policy, setPolicy] = useState<IdentificationPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getIdentificationMode(companyId)
-      .then((value) => setMode(value.mode))
+      .then((value) => setPolicy({ ...value, offline_policy: value.offline_policy ?? "disabled" }))
       .catch((e) => setError(errorMessage(e)));
   }, [companyId]);
 
   if (error) return <p role="alert">{error}</p>;
-  if (!mode) return <p>Carregando…</p>;
+  if (!policy) return <p>Carregando…</p>;
+
+  const change = (changes: Partial<IdentificationPolicy>) => {
+    setError(null);
+    setIdentificationPolicy(companyId, changes)
+      .then((value) => setPolicy({ ...value, offline_policy: value.offline_policy ?? "disabled" }))
+      .catch((err) => setError(errorMessage(err)));
+  };
+
   return (
     <section>
       <h4>Identificação do trabalhador no tablet</h4>
       <select
         aria-label="Modo de identificação"
-        value={mode}
+        value={policy.mode}
         disabled={!canEdit}
-        onChange={(e) => {
-          const next = e.target.value as IdentificationMode;
-          setError(null);
-          setIdentificationMode(companyId, next)
-            .then((value) => setMode(value.mode))
-            .catch((err) => setError(errorMessage(err)));
-        }}
+        onChange={(e) => change({ mode: e.target.value as IdentificationMode })}
       >
         <option value="registration">Somente matrícula (não é identificação forte)</option>
         <option value="face">Verificação facial com vivacidade (ou exceção autorizada)</option>
       </select>
-      {mode === "face" && (
+      {policy.mode === "face" && (
         <p>
           No modo facial só vale verificação facial aprovada ou exceção autorizada. Sem um motor
           biométrico real configurado, os tablets não conseguirão registrar ponto.
         </p>
       )}
+      <h4>Marcação com o tablet sem conexão</h4>
+      <select
+        aria-label="Política de marcação offline"
+        value={policy.offline_policy}
+        disabled={!canEdit}
+        onChange={(e) => change({ offline_policy: e.target.value as OfflinePolicy })}
+      >
+        <option value="disabled">Desativada (sem conexão, o tablet não registra)</option>
+        <option value="registration_only">Por matrícula, com revisão posterior</option>
+      </select>
+      <p>
+        O reconhecimento facial não funciona offline. Se ativada, a marcação offline usa apenas a
+        matrícula (não é identificação forte), fica sinalizada para revisão e só recebe NSR e
+        comprovante quando o tablet reconectar.
+      </p>
     </section>
   );
 }

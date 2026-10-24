@@ -120,3 +120,55 @@ describe("EmployerTab", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("CNPJ inválido.");
   });
 });
+
+describe("RecordsTab: marcações offline", () => {
+  it("mostra as sinalizações de revisão com rótulos legíveis", async () => {
+    routes["GET /api/companies/7/time-records/"] = () => ({
+      body: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          record({
+            offline: true,
+            sync_flags: ["clock_skew_large", "employee_inactive", "codigo_novo"],
+          }),
+        ],
+      },
+    });
+    render(<RecordsTab companyId={7} />);
+    expect(await screen.findByText(/registrada offline/)).toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("relógio do tablet com desvio acima de 30 s");
+    expect(note).toHaveTextContent("funcionário inativo na sincronização");
+    expect(note).toHaveTextContent("codigo_novo"); // sinalização desconhecida aparece sem rótulo
+  });
+
+  it("não mostra aviso quando não há sinalização (e tolera registro sem o campo)", async () => {
+    routes["GET /api/companies/7/time-records/"] = () => ({
+      body: {
+        count: 2,
+        next: null,
+        previous: null,
+        results: [
+          record({ id: 1, sync_flags: [] }),
+          { ...record({ id: 2 }), sync_flags: undefined },
+        ],
+      },
+    });
+    render(<RecordsTab companyId={7} />);
+    await screen.findAllByText(/NSR 42/);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("filtra por origem offline", async () => {
+    routes["GET /api/companies/7/time-records/"] = () => ({
+      body: { count: 0, next: null, previous: null, results: [] },
+    });
+    render(<RecordsTab companyId={7} />);
+    fireEvent.change(await screen.findByLabelText("Origem"), { target: { value: "true" } });
+    await waitFor(() => expect(calls.some((c) => c.key.includes("offline=true"))).toBe(true));
+    fireEvent.change(screen.getByLabelText("Origem"), { target: { value: "false" } });
+    await waitFor(() => expect(calls.some((c) => c.key.includes("offline=false"))).toBe(true));
+  });
+});

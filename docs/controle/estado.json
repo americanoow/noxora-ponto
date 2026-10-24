@@ -5,9 +5,9 @@
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapa 7, backend concluído: endpoint POST /api/device/punches/batch/ (lote idempotente com resultado por evento), correção de horário e flags, política offline_policy da empresa, escopo do dispositivo e histórico com sync_flags/filtro offline. Testes: SQLite 357 / PostgreSQL 366 (inclui lotes simultâneos), ruff e migrations limpos.",
-  "proxima_acao": "Continuar pelo checklist de docs/etapas/07-implementacao.md: frontend (rótulos das flags, seletor offline_policy, filtro offline, testes), depois tablet Dart (OfflineQueue + integração + UI + testes), documentos (D52+, requisitos, avaliação), auto-revisão e commit final. Apenas Claude Code. Parar ao concluir a etapa 7.",
-  "ultimo_checkpoint": "etapa-7-backend-concluido",
+  "ultima_tarefa_concluida": "Etapa 7: backend (SQLite 357 / PostgreSQL 366) e frontend (60 testes, lint/typecheck/build/prettier limpos) concluídos.",
+  "proxima_acao": "Continuar pelo checklist de docs/etapas/07-implementacao.md: tablet Dart (OfflineQueue + armazenamento seguro, integração no DeviceController, UI de pendências, testes não executáveis), documentos (D52+, requisitos-rep-p, avaliação), auto-revisão e commit final. Apenas Claude Code. Parar ao concluir a etapa 7.",
+  "ultimo_checkpoint": "etapa-7-frontend-concluido",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [

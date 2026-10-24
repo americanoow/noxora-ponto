@@ -5,6 +5,7 @@ import type { Page } from "./operationsApi";
 import {
   type Employer,
   KIND_LABELS,
+  SYNC_FLAG_LABELS,
   type RecordFilters,
   type TimeRecord,
   formatLocalTime,
@@ -14,7 +15,12 @@ import {
 } from "./timeclockApi";
 
 export function RecordsTab({ companyId }: { companyId: number }) {
-  const [filters, setFilters] = useState<RecordFilters>({ from: "", to: "", page: 1 });
+  const [filters, setFilters] = useState<RecordFilters>({
+    from: "",
+    to: "",
+    offline: "",
+    page: 1,
+  });
   const [data, setData] = useState<Page<TimeRecord> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +60,17 @@ export function RecordsTab({ companyId }: { companyId: number }) {
         Até
         <input type="date" value={filters.to} onChange={(e) => set({ to: e.target.value })} />
       </label>
+      <label>
+        Origem
+        <select
+          value={filters.offline}
+          onChange={(e) => set({ offline: e.target.value as RecordFilters["offline"] })}
+        >
+          <option value="">Todas</option>
+          <option value="false">Online</option>
+          <option value="true">Offline (sincronizadas depois)</option>
+        </select>
+      </label>
       <p>{data ? `${data.count} marcação(ões)` : "Carregando…"}</p>
       <ul>
         {data?.results.map((r) => (
@@ -63,6 +80,12 @@ export function RecordsTab({ companyId }: { companyId: number }) {
             {r.employee.name} — {r.unit.name} / {r.device.name}
             {r.declared_kind && ` — ${KIND_LABELS[r.declared_kind]}`}
             {r.offline && " — registrada offline"}
+            {(r.sync_flags ?? []).length > 0 && (
+              <span role="note">
+                {" "}
+                — revisar: {(r.sync_flags ?? []).map((f) => SYNC_FLAG_LABELS[f] ?? f).join("; ")}
+              </span>
+            )}
             <code title={r.hash_sha256}> {r.hash_sha256.slice(0, 12)}…</code>
           </li>
         ))}
