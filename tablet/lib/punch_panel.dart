@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'device_controller.dart';
+import 'offline_queue.dart';
 
 /// Relógio digital com horas, minutos e segundos (Anexo IX, item 3, da Portaria MTP 671/2021).
 /// O horário oficial da marcação é o do servidor; este relógio é a referência visual do trabalhador.
@@ -103,6 +104,7 @@ class _PunchPanelState extends State<PunchPanel> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const ClockText(),
+          QueueStatus(controller: widget.controller),
           const SizedBox(height: 16),
           SizedBox(
             width: 300,
@@ -172,8 +174,64 @@ class _OutcomeView extends StatelessWidget {
           Text(o.occurredAt),
           Text('Código ${o.hash.length > 12 ? o.hash.substring(0, 12) : o.hash}…'),
         ]),
+      PunchQueued() => Column(children: [
+          Text('Marcação guardada neste tablet', style: Theme.of(context).textTheme.titleLarge),
+          Text('Horário do aparelho: ${_clock(o.deviceTime)}'),
+          const Text(
+            'PENDENTE de envio. O número (NSR) e o comprovante só existem depois que o tablet reconectar.',
+            style: TextStyle(color: Colors.orange),
+          ),
+        ]),
       PunchRejected() => Text(o.message, style: const TextStyle(color: Colors.red)),
       PunchUnconfirmed() => Text(o.message, style: const TextStyle(color: Colors.orange)),
     };
+  }
+}
+
+String _clock(DateTime t) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+}
+
+const _rejectReasons = <String, String>{
+  'invalid': 'dados inválidos',
+  'offline_not_allowed': 'a empresa não permite marcação offline',
+  'unsupported_identification': 'identificação não aceita offline',
+  'unknown_registration': 'matrícula não encontrada',
+  'too_old': 'registro antigo demais',
+};
+
+/// Pendências da fila offline: quantas aguardam envio, recusas que exigem uma pessoa e fila ilegível.
+class QueueStatus extends StatelessWidget {
+  const QueueStatus({super.key, required this.controller});
+  final DeviceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final queue = controller.queue;
+    final pending = queue.pendingCount;
+    final rejected = queue.items.where((i) => i.state == QueuedState.rejected).toList();
+    if (pending == 0 && rejected.isEmpty && !queue.corrupt) return const SizedBox.shrink();
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      if (queue.corrupt)
+        const Text(
+          'A fila de marcações deste tablet estava ilegível e foi preservada para análise. Procure o administrador.',
+          style: TextStyle(color: Colors.red),
+        ),
+      if (pending > 0)
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('$pending marcação(ões) pendente(s) de envio', style: const TextStyle(color: Colors.orange)),
+          TextButton(onPressed: controller.syncPending, child: const Text('Sincronizar agora')),
+        ]),
+      for (final item in rejected)
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+            'Matrícula ${item.registration}: recusada (${_rejectReasons[item.reason] ?? item.reason}). '
+            'Procure o administrador.',
+            style: const TextStyle(color: Colors.red),
+          ),
+          TextButton(onPressed: () => controller.acknowledgeRejected(item.eventId), child: const Text('Ciente')),
+        ]),
+    ]);
   }
 }

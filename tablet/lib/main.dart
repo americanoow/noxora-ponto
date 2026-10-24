@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api_client.dart';
 import 'device_controller.dart';
+import 'offline_queue.dart';
 import 'punch_panel.dart';
 import 'token_store.dart';
 
@@ -34,7 +35,8 @@ class StatusPage extends StatefulWidget {
 class _StatusPageState extends State<StatusPage> {
   late final ApiClient _client = widget.client ?? ApiClient();
   late final DeviceController _device =
-      widget.deviceController ?? DeviceController(store: SecureTokenStore());
+      widget.deviceController ??
+      DeviceController(store: SecureTokenStore(), queueStorage: SecureQueueStorage());
   late Future<ApiStatus> _status = _client.fetchStatus();
   Timer? _heartbeat;
 
@@ -130,15 +132,26 @@ class _DevicePanelState extends State<DevicePanel> {
                 PunchPanel(controller: c),
               ]);
             case DeviceState.offline:
+              final canPunchOffline = c.scope?.allowsOfflinePunch ?? false;
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(c.message ?? 'Sem conexão.'),
                 const SizedBox(height: 8),
                 FilledButton(onPressed: c.heartbeat, child: const Text('Tentar novamente')),
+                QueueStatus(controller: c),
+                if (canPunchOffline) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Modo offline: a marcação será guardada neste tablet e enviada ao reconectar.',
+                    style: TextStyle(color: Colors.orange),
+                  ),
+                  PunchPanel(controller: c),
+                ],
               ]);
             case DeviceState.unactivated:
             case DeviceState.revoked:
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 if (c.message != null) Text(c.message!),
+                QueueStatus(controller: c),
                 const Text('Digite o código de ativação gerado no painel.'),
                 const SizedBox(height: 8),
                 SizedBox(

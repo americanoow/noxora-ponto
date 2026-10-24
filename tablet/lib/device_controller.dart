@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_client.dart' show apiBaseUrl;
+import 'offline_queue.dart';
 import 'token_store.dart';
 
 /// Versão informada ao servidor (heartbeat). Mantida em sincronia com o pubspec.
@@ -20,6 +21,7 @@ class DeviceScope {
     required this.company,
     required this.unit,
     this.identificationMode = 'registration',
+    this.offlinePolicy = 'disabled',
   });
   final String name;
   final String company;
@@ -28,14 +30,28 @@ class DeviceScope {
   /// 'registration' (só matrícula) ou 'face' (verificação facial ou exceção autorizada).
   final String identificationMode;
 
+  /// 'disabled' ou 'registration_only' (marcação offline por matrícula, sinalizada para revisão).
+  final String offlinePolicy;
+
   bool get requiresFace => identificationMode == 'face';
+  bool get allowsOfflinePunch => offlinePolicy == 'registration_only';
 
   factory DeviceScope.fromJson(Map<String, dynamic> json) => DeviceScope(
         name: '${json['name']}',
         company: '${(json['company'] as Map<String, dynamic>)['name']}',
         unit: '${(json['unit'] as Map<String, dynamic>)['name']}',
         identificationMode: '${json['identification_mode'] ?? 'registration'}',
+        offlinePolicy: '${json['offline_policy'] ?? 'disabled'}',
       );
+
+  /// Mesmo formato do servidor (usado para guardar o escopo e operar após reinício sem conexão).
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'company': {'name': company},
+        'unit': {'name': unit},
+        'identification_mode': identificationMode,
+        'offline_policy': offlinePolicy,
+      };
 }
 
 enum DeviceState { loading, unactivated, active, revoked, offline }
@@ -72,6 +88,14 @@ class PunchRejected extends PunchOutcome {
 class PunchUnconfirmed extends PunchOutcome {
   const PunchUnconfirmed(this.message);
   final String message;
+}
+
+/// Sem conexão: a marcação foi GUARDADA neste tablet e será enviada ao reconectar. Não há NSR nem
+/// comprovante até a sincronização; o horário mostrado é o do aparelho.
+class PunchQueued extends PunchOutcome {
+  const PunchQueued({required this.eventId, required this.deviceTime});
+  final String eventId;
+  final DateTime deviceTime;
 }
 
 /// Resultado da verificação facial 1:1 feita pelo servidor.
@@ -121,28 +145,54 @@ String _newEventId() {
       '${hex.substring(16, 20)}-${hex.substring(20)}';
 }
 
-/// Ciclo de vida do tablet: ativação, heartbeat, rotação e tratamento de revogação.
+/// Ciclo de vida do tablet: ativação, heartbeat, rotação, revogação e sincronização offline.
 ///
-/// Limitação conhecida (etapa 7): sem rede o servidor não consegue revogar; o acesso offline
-/// só é limitado pela validade da credencial.
+/// Sem conexão, e só se a empresa permitir (`offline_policy`), a marcação por matrícula é guardada na fila
+/// persistente e enviada em lote ao reconectar. Reconhecimento facial NÃO funciona offline.
 class DeviceController extends ChangeNotifier {
-  DeviceController({required this.store, http.Client? client, String? baseUrl, DateTime Function()? now})
-      : _client = client ?? http.Client(),
+  DeviceController({
+    required this.store,
+    QueueStorage? queueStorage,
+    http.Client? client,
+    String? baseUrl,
+    DateTime Function()? now,
+  })  : queue = OfflineQueue(queueStorage ?? MemoryQueueStorage(), now: now),
+        _client = client ?? http.Client(),
         _baseUrl = baseUrl ?? apiBaseUrl,
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now {
+    this.queue.addListener(_onQueueChanged);
+  }
 
   final TokenStore store;
+  final OfflineQueue queue;
   final http.Client _client;
   final String _baseUrl;
   final DateTime Function() _now;
   Future<void>? _operation;
   bool _disposed = false;
+  bool _syncing = false;
 
   DeviceState state = DeviceState.loading;
   DeviceScope? scope;
   String? message;
 
-  Future<void> init() => heartbeat();
+  void _onQueueChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Carrega a fila e o escopo guardado (para operar após reinício mesmo sem conexão) e verifica o acesso.
+  Future<void> init() async {
+    await queue.load();
+    final cached = queue.cachedScope;
+    if (cached != null && scope == null) {
+      try {
+        scope = DeviceScope.fromJson(cached);
+      } catch (_) {
+        scope = null;
+      }
+    }
+    await heartbeat();
+  }
 
   // Heartbeat, ativação e rotação nunca alteram o armazenamento em paralelo.
   Future<void> _exclusive(Future<void> Function() action) {
@@ -170,7 +220,9 @@ class DeviceController extends ChangeNotifier {
         if (token.isEmpty) throw const FormatException('Credencial vazia.');
         await store.write(StoredCredential(token: token, issuedAt: _now()));
         scope = nextScope;
+        await queue.saveScope(nextScope.toJson());
         _set(DeviceState.active);
+        await syncPending(); // marcações guardadas antes de uma reativação seguem para o servidor
       } else if (response.statusCode == 429) {
         _set(DeviceState.unactivated, 'Muitas tentativas. Aguarde um minuto.');
       } else {
@@ -190,6 +242,7 @@ class DeviceController extends ChangeNotifier {
         _set(DeviceState.unactivated);
         return;
       }
+      final sentAt = _now();
       final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/device/heartbeat/'),
@@ -197,14 +250,20 @@ class DeviceController extends ChangeNotifier {
             body: jsonEncode({'app_version': appVersion}),
           )
           .timeout(const Duration(seconds: 10));
+      final receivedAt = _now();
       if (response.statusCode == 200) {
-        scope = DeviceScope.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        scope = DeviceScope.fromJson(body);
+        await queue.saveScope(scope!.toJson());
+        await _sampleClock(body['server_time'], sentAt, receivedAt);
         _set(DeviceState.active);
         if (_now().difference(credential.issuedAt) > rotateAfter) await _rotate(credential);
+        await syncPending();
       } else if (response.statusCode == 401) {
-        // Revogado ou expirado: a credencial local não serve mais.
+        // Revogado ou expirado: a credencial local não serve mais. A FILA É PRESERVADA.
         scope = null;
-        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await queue.saveScope(null);
+        _set(DeviceState.revoked, _revokedMessage());
         await store.clear();
       } else if (response.statusCode == 403) {
         // Empresa suspensa: mantém a credencial, que volta a valer quando o acesso for restabelecido.
@@ -216,6 +275,79 @@ class DeviceController extends ChangeNotifier {
       _set(DeviceState.offline, 'Não foi possível verificar o acesso ou ler a credencial segura.');
     }
   }
+
+  String _revokedMessage() {
+    final pending = queue.pendingCount;
+    final tail = pending > 0
+        ? ' $pending marcação(ões) continuam guardadas e serão enviadas após a reativação.'
+        : '';
+    return 'Este tablet foi desativado. Peça um novo código de ativação.$tail';
+  }
+
+  /// Mede o desvio do relógio (servidor − aparelho) pelo ponto médio da requisição.
+  Future<void> _sampleClock(dynamic serverTime, DateTime sentAt, DateTime receivedAt) async {
+    final server = DateTime.tryParse('$serverTime');
+    if (server == null) return;
+    final midpoint = sentAt.add(receivedAt.difference(sentAt) ~/ 2);
+    final offsetMs = server.toUtc().difference(midpoint.toUtc()).inMilliseconds;
+    await queue.saveClock((offsetMs / 1000).round(), server);
+  }
+
+  /// Envia a fila offline em lotes. Cada evento recebe resposta própria (confirmed/duplicate/rejected);
+  /// o que não receber resposta definitiva volta a `pending`. Credencial revogada/expirada (401), empresa
+  /// suspensa (403), 429, 5xx ou falha de rede interrompem o envio SEM perder nada.
+  Future<void> syncPending() async {
+    if (_syncing || _disposed) return;
+    _syncing = true;
+    try {
+      while (!_disposed) {
+        final credential = await store.read();
+        if (credential == null) return;
+        final batch = await queue.takeBatch(50);
+        if (batch.isEmpty) return;
+        http.Response response;
+        try {
+          response = await _client
+              .post(
+                Uri.parse('$_baseUrl/api/device/punches/batch/'),
+                headers: _headers(credential.token),
+                body: jsonEncode({'events': batch.map((e) => e.toWire()).toList()}),
+              )
+              .timeout(const Duration(seconds: 20));
+        } catch (_) {
+          await queue.releaseSent();
+          return;
+        }
+        if (response.statusCode == 200) {
+          try {
+            final body = jsonDecode(response.body) as Map<String, dynamic>;
+            await queue.applyResults(batch, body['results'] as List<dynamic>);
+          } catch (_) {
+            await queue.releaseSent(); // resposta ilegível: reenviar é seguro (idempotente)
+            return;
+          }
+          // Sem nenhum resultado definitivo neste lote não há progresso: parar, para não reenviar sem fim.
+          if (batch.every((e) => e.state == QueuedState.pending)) return;
+          continue;
+        }
+        await queue.releaseSent();
+        if (response.statusCode == 401) {
+          scope = null;
+          await queue.saveScope(null);
+          _set(DeviceState.revoked, _revokedMessage());
+          await store.clear();
+        } else if (response.statusCode == 403) {
+          _set(DeviceState.offline, 'Acesso suspenso. Procure o administrador.');
+        }
+        return;
+      }
+    } finally {
+      _syncing = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<void> acknowledgeRejected(String eventId) => queue.acknowledgeRejected(eventId);
 
   Future<void> _rotate(StoredCredential current) async {
     try {
@@ -229,7 +361,8 @@ class DeviceController extends ChangeNotifier {
         await store.write(StoredCredential(token: token, issuedAt: _now()));
       } else if (response.statusCode == 401) {
         scope = null;
-        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await queue.saveScope(null);
+        _set(DeviceState.revoked, _revokedMessage());
         await store.clear();
       } else if (response.statusCode == 403) {
         _set(DeviceState.offline, 'Acesso suspenso. Procure o administrador.');
@@ -244,7 +377,8 @@ class DeviceController extends ChangeNotifier {
   bool _punching = false;
 
   /// Registra uma marcação. [declaredKind]: '', 'entry', 'break_start', 'break_end' ou 'exit'
-  /// (informativo; a apuração decide). Nunca grava localmente: a fila offline é da etapa 7.
+  /// (informativo; a apuração decide). Sem resposta do servidor, e só se a empresa permitir marcação
+  /// offline por matrícula, a marcação é guardada na fila persistente ([PunchQueued]).
   Future<PunchOutcome> punch(
     String registration, {
     String declaredKind = '',
@@ -255,6 +389,7 @@ class DeviceController extends ChangeNotifier {
     if (_punching) return const PunchUnconfirmed('Aguarde a conclusão do registro anterior.');
     _punching = true;
     final wasUnconfirmed = _pendingPunches.containsKey(reg);
+    Map<String, dynamic>? payload;
     try {
       final credential = await store.read();
       if (credential == null) {
@@ -262,7 +397,7 @@ class DeviceController extends ChangeNotifier {
             ? const PunchUnconfirmed('Tentativa anterior sem confirmação. Procure o administrador.')
             : const PunchRejected('Tablet não ativado.');
       }
-      final payload = _pendingPunches.putIfAbsent(reg, () => {
+      payload = _pendingPunches.putIfAbsent(reg, () => {
         'registration': reg,
         'client_event_id': _newEventId(),
         'declared_kind': declaredKind,
@@ -296,7 +431,8 @@ class DeviceController extends ChangeNotifier {
         // A recusa atual não prova que uma tentativa anterior não foi gravada.
         if (!wasUnconfirmed) _pendingPunches.remove(reg);
         scope = null;
-        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await queue.saveScope(null);
+        _set(DeviceState.revoked, _revokedMessage());
         await store.clear();
         if (wasUnconfirmed) {
           return const PunchUnconfirmed('Tablet desativado. Tentativa anterior sem confirmação. Procure o administrador.');
@@ -314,10 +450,35 @@ class DeviceController extends ChangeNotifier {
       }
       return const PunchUnconfirmed('Servidor indisponível. Tente novamente: não haverá duplicidade.');
     } catch (_) {
+      final pending = payload;
+      if (pending != null && _canQueueOffline(pending)) {
+        final reported = DateTime.parse(pending['device_reported_at'] as String);
+        final queued = await queue.enqueue(
+          eventId: pending['client_event_id'] as String,
+          registration: reg,
+          declaredKind: (pending['declared_kind'] as String?) ?? '',
+          deviceReportedAt: reported,
+        );
+        if (queued == null) {
+          return const PunchUnconfirmed(
+            'Não foi possível guardar a marcação neste tablet (fila cheia ou armazenamento indisponível). Procure o administrador.',
+          );
+        }
+        _pendingPunches.remove(reg); // a fila assumiu o evento; o reenvio usa o mesmo identificador
+        return PunchQueued(eventId: queued.eventId, deviceTime: reported.toLocal());
+      }
       return const PunchUnconfirmed('Sem confirmação do servidor. Tente novamente: não haverá duplicidade.');
     } finally {
       _punching = false;
     }
+  }
+
+  /// Offline só por matrícula e só se a empresa permitir. Face e exceção dependem do servidor.
+  bool _canQueueOffline(Map<String, dynamic> payload) {
+    if (!(scope?.allowsOfflinePunch ?? false)) return false;
+    final identification = payload['identification'];
+    return identification == null ||
+        (identification is Map<String, dynamic> && identification['method'] == 'registration');
   }
 
   /// Envia a captura ao servidor para verificação 1:1. A imagem não é guardada no aparelho.
@@ -339,7 +500,8 @@ class DeviceController extends ChangeNotifier {
       }
       if (response.statusCode == 401) {
         scope = null;
-        _set(DeviceState.revoked, 'Este tablet foi desativado. Peça um novo código de ativação.');
+        await queue.saveScope(null);
+        _set(DeviceState.revoked, _revokedMessage());
         await store.clear();
         return const FaceUnavailable('Tablet desativado.');
       }
@@ -372,6 +534,8 @@ class DeviceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    queue.removeListener(_onQueueChanged);
+    queue.dispose();
     _client.close();
     super.dispose();
   }

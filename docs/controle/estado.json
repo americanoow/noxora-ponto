@@ -5,9 +5,9 @@
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapa 7: backend (SQLite 357 / PostgreSQL 366) e frontend (60 testes, lint/typecheck/build/prettier limpos) concluídos.",
-  "proxima_acao": "Continuar pelo checklist de docs/etapas/07-implementacao.md: tablet Dart (OfflineQueue + armazenamento seguro, integração no DeviceController, UI de pendências, testes não executáveis), documentos (D52+, requisitos-rep-p, avaliação), auto-revisão e commit final. Apenas Claude Code. Parar ao concluir a etapa 7.",
-  "ultimo_checkpoint": "etapa-7-frontend-concluido",
+  "ultima_tarefa_concluida": "Etapa 7: backend, frontend e tablet Dart escritos. Dart (OfflineQueue, integração no DeviceController, UI de pendências, 30 testes) NÃO foi compilado nem executado (Flutter ausente). Auto-revisão do Dart achou e corrigiu um laço infinito de reenvio.",
+  "proxima_acao": "Restam: documentos (decisões D52+, requisitos-rep-p, avaliação do motor, 07-revisao.md com auto-revisão e registro de que o Codex não foi usado), verificação final (SQLite, PostgreSQL, ruff, migrations, frontend) e commit final; depois PAUSAR e avisar o usuário. Apenas Claude Code. Não iniciar a etapa 8.",
+  "ultimo_checkpoint": "etapa-7-tablet-escrito",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [
