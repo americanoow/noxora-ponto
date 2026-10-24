@@ -5,9 +5,9 @@
   "ia_responsavel": "Claude",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapa 7, passo 1: campos TimeRecord.sync_flags e Company.offline_policy, settings OFFLINE_*, migration 0005 que preserva os gatilhos (verificado em SQLite e PostgreSQL). O usuário avisou que os tokens podem acabar a qualquer momento e que fará a retomada em nova sessão: o plano completo e o checklist estão em docs/etapas/07-implementacao.md.",
-  "proxima_acao": "Retomar a etapa 7 pelo checklist de docs/etapas/07-implementacao.md (próximo item: backend — _insert com occurred_at/offline/sync_flags, resolve_offline_time, endpoint punches/batch/). Apenas Claude Code (sem Codex). Parar ao concluir a etapa 7.",
-  "ultimo_checkpoint": "etapa-7-campos-e-migration",
+  "ultima_tarefa_concluida": "Etapa 7, backend concluído: endpoint POST /api/device/punches/batch/ (lote idempotente com resultado por evento), correção de horário e flags, política offline_policy da empresa, escopo do dispositivo e histórico com sync_flags/filtro offline. Testes: SQLite 357 / PostgreSQL 366 (inclui lotes simultâneos), ruff e migrations limpos.",
+  "proxima_acao": "Continuar pelo checklist de docs/etapas/07-implementacao.md: frontend (rótulos das flags, seletor offline_policy, filtro offline, testes), depois tablet Dart (OfflineQueue + integração + UI + testes), documentos (D52+, requisitos, avaliação), auto-revisão e commit final. Apenas Claude Code. Parar ao concluir a etapa 7.",
+  "ultimo_checkpoint": "etapa-7-backend-concluido",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [

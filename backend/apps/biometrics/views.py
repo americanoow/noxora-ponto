@@ -158,28 +158,47 @@ class ExceptionView(BiometricView):
 
 
 class IdentificationModeView(BiometricView):
+    """Política de identificação (`mode`) e de marcação offline (`offline_policy`) da empresa."""
+
+    MODES = ("registration", "face")
+    OFFLINE = ("disabled", "registration_only")
+
+    @staticmethod
+    def _body(company):
+        return {"mode": company.identification_mode, "offline_policy": company.offline_policy}
+
     def get(self, request, company_id):
-        company = reader_company(request, company_id)
-        return Response({"mode": company.identification_mode})
+        return Response(self._body(reader_company(request, company_id)))
 
     def patch(self, request, company_id):
         company = admin_company(request, company_id)
-        mode = request.data.get("mode")
-        if mode not in ("registration", "face"):
+        data = request.data
+        mode, offline = data.get("mode"), data.get("offline_policy")
+        if mode is None and offline is None:
+            raise ValidationError({"detail": "Informe 'mode' e/ou 'offline_policy'."})
+        if mode is not None and mode not in self.MODES:
             raise ValidationError({"mode": "Use 'registration' ou 'face'."})
-        before = company.identification_mode
+        if offline is not None and offline not in self.OFFLINE:
+            raise ValidationError({"offline_policy": "Use 'disabled' ou 'registration_only'."})
+        before = self._body(company)
         with transaction.atomic():
-            company.identification_mode = mode
-            company.save(update_fields=["identification_mode"])
+            fields = []
+            if mode is not None:
+                company.identification_mode = mode
+                fields.append("identification_mode")
+            if offline is not None:
+                company.offline_policy = offline
+                fields.append("offline_policy")
+            company.save(update_fields=fields)
             audit.record(
                 request,
                 "identification.mode_changed",
                 company=company,
                 target=company,
                 before=before,
-                after=mode,
+                after=self._body(company),
             )
-        return Response({"mode": mode})
+        return Response(self._body(company))
 
 
 # ---------- API do tablet ----------

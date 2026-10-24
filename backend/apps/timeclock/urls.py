@@ -10,5 +10,6 @@ urlpatterns = [
 
 device_urlpatterns = [
     path("punches/", views.PunchView.as_view(), name="device-punch"),
+    path("punches/batch/", views.PunchBatchView.as_view(), name="device-punch-batch"),
     path("punches/<int:record_id>/receipt/", views.PunchReceiptView.as_view(), name="device-punch-receipt"),
 ]

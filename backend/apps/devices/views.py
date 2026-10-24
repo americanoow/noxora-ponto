@@ -160,6 +160,7 @@ def _scope_payload(device):
         "unit": {"id": device.unit_id, "name": device.unit.name, "timezone": device.unit.timezone},
         "collect_location": device.collect_location,
         "identification_mode": device.company.identification_mode,
+        "offline_policy": device.company.offline_policy,
         "server_time": timezone.now(),
     }
 

@@ -23,6 +23,29 @@ class PunchSerializer(serializers.Serializer):
         return value
 
 
+class OfflineEventSerializer(serializers.Serializer):
+    """Evento da fila offline do tablet. O horário é o ORIGINAL do aparelho; o servidor o corrige."""
+
+    client_event_id = serializers.UUIDField()
+    registration = serializers.CharField(max_length=30)
+    declared_kind = serializers.ChoiceField(
+        choices=DeclaredKind.choices, required=False, allow_blank=True, default=""
+    )
+    device_reported_at = serializers.DateTimeField()
+    # servidor − aparelho (segundos) na última medição, e o horário do SERVIDOR em que foi medido.
+    clock_offset_seconds = serializers.IntegerField(
+        required=False, allow_null=True, default=None, min_value=-30 * 86400, max_value=30 * 86400
+    )
+    offset_measured_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    identification = serializers.DictField(required=False, allow_null=True, default=None)
+
+    def validate_registration(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Informe a matrícula.")
+        return value
+
+
 def validate_cnpj(raw: str) -> str:
     if any(not (ch.isascii() and ch.isdigit()) and ch not in ".-/ " for ch in raw):
         raise ValueError("CNPJ inválido.")
@@ -105,4 +128,5 @@ def record_dict(record) -> dict:
         "cpf": ops_services.mask_cpf(record.cpf),
         "hash_sha256": record.record_hash,
         "hash_version": record.hash_version,
+        "sync_flags": list(record.sync_flags or []),
     }

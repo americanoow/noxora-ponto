@@ -211,6 +211,8 @@ DEFAULT_EXCEPTION_REPORTER_FILTER = "apps.biometrics.security.BiometricException
 # Sincronização offline (etapa 7).
 OFFLINE_BATCH_MAX = 50  # eventos por requisição de sincronização
 OFFLINE_MAX_AGE_DAYS = 35  # evento mais antigo que isto é recusado (a credencial dura 30 dias)
-OFFLINE_FUTURE_TOLERANCE_SECONDS = 120  # horário corrigido no futuro além disto é limitado ao recebimento e sinalizado
+OFFLINE_FUTURE_TOLERANCE_SECONDS = (
+    120  # horário corrigido no futuro além disto é limitado ao recebimento e sinalizado
+)
 OFFLINE_CLOCK_SKEW_FLAG_SECONDS = 30  # desvio do relógio acima disto é sinalizado (Anexo IX, item 2)
 OFFLINE_OFFSET_STALE_HOURS = 24  # desvio medido há mais tempo que isto é sinalizado como defasado

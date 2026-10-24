@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.db import transaction
 from django.http import Http404
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
@@ -15,7 +17,13 @@ from apps.operations.views import Pagination, admin_company, is_admin, reader_co
 from . import services
 from .models import TimeRecord
 from .receipt import build_receipt
-from .serializers import EmployerSerializer, PunchSerializer, employer_dict, record_dict
+from .serializers import (
+    EmployerSerializer,
+    OfflineEventSerializer,
+    PunchSerializer,
+    employer_dict,
+    record_dict,
+)
 
 # ---------- API do tablet ----------
 
@@ -59,6 +67,74 @@ class PunchView(DeviceView):
         return Response(
             {"duplicate": not created, "record": record_dict(record), "receipt": build_receipt(record)},
             status=201 if created else 200,
+        )
+
+
+def _serialize_sync_result(result):
+    body = {
+        "client_event_id": str(result["client_event_id"]) if result["client_event_id"] else None,
+        "status": result["status"],
+        "flags": list(result.get("flags", [])),
+    }
+    if result["status"] == "rejected":
+        body["reason"] = result["reason"]
+    else:
+        record = result["record"]
+        body["record"] = record_dict(record)
+        body["receipt"] = build_receipt(record)
+    return body
+
+
+class PunchBatchView(DeviceView):
+    """Sincroniza marcações feitas offline. Sempre devolve um resultado por evento, na mesma ordem.
+
+    200 mesmo com recusas parciais; 400 só para lote malformado; 401/403 interrompem o lote (o reenvio é
+    seguro porque cada evento é idempotente).
+    """
+
+    parser_classes = [BoundedJSONParser]
+
+    def post(self, request):
+        events = request.data.get("events")
+        limit = settings.OFFLINE_BATCH_MAX
+        if not isinstance(events, list) or not (1 <= len(events) <= limit):
+            raise ValidationError({"events": f"Envie de 1 a {limit} eventos."})
+        results = []
+        for raw in events:
+            serializer = OfflineEventSerializer(data=raw) if isinstance(raw, dict) else None
+            if serializer is None or not serializer.is_valid():
+                echoed = raw.get("client_event_id") if isinstance(raw, dict) else None
+                results.append(
+                    {
+                        "client_event_id": echoed if isinstance(echoed, str) and len(echoed) <= 64 else None,
+                        "status": "rejected",
+                        "reason": "invalid",
+                        "flags": [],
+                    }
+                )
+                continue
+            data = serializer.validated_data
+            results.append(
+                services.process_offline_event(
+                    device=request.device,
+                    credential=request.auth,
+                    event_id=data["client_event_id"],
+                    data=data,
+                )
+            )
+        counts = {
+            k: sum(1 for r in results if r["status"] == k) for k in ("confirmed", "duplicate", "rejected")
+        }
+        audit.record(
+            request,
+            "device.offline_sync",
+            company=request.device.company,
+            target=request.device,
+            actor_email=f"dispositivo:{request.device.pk}",
+            **counts,
+        )
+        return Response(
+            {"results": [_serialize_sync_result(r) for r in results], "server_time": timezone.now()}
         )
 
 
@@ -107,6 +183,10 @@ class TimeRecordListView(APIView):
                 if parsed is None:
                     raise ValidationError({param: "Use o formato AAAA-MM-DD."})
                 qs = qs.filter(**{lookup: parsed})
+        if (offline := p.get("offline", "").lower()) in ("true", "1", "false", "0"):
+            qs = qs.filter(offline=offline in ("true", "1"))
+        elif offline:
+            raise ValidationError({"offline": "Use true ou false."})
         paginator = Pagination()
         page = paginator.paginate_queryset(qs.order_by("-occurred_at", "-id"), request)
         return paginator.get_paginated_response([record_dict(r) for r in page])
