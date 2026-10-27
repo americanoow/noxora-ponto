@@ -17,5 +17,6 @@ urlpatterns = [
     path("api/device/", include(timeclock_device_urlpatterns)),
     path("api/companies/<int:company_id>/", include("apps.biometrics.urls")),
     path("api/companies/<int:company_id>/", include("apps.attendance.urls")),
+    path("api/companies/<int:company_id>/", include("apps.availability.urls")),
     path("api/device/", include(biometrics_device_urlpatterns)),
 ]

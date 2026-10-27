@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "apps.timeclock",
     "apps.biometrics",
     "apps.attendance",
+    "apps.availability",
     "apps.audit",
 ]
 
