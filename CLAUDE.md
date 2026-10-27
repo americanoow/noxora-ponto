@@ -4,7 +4,7 @@ SaaS brasileiro de controle de jornada (REP-P, Portaria MTP 671/2021, CLT, LGPD)
 
 ## Papéis (vigente desde 2026-10-27, autorização do usuário)
 - O **Claude Code** conduz o desenvolvimento de ponta a ponta: implementa, revisa as próprias alterações, corrige, testa, documenta e comita.
-- **Não há** revisão obrigatória do Codex nem aprovação do usuário entre etapas. O Codex pode ser usado como revisor opcional (ver [AGENTS.md](AGENTS.md)), nunca como requisito para avançar.
+- O Codex **não é usado** (nem como revisor). Não há aprovação do usuário entre etapas.
 - O Claude continua enquanto houver trabalho executável e só traz perguntas quando uma decisão do usuário for realmente necessária (custo, contratação, produção, dados reais, decisões comerciais/jurídicas).
 
 ## Memória compartilhada (ler antes de agir)

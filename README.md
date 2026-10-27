@@ -65,5 +65,3 @@ ser servido com roteamento de `/api` para o backend; a hospedagem não integra e
 ## Tablet
 Veja [tablet/README.md](tablet/README.md). URL da API via `--dart-define=API_BASE_URL=...` (emulador: `10.0.2.2`; dispositivo físico: IP da máquina).
 
-## Revisão pelo Codex
-`tools/codex_handoff.ps1 -Etapa N -Nome "..."` (exige `docs/controle/prompt-codex-NN.md`).

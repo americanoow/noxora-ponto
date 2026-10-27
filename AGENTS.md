@@ -1,8 +1,3 @@
-# Noxora Ponto — instruções para o Codex (opcional)
+# Noxora Ponto — instruções para outros agentes
 
-Desde 2026-10-27 o Claude Code conduz todo o desenvolvimento, inclusive revisão e testes ([CLAUDE.md](CLAUDE.md)). A revisão pelo Codex **não é obrigatória**; se o usuário a pedir, valem as regras abaixo.
-
-## Papel: somente revisão
-Ler o diff indicado, apontar defeitos concretos (funcionamento, segurança, isolamento entre empresas, integridade das marcações, dados sensíveis, migrations, contratos) e devolver o relatório na resposta. Não editar arquivos, não comitar, não instalar dependências. Diferenciar defeito confirmado de suspeita. Não inventar regras legais.
-
-Formato: gravidade, arquivo/linha, cenário, consequência, direção da correção. Limite de uso ou erro de autenticação: parar e informar.
+O Codex **não é mais usado** neste projeto (decisão do usuário em 2026-10-27). Todo o desenvolvimento, a revisão e os testes são conduzidos pelo Claude Code conforme [CLAUDE.md](CLAUDE.md). Os relatórios antigos em `docs/etapas/*-revisao.md` são apenas histórico.

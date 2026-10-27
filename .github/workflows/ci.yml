@@ -73,9 +73,6 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: flutter create . --platforms=android --org br.com.noxora --project-name noxora_ponto_tablet
-      # O teste de contador gerado pelo SDK referencia MyApp, ausente neste app.
-      - run: rm -f test/widget_test.dart
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
