@@ -163,3 +163,11 @@ Pendências: throttling usa cache local (trocar por cache compartilhado em produ
 |---|---------|---------------|--------------|
 | D76 | AFD por unidade (= estabelecimento, D30), em ordem de NSR, filtrado pela data local da marcação; cada geração fica registrada (`GeneratedFile`: hash, tamanho, versão) sem guardar o conteúdo | Rastreabilidade sem duplicar dados pessoais | Ver requisitos-rep-p.md seção 4 para o que falta conferir; AEJ não implementado (leiaute não consultado) |
 | D77 | Folha: perfis de rubricas por empresa e exportação **só de período fechado** (instantâneo) | O que vai para a folha não muda depois | Formato genérico; integração com fornecedor específico é decisão pendente do usuário |
+
+## Etapa 13 — planos e assinaturas (app `billing`)
+| # | Decisão | Justificativa | Consequência |
+|---|---------|---------------|--------------|
+| D78 | Gateway por adaptador; **só existe o SANDBOX local** (sem dinheiro, sem terceiros), que assina eventos por HMAC no mesmo formato aceito pelo webhook | Contratar gateway (Asaas, Stripe, Pagar.me…) gera custo/contrato: decisão do usuário | Fluxo completo testável (fatura → falha → atraso → pagamento); **não é integração real** |
+| D79 | Webhook com assinatura HMAC obrigatória (`X-Noxora-Signature`), corpo ≤ 64 KB e idempotência por `(gateway, event_id)`; sem segredo configurado, todo evento é recusado | Webhooks repetidos/fora de ordem | Evento atrasado de falha após pagamento é ignorado |
+| D80 | Cobrança **nunca** afeta marcação: suspensão (atraso > carência de 10 dias) só bloqueia novos funcionários/tablets/reativações; limites do plano idem | Portaria 671, art. 74 | Teste garante que `timeclock.services` não referencia cobrança |
+| D81 | Três planos de referência criados por migration com **preços placeholder** (essencial, profissional, empresarial); preço = base + valor por funcionário ativo, período de 30 dias, teste de 14 dias | Definição comercial pendente | Ajustáveis pela plataforma; `run_billing` deve ser agendado (etapa 15) |

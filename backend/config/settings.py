@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "apps.availability",
     "apps.reports",
     "apps.fiscal",
+    "apps.billing",
     "apps.audit",
 ]
 
@@ -236,3 +237,12 @@ OFFLINE_FUTURE_TOLERANCE_SECONDS = (
 )
 OFFLINE_CLOCK_SKEW_FLAG_SECONDS = 30  # desvio do relógio acima disto é sinalizado (Anexo IX, item 2)
 OFFLINE_OFFSET_STALE_HOURS = 24  # desvio medido há mais tempo que isto é sinalizado como defasado
+
+# Cobrança (etapa 13). Só existe o gateway SANDBOX (sem dinheiro real). Gateway real exige contrato.
+BILLING_GATEWAY = os.environ.get("BILLING_GATEWAY", "sandbox").strip()
+BILLING_WEBHOOK_SECRET = os.environ.get(
+    "BILLING_WEBHOOK_SECRET", "sandbox-dev-secret" if DEBUG else ""
+).strip()
+BILLING_TRIAL_DAYS = int(os.environ.get("BILLING_TRIAL_DAYS", "14"))
+BILLING_DUE_DAYS = int(os.environ.get("BILLING_DUE_DAYS", "5"))
+BILLING_GRACE_DAYS = int(os.environ.get("BILLING_GRACE_DAYS", "10"))

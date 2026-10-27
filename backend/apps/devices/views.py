@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit import services as audit
+from apps.billing import services as billing
 from apps.operations import services as ops_services
 from apps.operations.views import _visible_units, admin_company, is_admin, reader_company
 
@@ -58,6 +59,7 @@ class DeviceListView(APIView):
         data = DeviceCreateSerializer(data=request.data, context={"company": company})
         data.is_valid(raise_exception=True)
         with transaction.atomic():
+            billing.check_limit(company, "devices")
             device = Device.objects.create(company=company, **data.validated_data)
             code, record = services.new_activation_code(device)
             audit.record(request, "device.created", company=company, target=device)

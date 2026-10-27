@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit import services as audit
+from apps.billing import services as billing
 from apps.companies.models import Membership, Role
 from apps.companies.permissions import require_role, resolve_company
 
@@ -225,6 +226,7 @@ class EmployeeListView(APIView):
         access_user = _resolve_access_user(company, v.pop("access_email"))
         try:
             with transaction.atomic():
+                billing.check_limit(company, "employees")
                 employee = Employee.objects.create(company=company, access_user=access_user, **v)
                 audit.record(request, "employee.created", company=company, target=employee)
         except IntegrityError:
@@ -255,6 +257,8 @@ class EmployeeDetailView(APIView):
             employee.access_user = _resolve_access_user(company, v["access_email"])
             changed.append("access_user")
         if "is_active" in v and v["is_active"] != employee.is_active:
+            if v["is_active"]:
+                billing.check_limit(company, "employees")
             employee.is_active = v["is_active"]
             employee.inactivated_at = None if v["is_active"] else timezone.now()
             changed += ["is_active", "inactivated_at"]

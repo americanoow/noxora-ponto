@@ -141,8 +141,11 @@ def validate(company, rows):
 
 
 def commit(company, records):
+    from apps.billing import services as billing
+
     created = []
     with transaction.atomic():
+        billing.check_limit(company, "employees", adding=len(records))
         for r in records:
             employee = Employee.objects.create(
                 company=company, registration=r["registration"], full_name=r["full_name"], cpf=r["cpf"]
