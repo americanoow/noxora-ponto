@@ -7,6 +7,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
+from apps.notifications import services as outbox
+from apps.notifications.models import OutboundEmail
 from conftest import PASSWORD, make_user
 
 pytestmark = pytest.mark.django_db
@@ -103,6 +105,8 @@ def test_recuperacao_de_acesso_fluxo_completo(tenant_a):
     client = csrf_client()
     r = client.post("/api/auth/password-reset/", {"email": "employee@a.test"}, format="json")
     assert r.status_code == 202
+    assert mail.outbox == []  # a requisição só enfileira
+    assert outbox.process()["sent"] == 1
     assert len(mail.outbox) == 1
     body = mail.outbox[0].body
     uid = body.split("uid=")[1].split("&")[0]
@@ -129,6 +133,7 @@ def test_recuperacao_nao_revela_cadastro_e_ignora_inativos(tenant_a):
 def test_recuperacao_rejeita_senha_fraca_e_token_invalido(tenant_a):
     client = csrf_client()
     client.post("/api/auth/password-reset/", {"email": "employee@a.test"}, format="json")
+    outbox.process()
     body = mail.outbox[0].body
     uid = body.split("uid=")[1].split("&")[0]
     token = body.split("token=")[1].split()[0]
@@ -193,13 +198,16 @@ def test_falha_smtp_nao_enumera_nem_expoe_segredos(tenant_a, monkeypatch, caplog
     def fail(*args, **kwargs):
         raise SMTPException("token-ultrassecreto")
 
-    monkeypatch.setattr("apps.accounts.services.send_mail", fail)
+    monkeypatch.setattr("apps.notifications.services.send_mail", fail)
     client = csrf_client()
     known = client.post("/api/auth/password-reset/", {"email": "employee@a.test"}, format="json")
     unknown = client.post("/api/auth/password-reset/", {"email": "unknown@a.test"}, format="json")
     assert known.status_code == unknown.status_code == 202
     assert known.json() == unknown.json()
-    assert "token-ultrassecreto" not in caplog.text
+    assert outbox.process()["retry"] == 1
+    item = OutboundEmail.objects.get()
+    assert item.status == "queued" and item.last_error == "SMTPException"
+    assert "token-ultrassecreto" not in caplog.text and "token" not in item.last_error
 
 
 @pytest.mark.parametrize("path", ["password-reset/", "password-reset/confirm/"])

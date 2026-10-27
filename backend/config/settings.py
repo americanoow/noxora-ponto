@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.reports",
     "apps.fiscal",
     "apps.billing",
+    "apps.notifications",
     "apps.audit",
 ]
 
@@ -161,6 +162,9 @@ EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backend
 if not DEBUG and EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
     # Em desenvolvimento (DEBUG) o console permite ver links de convite; fora dele, tokens iriam para logs.
     raise RuntimeError("Backend console de e-mail proibido fora de debug: expõe tokens de acesso em logs.")
+# Outbox: em desenvolvimento/testes o envio ocorre logo após o commit; em produção, pelo worker
+# `manage.py process_outbox --loop 10` (EMAIL_OUTBOX_SYNC=false).
+EMAIL_OUTBOX_SYNC = env_bool("EMAIL_OUTBOX_SYNC", DEBUG)
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Noxora Ponto <nao-responda@localhost>")
 
 if not DEBUG:
