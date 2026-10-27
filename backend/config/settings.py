@@ -162,6 +162,13 @@ EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backend
 if not DEBUG and EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
     # Em desenvolvimento (DEBUG) o console permite ver links de convite; fora dele, tokens iriam para logs.
     raise RuntimeError("Backend console de e-mail proibido fora de debug: expõe tokens de acesso em logs.")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_TIMEOUT = 20
 # Outbox: em desenvolvimento/testes o envio ocorre logo após o commit; em produção, pelo worker
 # `manage.py process_outbox --loop 10` (EMAIL_OUTBOX_SYNC=false).
 EMAIL_OUTBOX_SYNC = env_bool("EMAIL_OUTBOX_SYNC", DEBUG)
@@ -245,6 +252,9 @@ if not DEBUG and BIOMETRIC_ENGINE == "simulator":
 _keys_file = os.environ.get("BIOMETRIC_KEYS_FILE", "").strip()
 try:
     _keys_raw = Path(_keys_file).read_text() if _keys_file else os.environ.get("BIOMETRIC_KEYS", "")
+except OSError:
+    raise RuntimeError(f"BIOMETRIC_KEYS_FILE não pôde ser lido: {_keys_file}") from None
+try:
     BIOMETRIC_KEYS = json.loads(_keys_raw or "{}")
     if not isinstance(BIOMETRIC_KEYS, dict):
         raise ValueError

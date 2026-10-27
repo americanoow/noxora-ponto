@@ -15,3 +15,6 @@ staticfiles/
 .local/
 .models/
 backups/
+deploy/.env.prod
+deploy/secrets/
+dump.rdb
