@@ -10,10 +10,10 @@ from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.audit import services as audit
+from apps.core.throttling import AtomicScopedRateThrottle as ScopedRateThrottle
 
 from .services import send_password_reset
 

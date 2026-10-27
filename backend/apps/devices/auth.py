@@ -1,14 +1,13 @@
-from threading import Lock
-
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework.permissions import BasePermission
-from rest_framework.throttling import SimpleRateThrottle
 
 from apps.audit import services as audit
+from apps.core.net import client_ip
+from apps.core.throttling import AtomicWindowThrottle
 
 from . import services
 from .models import DeviceStatus
@@ -77,26 +76,16 @@ class IsDevice(BasePermission):
         return request.auth is not None and hasattr(request, "device")
 
 
-class LocalSerializedThrottle(SimpleRateThrottle):
-    # DRF faz read/modify/write. Serializar evita perder tentativas entre threads.
-    # Produção multiprocesso ainda exige cache E operação atômica compartilhados.
-    _lock = Lock()
-
-    def allow_request(self, request, view):
-        with self._lock:
-            return super().allow_request(request, view)
-
-
-class DeviceRateThrottle(LocalSerializedThrottle):
+class DeviceRateThrottle(AtomicWindowThrottle):
     scope = "device"
 
     def get_cache_key(self, request, view):
         return self.cache_format % {"scope": self.scope, "ident": request.device.pk}
 
 
-class ActivationRateThrottle(LocalSerializedThrottle):
+class ActivationRateThrottle(AtomicWindowThrottle):
     scope = "device_activation"
 
     def get_cache_key(self, request, view):
-        # Não confiar em cabeçalhos do cliente até configurar proxy confiável.
-        return self.cache_format % {"scope": self.scope, "ident": request.META.get("REMOTE_ADDR", "")}
+        # X-Forwarded-For só vale com proxies declarados (TRUSTED_PROXY_COUNT).
+        return self.cache_format % {"scope": self.scope, "ident": client_ip(request) or ""}

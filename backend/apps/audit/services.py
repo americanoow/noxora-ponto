@@ -1,3 +1,5 @@
+from apps.core.net import client_ip
+
 from .models import AuditLog
 
 _SENSITIVE = ("password", "senha", "token", "secret", "biometr", "authorization", "cookie", "activation_code")
@@ -14,8 +16,7 @@ def _clean(metadata):
 def record(request, action, *, company=None, actor=None, target=None, actor_email="", **metadata):
     """Registra um evento. `request` pode ser None (tarefas internas).
 
-    O IP vem de REMOTE_ADDR; cabeçalhos X-Forwarded-For só devem ser considerados
-    quando houver proxy confiável configurado (etapa 15).
+    O IP vem de REMOTE_ADDR, ou de X-Forwarded-For quando há proxies confiáveis declarados.
     """
     # Quando o autor já vem identificado (ex.: dispositivo), não se consulta request.user: durante a
     # autenticação isso reentraria nos autenticadores.
@@ -29,6 +30,6 @@ def record(request, action, *, company=None, actor=None, target=None, actor_emai
         action=action,
         target_type=type(target).__name__ if target is not None else "",
         target_id=str(target.pk) if target is not None else "",
-        ip_address=request.META.get("REMOTE_ADDR") if request is not None else None,
+        ip_address=client_ip(request) if request is not None else None,
         metadata=_clean(metadata),
     )

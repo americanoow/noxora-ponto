@@ -56,6 +56,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "apps.core.middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "apps.biometrics.security.BiometricPrivacyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -123,6 +124,7 @@ REST_FRAMEWORK = {
     "URL_FORMAT_OVERRIDE": None,
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "NUM_PROXIES": None,  # definido abaixo a partir de TRUSTED_PROXY_COUNT
     "DEFAULT_THROTTLE_RATES": {
         "login": "10/min",
         "password_reset": "5/hour",
@@ -165,6 +167,45 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    X_FRAME_OPTIONS = "DENY"
+    # Atrás de proxy TLS (Caddy/Nginx/plataforma), que define X-Forwarded-Proto.
+    if env_bool("DJANGO_BEHIND_TLS_PROXY", False):
+        SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_bool("DJANGO_SSL_REDIRECT", False)
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "0"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_HSTS_INCLUDE_SUBDOMAINS", False)
+
+# Quantos proxies confiáveis à frente da aplicação acrescentam X-Forwarded-For (0 = ignorar o cabeçalho).
+TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "0"))
+
+# Cache compartilhado (limites de taxa, deduplicação). Em produção multiprocesso: REDIS_URL obrigatório.
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "noxora",
+            "TIMEOUT": 300,
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"json": {"()": "apps.core.logging.JsonFormatter"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "json"}},
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        # Acesso por requisição: só em produção ou quando pedido (evita ruído nos testes).
+        "noxora.request": {"level": os.environ.get("REQUEST_LOG_LEVEL", "WARNING" if DEBUG else "INFO")},
+        "django.request": {"level": "ERROR"},
+    },
+}
 
 # Núcleo de marcação (REP-P). Identificação só por matrícula NÃO é identificação forte: serve ao
 # desenvolvimento até a verificação facial (etapa 6). Desligue com TIMECLOCK_ALLOW_REGISTRATION_ONLY=false.
@@ -246,3 +287,5 @@ BILLING_WEBHOOK_SECRET = os.environ.get(
 BILLING_TRIAL_DAYS = int(os.environ.get("BILLING_TRIAL_DAYS", "14"))
 BILLING_DUE_DAYS = int(os.environ.get("BILLING_DUE_DAYS", "5"))
 BILLING_GRACE_DAYS = int(os.environ.get("BILLING_GRACE_DAYS", "10"))
+
+REST_FRAMEWORK["NUM_PROXIES"] = TRUSTED_PROXY_COUNT or None
