@@ -61,3 +61,11 @@ O Anexo IX (itens 4 e 5) admite marcação **off-line "excepcionalmente"**, envi
 14. **Hora**: a Hora Legal Brasileira com variação máxima de 30 s não é garantida offline. O servidor **estima** o horário corrigindo o relógio do tablet pelo último desvio medido e sinaliza dúvidas; `recorded_at` guarda o recebimento. Validar se essa estimativa é aceitável e como tratar divergências acima de 30 s.
 15. **NSR**: segue a ordem de **recebimento**, não a do evento (decisão D55). Validar com o especialista se isso atende ao requisito de sequência.
 16. **Segurança da informação do reenvio**: a fila no aparelho tem proteção em repouso (Keystore), mas não prova integridade contra aparelho com root; compensações no servidor (idempotência, sinalizações, limite de idade, auditoria do lote). Avaliar a suficiência.
+
+## 4. Arquivos técnicos (etapa 12, 2026-10-27)
+
+- **AFD** gerado por estabelecimento (`GET /api/companies/{id}/fiscal/afd/?unit=&from=&to=`), somente administrador, com registro de cada geração (hash, tamanho, versão do gerador). Tipo 7 com os campos conferidos na etapa 5; o hash de cada linha é recalculável a partir dos campos do próprio arquivo e do hash anterior (teste automatizado).
+- **Cabeçalho (tipo 1, 302 posições) e trailer (tipo 9, 64)** reconstruídos a partir do Anexo V; coerentes com indícios externos (INPI em 190–206; quantidade de tipo 7 em 055–063), porém **não conferidos** com o PDF oficial nesta sessão (gov.br/planalto inacessíveis na rede da nuvem). Pendentes: valor do campo "versão do leiaute" (`AFD_LAYOUT_VERSION`, hoje 003), variante do CRC-16 (implementada CRC-16/ARC como hipótese), preenchimento e codificação (ISO-8859-1).
+- **Assinatura CAdES (.p7s)** com certificado ICP-Brasil: externa, não implementada.
+- **AEJ (Arquivo Eletrônico de Jornada)**: **não implementado**. O leiaute não pôde ser consultado e não será inventado. Os dados necessários (marcações, jornadas contratuais, vínculos) existem no sistema.
+- **Folha**: exportação genérica (CSV ou TXT de largura fixa) a partir do **instantâneo do fechamento**, com códigos de rubrica configuráveis por empresa. Integração com um sistema de folha específico depende da escolha do fornecedor e da especificação oficial dele.

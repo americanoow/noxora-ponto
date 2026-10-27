@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "apps.attendance",
     "apps.availability",
     "apps.reports",
+    "apps.fiscal",
     "apps.audit",
 ]
 
@@ -170,6 +171,10 @@ TIMECLOCK_ALLOW_REGISTRATION_ONLY = env_bool("TIMECLOCK_ALLOW_REGISTRATION_ONLY"
 TIMECLOCK_COLLECTOR_CODE = "01"  # provisório: ver docs/requisitos-rep-p.md, pendência 5
 # Número de registro do REP-P no INPI (art. 79, VII / art. 91). Externo: vazio até existir.
 REP_P_INPI_REGISTRATION = os.environ.get("REP_P_INPI_REGISTRATION", "").strip()
+# Desenvolvedor do REP-P (cabeçalho do AFD) e versão do leiaute: confirmar com o leiaute oficial vigente.
+REP_P_DEVELOPER_TAX_ID_TYPE = os.environ.get("REP_P_DEVELOPER_TAX_ID_TYPE", "CNPJ").strip()
+REP_P_DEVELOPER_TAX_ID = os.environ.get("REP_P_DEVELOPER_TAX_ID", "").strip()
+AFD_LAYOUT_VERSION = os.environ.get("AFD_LAYOUT_VERSION", "003").strip()
 
 # Biometria (etapa 6). Nunca guardar imagem: só o template, criptografado com AES-256-GCM.
 # BIOMETRIC_KEYS = JSON {"id-da-chave": "<32 bytes em base64>"}; BIOMETRIC_ACTIVE_KEY_ID: chave de escrita.
