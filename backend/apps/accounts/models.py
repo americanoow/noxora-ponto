@@ -62,3 +62,23 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+class TotpDevice(models.Model):
+    """Segundo fator (TOTP). O segredo fica cifrado (AES-GCM, chave derivada do SECRET_KEY)."""
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="totp")
+    nonce = models.BinaryField(max_length=12)
+    ciphertext = models.BinaryField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_step = models.BigIntegerField(null=True, blank=True)  # impede reuso do mesmo código
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __repr__(self):
+        return f"<TotpDevice user={self.user_id} confirmed={self.confirmed_at is not None}>"
+
+
+class RecoveryCode(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="recovery_codes")
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)

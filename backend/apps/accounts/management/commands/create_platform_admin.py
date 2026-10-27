@@ -1,4 +1,4 @@
-"""Cria (ou promove) a conta da equipe Noxora. A senha vem de NOXORA_ADMIN_PASSWORD ou é pedida no terminal."""
+"""Cria ou promove a conta da equipe Noxora. Senha: NOXORA_ADMIN_PASSWORD ou digitada no terminal."""
 
 import getpass
 import os
@@ -11,7 +11,9 @@ from apps.accounts.models import User
 
 
 class Command(BaseCommand):
-    help = "Cria ou promove um administrador da plataforma Noxora (sem acesso aos dados internos das empresas)."
+    help = (
+        "Cria ou promove um administrador da plataforma Noxora (sem acesso aos dados internos das empresas)."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("email")

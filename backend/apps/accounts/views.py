@@ -1,3 +1,5 @@
+import time
+
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
@@ -15,6 +17,7 @@ from rest_framework.views import APIView
 from apps.audit import services as audit
 from apps.core.throttling import AtomicScopedRateThrottle as ScopedRateThrottle
 
+from . import mfa, totp
 from .services import send_password_reset
 
 
@@ -44,6 +47,7 @@ def serialize_me(user):
         "email": user.email,
         "name": user.first_name,
         "is_platform_admin": user.is_platform_admin,
+        "mfa_enabled": mfa.enabled(user),
         "memberships": [
             {"id": m.pk, "company_id": m.company_id, "company_name": m.company.name, "role": m.role}
             for m in memberships
@@ -70,9 +74,73 @@ class LoginView(PublicView):
         if user is None:
             audit.record(request, "auth.login_failed", actor_email=email.lower())
             return Response({"detail": "E-mail ou senha inválidos."}, status=status.HTTP_400_BAD_REQUEST)
+        if mfa.enabled(user):
+            # Senha correta, mas a sessão só é criada após o segundo fator.
+            request.session.cycle_key()
+            request.session["mfa_pending"] = {"user": user.pk, "at": time.time(), "attempts": 0}
+            audit.record(request, "auth.mfa_challenge", actor=user)
+            return Response({"mfa_required": True})
         login(request, user)
         audit.record(request, "auth.login", actor=user)
         return Response(serialize_me(user))
+
+
+class MfaVerifyView(PublicView):
+    """Segundo passo do login: código do aplicativo autenticador ou de recuperação."""
+
+    throttle_scope = "login"
+
+    def post(self, request):
+        pending = request.session.get("mfa_pending")
+        if not pending or time.time() - pending.get("at", 0) > mfa.PENDING_SECONDS:
+            request.session.pop("mfa_pending", None)
+            return Response({"detail": "Faça login novamente."}, status=status.HTTP_400_BAD_REQUEST)
+        user = get_user_model().objects.filter(pk=pending["user"], is_active=True).first()
+        if user is None or not mfa.check(user, request.data.get("code")):
+            pending["attempts"] = pending.get("attempts", 0) + 1
+            if pending["attempts"] >= mfa.MAX_PENDING_ATTEMPTS:
+                request.session.pop("mfa_pending", None)
+            else:
+                request.session["mfa_pending"] = pending
+            audit.record(request, "auth.mfa_failed", actor=user)
+            return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        request.session.pop("mfa_pending", None)
+        login(request, user)
+        audit.record(request, "auth.login", actor=user, mfa=True)
+        return Response(serialize_me(user))
+
+
+class MfaSetupView(APIView):
+    """POST inicia (segredo mostrado uma vez); PUT confirma com código; DELETE desativa (senha + código)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            secret = mfa.start_setup(request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"secret": secret, "otpauth_uri": totp.provisioning_uri(secret, request.user.email)},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def put(self, request):
+        codes = mfa.confirm_setup(request.user, request.data.get("code"))
+        if codes is None:
+            return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        audit.record(request, "auth.mfa_enabled")
+        return Response({"recovery_codes": codes}, headers={"Cache-Control": "no-store"})
+
+    def delete(self, request):
+        password = request.data.get("password")
+        if not isinstance(password, str) or not request.user.check_password(password):
+            return Response({"detail": "Senha incorreta."}, status=status.HTTP_400_BAD_REQUEST)
+        if not mfa.check(request.user, request.data.get("code")):
+            return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        mfa.disable(request.user)
+        audit.record(request, "auth.mfa_disabled")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LogoutView(APIView):
