@@ -29,3 +29,4 @@ Implementada e revisada com correções pelo Codex; conferência do Claude pende
 - 2026-10-22: pausa pedida pelo usuário após a etapa 6. Revisão complementar do Codex não realizada (modelo em capacidade máxima, não é limite de uso). Aguardando retomada manual.
 - 2026-10-24: retomada autorizada pelo usuário. Instrução: usar apenas o Claude Code (sem Codex) e parar ao terminar a próxima etapa (etapa 7).
 - 2026-10-24: etapa 7 concluída só com o Claude Code. Pausa solicitada pelo usuário: etapa 8 não iniciada.
+- 2026-10-27: retomada autorizada pelo usuário com condução autônoma pelo Claude Code (implementação, revisão, correção e testes). Revisão do Codex e aprovação entre etapas deixam de ser exigidas. Ambiente de nuvem: Linux, Python 3.13, Node 22, PostgreSQL 16 local, Flutter 3.47 (sem Android SDK: APK não gerável aqui).
