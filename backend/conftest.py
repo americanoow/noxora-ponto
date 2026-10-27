@@ -10,6 +10,15 @@ from apps.companies.models import Company, Membership, Role
 PASSWORD = "senha-forte-12345"  # noqa: S105  (senha de teste)
 
 
+GUARDED_TABLES = (
+    "timeclock_timerecord",
+    "timeclock_nsrcounter",
+    "audit_auditlog",
+    "attendance_periodclosing",
+    "attendance_calculationruleset",
+)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _postgresql_flush_immutable_test_tables():
     """Só o flush de teardown pode truncar ARP no banco descartável de testes.
@@ -23,11 +32,12 @@ def _postgresql_flush_immutable_test_tables():
 
     def sql_flush(self, style, tables, **kwargs):
         statements = original(self, style, tables, **kwargs)
-        if "timeclock_timerecord" in tables:
+        guarded = [t for t in GUARDED_TABLES if t in tables]
+        if guarded:
             return [
-                'ALTER TABLE "timeclock_timerecord" DISABLE TRIGGER USER;',
+                *(f'ALTER TABLE "{t}" DISABLE TRIGGER USER;' for t in guarded),
                 *statements,
-                'ALTER TABLE "timeclock_timerecord" ENABLE TRIGGER USER;',
+                *(f'ALTER TABLE "{t}" ENABLE TRIGGER USER;' for t in guarded),
             ]
         return statements
 

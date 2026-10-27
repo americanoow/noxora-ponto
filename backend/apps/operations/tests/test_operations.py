@@ -559,3 +559,19 @@ def test_auditoria_registra_alteracoes_sem_dados_pessoais(tenant_a):
     assert logs.count() == 1
     dump = str(list(AuditLog.objects.values()))
     assert "Segredo" not in dump and "52998224725" not in dump
+
+
+def test_postgresql_exclusao_de_vigencias_sobrepostas(tenant_a):
+    import datetime
+
+    from django.db import IntegrityError, connection, transaction
+
+    from apps.operations.models import Assignment, Employee, Unit
+
+    if connection.vendor != "postgresql":
+        pytest.skip("btree_gist só no PostgreSQL")
+    unit = Unit.objects.create(company=tenant_a.company, name="U")
+    e = Employee.objects.create(company=tenant_a.company, registration="1", full_name="A")
+    Assignment.objects.create(employee=e, unit=unit, valid_from=datetime.date(2026, 1, 1))
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Assignment.objects.create(employee=e, unit=unit, valid_from=datetime.date(2026, 3, 1))

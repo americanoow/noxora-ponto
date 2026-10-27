@@ -430,3 +430,30 @@ def test_ninguem_decide_o_proprio_ponto(world):
         world.url(f"attendance/adjustments/{item['id']}/decision/"), {"approve": True}, format="json"
     )
     assert r.status_code == 403
+
+
+def test_postgresql_protege_instantaneo_e_regras(world):
+    from django.db import IntegrityError, connection, transaction
+
+    if connection.vendor != "postgresql":
+        pytest.skip("gatilhos só no PostgreSQL")
+    admin = world.tenant.client("company_admin")
+    closing = admin.post(
+        world.url("attendance/closings/"), {"start": MON.isoformat(), "end": MON.isoformat()}, format="json"
+    ).json()
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PeriodClosing.objects.filter(pk=closing["id"]).update(snapshot={})
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PeriodClosing.objects.filter(pk=closing["id"]).delete()
+    admin.post(
+        world.url(f"attendance/closings/{closing['id']}/reopen/"),
+        {"reason": "Teste de reabertura"},
+        format="json",
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PeriodClosing.objects.filter(pk=closing["id"]).update(status="closed")
+    admin.post(world.url("attendance/rules/"), {"valid_from": "2027-01-01", "params": {}}, format="json")
+    from apps.attendance.models import CalculationRuleSet
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        CalculationRuleSet.objects.all().delete()

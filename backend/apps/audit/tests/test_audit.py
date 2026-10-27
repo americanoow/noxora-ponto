@@ -43,3 +43,24 @@ def test_limpeza_recursiva_e_upsert_bloqueado():
         )
     log.refresh_from_db()
     assert log.action == "teste"
+
+
+def test_postgresql_auditoria_so_inclusao(db):
+    from django.db import IntegrityError, connection, transaction
+
+    from apps.audit.models import AuditLog
+    from apps.audit.services import record
+
+    if connection.vendor != "postgresql":
+        pytest.skip("gatilhos só no PostgreSQL")
+    entry = record(None, "teste")
+    with connection.cursor() as cursor:
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+    for sql in (
+        "UPDATE audit_auditlog SET action='x'",
+        "DELETE FROM audit_auditlog",
+        "TRUNCATE audit_auditlog",
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(sql)
+    assert AuditLog.objects.filter(pk=entry.pk, action="teste").exists()

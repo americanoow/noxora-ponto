@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
@@ -172,7 +172,18 @@ def test_verificacao_detecta_adulteracao_lacuna_e_contador(setup):
         prev_hash="errado",
         record_hash="0" * 64,
     )
-    TimeRecord.objects.bulk_create([forged])
+    if connection.vendor == "postgresql":
+        # O banco recusa a inserção fora da cadeia (migration 0006)...
+        with pytest.raises(IntegrityError), transaction.atomic():
+            TimeRecord.objects.bulk_create([forged])
+        # ...e, se alguém com DDL desligar os gatilhos, a verificação ainda detecta.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute("ALTER TABLE timeclock_timerecord DISABLE TRIGGER timeclock_timerecord_chain")
+            TimeRecord.objects.bulk_create([forged])
+            cursor.execute("ALTER TABLE timeclock_timerecord ENABLE TRIGGER timeclock_timerecord_chain")
+    else:
+        TimeRecord.objects.bulk_create([forged])
     problems = "\n".join(services.verify_unit_chain(unit))
     assert "NSR 9: esperado 3" in problems and "hash anterior" in problems and "recalculado" in problems
     assert "Contador" in problems
@@ -649,8 +660,45 @@ def test_fks_protegem_exclusao_indireta(setup):
 
 def test_contador_sem_registros_e_detectado(setup):
     _, unit, *_ = setup
-    NsrCounter.objects.create(unit=unit, last_nsr=8, last_hash="x")
+    if connection.vendor == "postgresql":
+        with pytest.raises(IntegrityError), transaction.atomic():
+            NsrCounter.objects.create(unit=unit, last_nsr=8, last_hash="x")
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute("ALTER TABLE timeclock_nsrcounter DISABLE TRIGGER timeclock_nsrcounter_guard")
+            NsrCounter.objects.create(unit=unit, last_nsr=8, last_hash="x")
+            cursor.execute("ALTER TABLE timeclock_nsrcounter ENABLE TRIGGER timeclock_nsrcounter_guard")
+    else:
+        NsrCounter.objects.create(unit=unit, last_nsr=8, last_hash="x")
     assert "Contador" in str(services.verify_unit_chain(unit))
+
+
+@pytest.mark.skipif(connection.vendor != "postgresql", reason="Gatilhos de cadeia só no PostgreSQL")
+def test_postgresql_recusa_insercao_e_contador_fora_da_cadeia(setup):
+    *_, client, _employee = setup
+    punch(client)
+    record = TimeRecord.objects.get()
+    with pytest.raises(IntegrityError), transaction.atomic():
+        NsrCounter.objects.filter(unit=record.unit).update(last_nsr=5)
+    with pytest.raises(IntegrityError), transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("DELETE FROM timeclock_nsrcounter")
+    # Registro com NSR certo mas hash inventado também é recusado.
+    copy = TimeRecord(
+        **{
+            f.attname: getattr(record, f.attname)
+            for f in TimeRecord._meta.concrete_fields
+            if f.attname not in ("id",)
+        }
+    )
+    copy.nsr, copy.prev_hash, copy.record_hash, copy.client_event_id = (
+        2,
+        record.record_hash,
+        "f" * 64,
+        uuid.uuid4(),
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        TimeRecord.objects.bulk_create([copy])
+    assert services.verify_unit_chain(record.unit) == []
 
 
 @pytest.mark.skipif(connection.vendor != "postgresql", reason="TRUNCATE requer PostgreSQL")
