@@ -1,7 +1,6 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   type Company,
-  type Me,
   type Member,
   ROLE_LABELS,
   type Role,
@@ -11,8 +10,6 @@ import {
   errorMessage,
   listCompanies,
   listMembers,
-  login,
-  requestPasswordReset,
   updateMember,
 } from "./auth";
 
@@ -35,61 +32,6 @@ function useAction() {
 
 const Error_ = ({ message }: { message: string | null }) =>
   message ? <p role="alert">{message}</p> : null;
-
-export function LoginScreen({ onLogin }: { onLogin: (me: Me) => void }) {
-  const { error, busy, run } = useAction();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [forgot, setForgot] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    void run(async () => {
-      if (forgot) {
-        await requestPasswordReset(email);
-        setSent(true);
-      } else {
-        onLogin(await login(email, password));
-      }
-    });
-  };
-
-  return (
-    <form onSubmit={submit}>
-      <h2>{forgot ? "Recuperar acesso" : "Entrar"}</h2>
-      <label>
-        E-mail
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-      </label>
-      {!forgot && (
-        <label>
-          Senha
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-      )}
-      <Error_ message={error} />
-      {sent && <p role="status">Se o e-mail estiver cadastrado, enviaremos as instruções.</p>}
-      <button type="submit" disabled={busy}>
-        {forgot ? "Enviar instruções" : "Entrar"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setForgot(!forgot);
-          setSent(false);
-        }}
-      >
-        {forgot ? "Voltar" : "Esqueci minha senha"}
-      </button>
-    </form>
-  );
-}
 
 export function ResetPasswordScreen({ uid, token }: { uid: string; token: string }) {
   const { error, busy, run } = useAction();

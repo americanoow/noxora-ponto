@@ -230,7 +230,9 @@ def compute_employee(employee, start, end) -> dict:
     marks = effective_marks(employee, start, end)
     results, versions = [], []
     for r_start, r_end, version, params in rule_ranges(employee.company, start, end):
-        results += calc.compute_period(start=r_start, end=r_end, marks=marks, ctx=ctx, params=params)
+        results += calc.compute_period(
+            start=r_start, end=r_end, marks=marks, ctx=ctx, params=params, now=timezone.now()
+        )
         versions.append({"from": r_start.isoformat(), "to": r_end.isoformat(), "version": version})
     _apply_justifications(employee, results)
     return {
@@ -255,6 +257,8 @@ def snapshot_hash(snapshot) -> str:
 
 def close_period(*, company, user, start, end, employees):
     parse_period(start, end)
+    if end >= timezone.localdate():
+        raise ValidationError({"end": "Só é possível fechar períodos já encerrados (fim antes de hoje)."})
     with transaction.atomic():
         Company.objects.select_for_update(no_key=True).get(pk=company.pk)
         overlap = PeriodClosing.objects.filter(

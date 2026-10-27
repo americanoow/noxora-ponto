@@ -13,6 +13,7 @@ export interface Me {
   email: string;
   name: string;
   is_platform_admin: boolean;
+  mfa_enabled?: boolean;
   memberships: { id: number; company_id: number; company_name: string; role: Role }[];
 }
 
@@ -39,8 +40,23 @@ export async function fetchMe(): Promise<Me | null> {
   }
 }
 
-export async function login(email: string, password: string): Promise<Me> {
-  const me = await request<Me>("POST", "/api/auth/login/", { email, password });
+export interface MfaChallenge {
+  mfa_required: true;
+}
+
+export function isMfaChallenge(value: Me | MfaChallenge): value is MfaChallenge {
+  return (value as MfaChallenge).mfa_required === true;
+}
+
+/** Login. Com segundo fator ativo, devolve o desafio; a sessão só nasce em `verifyMfa`. */
+export async function login(email: string, password: string): Promise<Me | MfaChallenge> {
+  const result = await request<Me | MfaChallenge>("POST", "/api/auth/login/", { email, password });
+  resetCsrf();
+  return result;
+}
+
+export async function verifyMfa(code: string): Promise<Me> {
+  const me = await request<Me>("POST", "/api/auth/mfa/verify/", { code });
   resetCsrf();
   return me;
 }

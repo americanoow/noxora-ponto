@@ -457,3 +457,13 @@ def test_postgresql_protege_instantaneo_e_regras(world):
 
     with pytest.raises(IntegrityError), transaction.atomic():
         CalculationRuleSet.objects.all().delete()
+
+
+def test_nao_fecha_periodo_que_ainda_nao_terminou(world):
+    from django.utils import timezone
+
+    today = timezone.localdate().isoformat()
+    r = world.tenant.client("company_admin").post(
+        world.url("attendance/closings/"), {"start": today, "end": today}, format="json"
+    )
+    assert r.status_code == 400

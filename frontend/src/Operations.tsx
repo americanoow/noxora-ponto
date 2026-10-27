@@ -107,7 +107,7 @@ function OperationsPanel({ companyId, canEdit }: { companyId: number; canEdit: b
   );
 }
 
-function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
+export function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const units = useLoader(() => listUnits(companyId), [companyId]);
   const sectors = useLoader(() => listSectors(companyId), [companyId]);
   const refresh = () => {
@@ -211,7 +211,7 @@ function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: boolean 
   );
 }
 
-function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
+export function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const [filters, setFilters] = useState<EmployeeFilters>({ q: "", unit: "", active: "", page: 1 });
   const units = useLoader(() => listUnits(companyId), [companyId]);
   const list = useLoader<Page<Employee>>(
@@ -395,7 +395,7 @@ function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: bool
   );
 }
 
-function SchedulesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
+export function SchedulesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const list = useLoader<Schedule[]>(() => listSchedules(companyId), [companyId]);
   const { error, run } = useRunner(list.reload);
   const [name, setName] = useState("");
@@ -489,7 +489,7 @@ function SchedulesTab({ companyId, canEdit }: { companyId: number; canEdit: bool
   );
 }
 
-function ImportTab({ companyId }: { companyId: number }) {
+export function ImportTab({ companyId }: { companyId: number }) {
   const [csv, setCsv] = useState("matricula,nome,cpf,unidade,setor,inicio\n");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);

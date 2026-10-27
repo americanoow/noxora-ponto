@@ -7,7 +7,7 @@ SaaS de controle de jornada e gestão operacional de funcionários (Django + DRF
 docker compose up -d db                      # ou um PostgreSQL local
 cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 export DJANGO_DEBUG=true DATABASE_URL=postgres://noxora:noxora_dev@localhost:5432/noxora
-.venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo   # empresa demo com 14 dias de marcações
+.venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo   # empresa demo com 40 dias de marcações
 .venv/bin/python manage.py fetch_face_models                                 # opcional: motor facial real (BIOMETRIC_ENGINE=opencv)
 .venv/bin/python manage.py runserver
 .venv/bin/python -m pytest -q                                                # suíte (PostgreSQL)

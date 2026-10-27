@@ -139,11 +139,14 @@ class DayResult:
     rest_violation_minutes: int = 0
     justified_minutes: int = 0
     tolerance_applied: bool = False
-    status: str = "ok"  # ok | inconsistent | absent | day_off | justified
+    status: str = "ok"  # ok | inconsistent | absent | day_off | justified | upcoming | in_progress
     issues: list[str] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)
     ignored_marks: list[Mark] = field(default_factory=list)
     tz: ZoneInfo | None = None
+
+    def _local(self, moment: dt.datetime) -> str:
+        return (moment.astimezone(self.tz) if self.tz else moment).strftime("%Y-%m-%d %H:%M")
 
     def as_dict(self) -> dict:
         def mark(m: Mark) -> dict:
@@ -163,6 +166,8 @@ class DayResult:
                 {
                     "start": self.planned.start.isoformat(),
                     "end": self.planned.end.isoformat(),
+                    "start_local": self._local(self.planned.start),
+                    "end_local": self._local(self.planned.end),
                     "break_minutes": self.planned.break_minutes,
                 }
                 if self.planned
@@ -272,6 +277,7 @@ def compute_day(
     holiday: str = "",
     previous_journey_end: dt.datetime | None = None,
     ignored: list[Mark] | None = None,
+    now: dt.datetime | None = None,
 ) -> DayResult:
     r = DayResult(date=date, planned=planned, holiday=holiday, marks=sorted(marks, key=lambda m: m.at), tz=tz)
     r.ignored_marks = list(ignored or [])
@@ -296,6 +302,11 @@ def compute_day(
         if m.origin == "included":
             steps.append(f"Marcação de {_clock(m.at, tz)} incluída por ajuste aprovado.")
 
+    if not r.marks and now is not None and planned is not None and not rest_day and planned.end > now:
+        # Jornada ainda não terminou (hoje ou futuro): não é falta.
+        r.status = "upcoming"
+        steps.append("Jornada ainda não terminou: sem saldo a apurar.")
+        return r
     if not r.marks:
         if rest_day:
             r.status = "day_off"
@@ -378,7 +389,12 @@ def compute_day(
             steps.append(f"Trabalho em folga/feriado: {_hm(worked)} extras a {r.overtime_rate_percent}%.")
         return r
     if r.status == "inconsistent":
-        steps.append("Saldo não calculado até o ajuste das marcações.")
+        if now is not None and planned.end > now:
+            r.status = "in_progress"
+            r.issues.remove("Número ímpar de marcações: a última não tem par (ajuste pendente).")
+            steps.append("Jornada em andamento: saldo apurado ao fim do dia.")
+        else:
+            steps.append("Saldo não calculado até o ajuste das marcações.")
         return r
 
     # Atrasos e saídas antecipadas (entrada/saída) e tolerância do art. 58, §1º.
@@ -443,7 +459,13 @@ class EmployeeContext:
 
 
 def compute_period(
-    *, start: dt.date, end: dt.date, marks: list[Mark], ctx: EmployeeContext, params: dict
+    *,
+    start: dt.date,
+    end: dt.date,
+    marks: list[Mark],
+    ctx: EmployeeContext,
+    params: dict,
+    now: dt.datetime | None = None,
 ) -> list[DayResult]:
     """Apura cada dia de [start, end]. Marcações fora do período são usadas só para agrupar jornadas e
     medir o descanso entre jornadas."""
@@ -476,6 +498,7 @@ def compute_period(
             holiday=ctx.holiday_for(day),
             previous_journey_end=previous_end,
             ignored=ignored_by_date.get(day),
+            now=now,
         )
         if len(day_journeys) > 1:
             result.issues.append("Mais de uma jornada no mesmo dia: conferir.")

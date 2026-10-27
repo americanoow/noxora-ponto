@@ -46,6 +46,6 @@ Ambiente de nuvem: PostgreSQL 16, Redis 7, Flutter 3.47.8, Docker (imagens base 
 | Etapa 13: planos/assinaturas/sandbox (D78–D81) | sim | ciclo completo e webhooks | gateway real pendente |
 | Etapa 14: segurança, cache, outbox, MFA, backup, carga | sim | gatilhos de cadeia, varredura de isolamento, Redis, restore executado, carga HTTP | — |
 | Etapa 15: Docker, Compose, Caddy, worker | sim | pilha de produção local + teste ponta a ponta HTTPS | sem ambiente publicado |
-| Frontend das etapas 8–13 | **não** | — | aguardando instruções do usuário |
+| Frontend completo (padrões da skill swiftui-patterns adaptados) | sim | 69 testes + verificação visual com dados reais (desktop e 390 px) | validação com usuários pendente |
 
 Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](pendencias-externas.md).

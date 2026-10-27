@@ -67,13 +67,14 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("E-mail ou senha inválidos.");
   });
 
-  it("administrador vê e altera acessos; funcionário não vê o painel", async () => {
+  it("administrador vê e altera acessos pela barra lateral", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
     routes["GET /api/companies/7/members/"] = () => ({
       body: [{ id: 5, email: "g@a.test", name: "Gê", role: "manager", is_active: true }],
     });
     routes["PATCH /api/companies/7/members/5/"] = () => ({ body: {} });
     render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
     expect(await screen.findByText(/g@a.test/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Desativar" }));
     await waitFor(() =>
@@ -81,10 +82,12 @@ describe("App", () => {
     );
   });
 
-  it("funcionário não carrega a lista de acessos", async () => {
+  it("funcionário vê só o próprio ponto e não carrega acessos", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("employee") });
     render(<App />);
-    expect(await screen.findByText(/Somente administradores/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Meu espelho" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Acessos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pedidos" })).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("/members/"))).toBe(false);
   });
 
@@ -102,7 +105,7 @@ it("mantém sessão visível e informa falha ao sair", async () => {
   routes["POST /api/auth/logout/"] = () => ({ status: 403 });
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: "Sair" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Você não tem permissão");
+  expect(await screen.findByText(/Você não tem permissão/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Sair" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Entrar" })).not.toBeInTheDocument();
 });
@@ -121,9 +124,11 @@ it("descarta membros anteriores ao trocar para empresa que retorna 403", async (
   });
   routes["GET /api/companies/8/members/"] = () => ({ status: 403 });
   render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
   expect(await screen.findByText(/privado@a.test/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Empresa"), { target: { value: "8" } });
-  // o painel de operação (sem mock neste teste) também pode exibir alertas: mira-se o de membros
+  // Trocar de empresa volta à raiz da navegação: os dados da empresa anterior somem.
+  fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
   expect(await screen.findByText("Você não tem permissão para esta operação.")).toBeInTheDocument();
   expect(screen.queryByText(/privado@a.test/)).not.toBeInTheDocument();
 });

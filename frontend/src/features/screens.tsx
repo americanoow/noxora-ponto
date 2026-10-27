@@ -1,0 +1,138 @@
+import type { ReactNode } from "react";
+import { DevicesTab } from "../DevicesTab";
+import { SchedulesTab, UnitsTab } from "../Operations";
+import { EmployeeDetailScreen, EmployeesScreen } from "./Employees";
+import { RecordsTab } from "../TimeclockTab";
+import type { Destination } from "../lib/router";
+import { useCompany } from "../lib/session";
+import { MembersPanel } from "../screens";
+import { Group, Screen } from "../ui/kit";
+import { AccountScreen, BillingScreen, CompanyScreen, ReportsScreen, RulesScreen } from "./Admin";
+import { AvailabilityScreen } from "./Availability";
+import { ClosingDetailScreen, ClosingsScreen } from "./Closings";
+import { PlatformScreen } from "./Platform";
+import { MyClosingsScreen, MyDayScreen, MyRequestsScreen, MyTimesheetScreen } from "./Portal";
+import { RequestsScreen } from "./Requests";
+import { TimesheetScreen } from "./Timesheet";
+import { TodayScreen } from "./Today";
+
+/** Mapa de destinos para telas (como `.navigationDestination(for:)`). */
+export function ScreenView({
+  destination,
+  refreshPending,
+}: {
+  destination: Destination;
+  refreshPending: () => void;
+}) {
+  switch (destination.screen) {
+    case "today":
+      return <TodayScreen />;
+    case "timesheet":
+      return (
+        <TimesheetScreen
+          employeeId={destination.employeeId}
+          from={destination.from}
+          to={destination.to}
+        />
+      );
+    case "requests":
+      return <RequestsScreen onDecided={refreshPending} />;
+    case "closings":
+      return <ClosingsScreen />;
+    case "closing":
+      return <ClosingDetailScreen id={destination.id} />;
+    case "availability":
+      return <AvailabilityScreen />;
+    case "records":
+      return (
+        <Legacy
+          title="Marcações"
+          subtitle="Registro de ponto original. Somente leitura."
+          render={(c) => <RecordsTab companyId={c} />}
+        />
+      );
+    case "devices":
+      return (
+        <Legacy
+          title="Tablets"
+          render={(c, admin) => <DevicesTab companyId={c} canEdit={admin} />}
+        />
+      );
+    case "employees":
+      return <EmployeesScreen />;
+    case "employee":
+      return <EmployeeDetailScreen id={destination.id} />;
+    case "structure":
+      return (
+        <Legacy
+          title="Unidades e setores"
+          render={(c, admin) => <UnitsTab companyId={c} canEdit={admin} />}
+        />
+      );
+    case "schedules":
+      return (
+        <Legacy
+          title="Jornadas"
+          subtitle="Jornadas atribuídas não mudam: para alterar, crie outra e atribua com nova vigência."
+          render={(c, admin) => <SchedulesTab companyId={c} canEdit={admin} />}
+        />
+      );
+    case "rules":
+      return <RulesScreen />;
+    case "reports":
+      return <ReportsScreen />;
+    case "company":
+      return <CompanyScreen />;
+    case "members":
+      return <MembersScreenView />;
+    case "billing":
+      return <BillingScreen />;
+    case "account":
+      return <AccountScreen />;
+    case "my-day":
+      return <MyDayScreen />;
+    case "my-timesheet":
+      return <MyTimesheetScreen />;
+    case "my-requests":
+      return <MyRequestsScreen />;
+    case "my-closings":
+      return <MyClosingsScreen />;
+    case "platform":
+      return <PlatformScreen />;
+    default:
+      return <TodayScreen />;
+  }
+}
+
+/** Telas de cadastro existentes, vestidas pela casca nova. */
+function Legacy({
+  title,
+  subtitle,
+  render,
+}: {
+  title: string;
+  subtitle?: string;
+  render: (companyId: number, isAdmin: boolean) => ReactNode;
+}) {
+  const { companyId, isAdmin } = useCompany();
+  return (
+    <Screen title={title} subtitle={subtitle}>
+      <Group padded>
+        <div className="legacy">{render(companyId, isAdmin)}</div>
+      </Group>
+    </Screen>
+  );
+}
+
+function MembersScreenView() {
+  const { companyId, role } = useCompany();
+  return (
+    <Screen title="Acessos" subtitle="Quem entra no painel e com qual papel.">
+      <Group padded>
+        <div className="legacy">
+          <MembersPanel companyId={companyId} myRole={role} />
+        </div>
+      </Group>
+    </Screen>
+  );
+}

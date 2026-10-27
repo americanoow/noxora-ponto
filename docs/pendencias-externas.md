@@ -3,7 +3,7 @@
 Atualizado em 2026-10-27. Cada item diz **o que falta**, **por que o Claude não pode resolver** e **o que já está pronto**.
 
 ## Decisões do responsável pelo produto
-1. **Frontend (painel web)**: aguardando suas instruções para o redesenho e as telas das etapas 8–13. Todas as APIs estão prontas ([api.md](api.md)).
+1. **Frontend**: entregue em 2026-10-27 (decisões D82–D85). Falta validação com usuários reais e, se desejado, o redesenho visual do app do tablet.
 2. **Motor facial em produção**: (a) usar o motor OpenCV já integrado com a política `basic_challenge` (prova de presença básica, **não certificada**), ou (b) contratar SDK/serviço com vivacidade certificada (custo, contrato, operador LGPD). Até lá, a política padrão `certified` recusa o desafio básico.
 3. **Gateway de pagamento** (Asaas, Stripe, Pagar.me, Iugu…): contrato e credenciais. Hoje só há sandbox local.
 4. **Preços e limites dos planos**: os três planos têm valores placeholder.

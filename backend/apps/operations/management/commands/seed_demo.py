@@ -80,7 +80,7 @@ class Command(BaseCommand):
         )
 
     def _history(self, company, units, *, manager_user):
-        """Tablet, portal do funcionário, assinatura em teste e 14 dias de marcações (via serviço oficial)."""
+        """Tablet, portal do funcionário, assinatura em teste e 40 dias de marcações (via serviço oficial)."""
         import random
         import uuid
         from zoneinfo import ZoneInfo
@@ -124,7 +124,7 @@ class Command(BaseCommand):
 
         tz = ZoneInfo(unit.timezone)
         today = timezone.localdate()
-        for back in range(14, 0, -1):
+        for back in range(40, 0, -1):
             day = today - datetime.timedelta(days=back)
             if day.weekday() >= 5:
                 continue

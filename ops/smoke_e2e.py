@@ -136,7 +136,8 @@ def main():
     sheet = admin.call("GET", f"{base}/attendance/timesheet/?employee={employee['id']}&from={start}&to={today}")
     assert sheet["days"] and sheet["totals"] is not None
     step(f"espelho calculado ({len(sheet['days'])} dias, saldo {sheet['totals']['balance_minutes']} min)")
-    closing = admin.call("POST", f"{base}/attendance/closings/", {"start": start, "end": today})
+    yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    closing = admin.call("POST", f"{base}/attendance/closings/", {"start": start, "end": yesterday})
     step(f"período fechado (hash {closing['snapshot_sha256'][:12]}…)")
     afd = admin.call("GET", f"{base}/fiscal/afd/?unit={unit['id']}&from={start}&to={today}", raw=True)
     lines = afd.decode("latin-1").split("\r\n")

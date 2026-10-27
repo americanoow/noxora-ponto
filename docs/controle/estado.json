@@ -1,13 +1,13 @@
 {
   "etapa": 15,
-  "tarefa": "Backend, tablet e implantação concluídos; frontend aguardando instruções do usuário",
-  "fase": "aguardando instruções do usuário para o frontend",
+  "tarefa": "Frontend entregue; produto completo no repositório",
+  "fase": "concluída",
   "ia_responsavel": "Claude Code",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
   "ultima_tarefa_concluida": "Etapas 6 (motor real), 7 (Dart validado), 8–15 no backend/tablet/implantação; ver docs/progresso.md",
-  "proxima_acao": "Receber as instruções do usuário para o frontend (painel web) e implementar as telas das etapas 8–13; depois revisar pendências externas (docs/pendencias-externas.md).",
-  "ultimo_checkpoint": "etapa-15-backend",
+  "proxima_acao": "Push ao GitHub (acesso pendente) e itens de docs/pendencias-externas.md",
+  "ultimo_checkpoint": "frontend-concluido",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [

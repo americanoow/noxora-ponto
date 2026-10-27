@@ -35,7 +35,7 @@ Monólito modular (D2). Toda regra de negócio fica no backend; o banco reforça
 - Em produção a aplicação usa um papel **sem** ser dono das tabelas (não pode desligar gatilhos nem truncar); só o `migrate` usa o dono.
 
 ## Frontend (`frontend/`)
-React + TypeScript + Vite. Painel atual cobre autenticação, acessos, cadastros, tablets, biometria e histórico de marcações. As telas das etapas 8–13 (apuração, pedidos, fechamento, disponibilidade, portal, relatórios, arquivos, cobrança) **aguardam as instruções do usuário** para o redesenho; as APIs estão prontas (ver [api.md](api.md)).
+React + TypeScript + Vite, sem bibliotecas de UI. `src/lib` (modelo observável, roteador com pilha tipada, `useTask`, sessão), `src/ui` (tema, componentes, régua do dia), `src/features` (telas por módulo), `src/api` (clientes tipados). Cobre gestor, administrador, funcionário (portal) e plataforma. Decisões D82–D85.
 
 ## Tablet (`tablet/`)
 Flutter (Android): ativação, heartbeat/rotação, marcação online com idempotência, fila offline persistente com sincronização em lote, captura facial pela câmera com desafio de movimento, código de exceção.

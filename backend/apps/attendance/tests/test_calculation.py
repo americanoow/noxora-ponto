@@ -187,3 +187,14 @@ def test_padroes_tem_referencia():
     from apps.attendance.calculation import DEFAULT_PARAMS_REFS
 
     assert set(DEFAULT_PARAMS) - set(DEFAULT_PARAMS_REFS) <= {"night_end"}
+
+
+def test_jornada_futura_ou_em_andamento_nao_e_falta():
+    now = at(MON, "10:00")
+    r = compute_period(
+        start=MON, end=MON + dt.timedelta(days=1), marks=marks(MON, "08:00"), ctx=ctx(), params=P, now=now
+    )
+    assert r[0].status == "in_progress" and not r[0].issues and r[0].deficit_minutes == 0
+    assert r[1].status == "upcoming" and r[1].deficit_minutes == 0
+    # Sem `now` (fechamento de período passado) o comportamento continua o mesmo.
+    assert compute_period(start=MON, end=MON, marks=[], ctx=ctx(), params=P)[0].status == "absent"
