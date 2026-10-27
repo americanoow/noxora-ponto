@@ -1,9 +1,22 @@
 # Noxora Ponto
 
-SaaS de controle de jornada e gestão operacional de funcionários (Django + DRF, React, Flutter, PostgreSQL). Plano completo em [docs/plano.md](docs/plano.md); regras para as IAs em [CLAUDE.md](CLAUDE.md) e [AGENTS.md](AGENTS.md).
+SaaS de controle de jornada e gestão operacional de funcionários (Django + DRF, React, Flutter, PostgreSQL, Redis). Plano em [docs/plano.md](docs/plano.md); arquitetura em [docs/arquitetura.md](docs/arquitetura.md); API em [docs/api.md](docs/api.md); operação em [docs/operacao.md](docs/operacao.md); pendências em [docs/pendencias-externas.md](docs/pendencias-externas.md); regras para IAs em [CLAUDE.md](CLAUDE.md).
+
+## Início rápido (Linux/macOS, desenvolvimento)
+```bash
+docker compose up -d db                      # ou um PostgreSQL local
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+export DJANGO_DEBUG=true DATABASE_URL=postgres://noxora:noxora_dev@localhost:5432/noxora
+.venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo   # empresa demo com 14 dias de marcações
+.venv/bin/python manage.py fetch_face_models                                 # opcional: motor facial real (BIOMETRIC_ENGINE=opencv)
+.venv/bin/python manage.py runserver
+.venv/bin/python -m pytest -q                                                # suíte (PostgreSQL)
+```
+Logins da demo: `admin@demo.test`, `gestor@demo.test`, `funcionario@demo.test` (senha em `seed_demo.py`).
+Produção: [docs/operacao.md](docs/operacao.md) (`deploy/docker-compose.prod.yml`).
 
 ## Requisitos
-Python 3.13+, Node 22+, Docker (PostgreSQL) e Flutter (tablet). Sem Docker, o backend usa SQLite apenas para desenvolvimento; isso **não** substitui a validação em PostgreSQL.
+Python 3.13+, Node 22+, Docker (PostgreSQL), Redis (produção) e Flutter 3.47+ (tablet). Sem Docker, o backend usa SQLite apenas para desenvolvimento; isso **não** substitui a validação em PostgreSQL.
 
 ## Backend (PowerShell)
 ```powershell

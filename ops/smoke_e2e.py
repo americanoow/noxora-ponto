@@ -110,7 +110,7 @@ def main():
     step("unidade, jornada, funcionário e política offline configurados")
 
     device = admin.call("POST", f"{base}/devices/", {"name": "Tablet Smoke", "unit": unit["id"]})
-    activation = device.get("activation_code") or admin.call("POST", f"{base}/devices/{device['id']}/reissue/")["activation_code"]
+    activation = device.get("activation_code") or admin.call("POST", f"{base}/devices/{device['id']}/activation-code/")["activation_code"]
     activated = Client(args.base, ctx).call("POST", "/api/device/activate/", {"code": activation})
     tablet = Client(args.base, ctx, auth=f"Device {activated['token']}")
     tablet.call("POST", "/api/device/heartbeat/", {"app_version": "smoke"})
