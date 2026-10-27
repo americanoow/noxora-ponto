@@ -97,6 +97,7 @@ class VerificationAttempt(models.Model):
     engine_version = models.CharField(max_length=20, blank=True)
     score = models.FloatField(null=True, blank=True)
     liveness = models.CharField(max_length=14, blank=True)
+    liveness_method = models.CharField(max_length=24, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # só em sucesso
     consumed_at = models.DateTimeField(null=True, blank=True)  # uso único

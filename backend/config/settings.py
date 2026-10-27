@@ -170,7 +170,17 @@ REP_P_INPI_REGISTRATION = os.environ.get("REP_P_INPI_REGISTRATION", "").strip()
 # BIOMETRIC_KEYS = JSON {"id-da-chave": "<32 bytes em base64>"}; BIOMETRIC_ACTIVE_KEY_ID: chave de escrita.
 # Em produção a chave deve vir de um cofre/KMS (etapa 14/15); aqui é variável de ambiente.
 BIOMETRIC_ENGINE = os.environ.get("BIOMETRIC_ENGINE", "simulator" if DEBUG else "").strip()
-BIOMETRIC_ENGINES = {"simulator": "apps.biometrics.engines.SimulatorEngine"}
+BIOMETRIC_ENGINES = {
+    "simulator": "apps.biometrics.engines.SimulatorEngine",
+    "opencv": "apps.biometrics.engines_opencv.OpenCVFaceEngine",
+}
+# Modelos do motor OpenCV (baixados por `manage.py fetch_face_models`, conferidos por SHA-256).
+BIOMETRIC_MODEL_DIR = os.environ.get("BIOMETRIC_MODEL_DIR", str(BASE_DIR / ".models"))
+# Cosseno mínimo para considerar o mesmo rosto (referência do OpenCV para SFace: 0,363). CALIBRAR.
+BIOMETRIC_MATCH_THRESHOLD = float(os.environ.get("BIOMETRIC_MATCH_THRESHOLD", "0.363"))
+# Variação mínima de pose (ver engines_opencv.yaw_proxy) entre os quadros do desafio de vivacidade.
+BIOMETRIC_LIVENESS_MIN_YAW_DELTA = float(os.environ.get("BIOMETRIC_LIVENESS_MIN_YAW_DELTA", "0.12"))
+BIOMETRIC_MAX_FRAMES = 4
 # O simulador só é aceito em desenvolvimento (DJANGO_DEBUG=true na carga das configurações).
 BIOMETRIC_ALLOW_SIMULATOR = DEBUG
 if not DEBUG and BIOMETRIC_ENGINE == "simulator":

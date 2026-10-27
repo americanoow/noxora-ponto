@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.http import Http404
@@ -162,10 +163,29 @@ class IdentificationModeView(BiometricView):
 
     MODES = ("registration", "face")
     OFFLINE = ("disabled", "registration_only")
+    LIVENESS = ("certified", "basic_challenge")
 
     @staticmethod
-    def _body(company):
-        return {"mode": company.identification_mode, "offline_policy": company.offline_policy}
+    def _policy(company):
+        return {
+            "mode": company.identification_mode,
+            "offline_policy": company.offline_policy,
+            "face_liveness_policy": company.face_liveness_policy,
+        }
+
+    @classmethod
+    def _body(cls, company):
+        try:
+            engine = engines.get_engine()
+            engine_info = {
+                "name": engine.name,
+                "version": engine.version,
+                "simulator": engine.is_simulator,
+                "liveness_method": engine.liveness_method,
+            }
+        except engines.EngineUnavailable:
+            engine_info = None
+        return {**cls._policy(company), "engine": engine_info}
 
     def get(self, request, company_id):
         return Response(self._body(reader_company(request, company_id)))
@@ -174,13 +194,16 @@ class IdentificationModeView(BiometricView):
         company = admin_company(request, company_id)
         data = request.data
         mode, offline = data.get("mode"), data.get("offline_policy")
-        if mode is None and offline is None:
-            raise ValidationError({"detail": "Informe 'mode' e/ou 'offline_policy'."})
+        liveness = data.get("face_liveness_policy")
+        if mode is None and offline is None and liveness is None:
+            raise ValidationError({"detail": "Informe 'mode', 'offline_policy' e/ou 'face_liveness_policy'."})
+        if liveness is not None and liveness not in self.LIVENESS:
+            raise ValidationError({"face_liveness_policy": "Use 'certified' ou 'basic_challenge'."})
         if mode is not None and mode not in self.MODES:
             raise ValidationError({"mode": "Use 'registration' ou 'face'."})
         if offline is not None and offline not in self.OFFLINE:
             raise ValidationError({"offline_policy": "Use 'disabled' ou 'registration_only'."})
-        before = self._body(company)
+        before = self._policy(company)
         with transaction.atomic():
             fields = []
             if mode is not None:
@@ -189,6 +212,9 @@ class IdentificationModeView(BiometricView):
             if offline is not None:
                 company.offline_policy = offline
                 fields.append("offline_policy")
+            if liveness is not None:
+                company.face_liveness_policy = liveness
+                fields.append("face_liveness_policy")
             company.save(update_fields=fields)
             audit.record(
                 request,
@@ -196,7 +222,7 @@ class IdentificationModeView(BiometricView):
                 company=company,
                 target=company,
                 before=before,
-                after=self._body(company),
+                after=self._policy(company),
             )
         return Response(self._body(company))
 
@@ -214,11 +240,22 @@ class FaceVerifyView(DeviceView):
         if not registration or len(registration) > 30:
             raise ValidationError({"registration": "Informe a matrícula."})
         image = services.decode_image(request.data.get("image"))
+        raw_frames = request.data.get("frames") or []
+        if not isinstance(raw_frames, list) or len(raw_frames) > settings.BIOMETRIC_MAX_FRAMES:
+            raise ValidationError({"frames": f"Envie até {settings.BIOMETRIC_MAX_FRAMES} quadros."})
+        frames = tuple(services.decode_image(f, "frames") for f in raw_frames)
         employee = ops_services.employee_for_device(request.device, registration)
         if employee is None:
             raise Http404
-        attempt = services.verify_face(device=request.device, employee=employee, image=image)
+        attempt = services.verify_face(device=request.device, employee=employee, image=image, frames=frames)
         body = {"outcome": attempt.outcome, "liveness": attempt.liveness}
+        if (
+            attempt.outcome == Outcome.SUCCESS
+            and request.device.company.identification_mode == "face"
+            and not services.liveness_accepted(request.device.company, attempt)
+        ):
+            # Rosto confere, mas a prova de vivacidade não atende à política: avisar o tablet já aqui.
+            body["liveness_accepted"] = False
         if attempt.outcome == Outcome.SUCCESS:
             body.update(verification_id=attempt.pk, expires_at=attempt.expires_at)
             body["verification_token"] = signing.dumps(

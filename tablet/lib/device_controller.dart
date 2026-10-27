@@ -21,6 +21,7 @@ class DeviceScope {
     required this.unit,
     this.identificationMode = 'registration',
     this.offlinePolicy = 'disabled',
+    this.faceLivenessPolicy = 'certified',
   });
   final String name;
   final String company;
@@ -32,6 +33,9 @@ class DeviceScope {
   /// 'disabled' ou 'registration_only' (marcação offline por matrícula, sinalizada para revisão).
   final String offlinePolicy;
 
+  /// 'certified' ou 'basic_challenge' (desafio de movimento, não certificado).
+  final String faceLivenessPolicy;
+
   bool get requiresFace => identificationMode == 'face';
   bool get allowsOfflinePunch => offlinePolicy == 'registration_only';
 
@@ -41,6 +45,7 @@ class DeviceScope {
         unit: '${(json['unit'] as Map<String, dynamic>)['name']}',
         identificationMode: '${json['identification_mode'] ?? 'registration'}',
         offlinePolicy: '${json['offline_policy'] ?? 'disabled'}',
+        faceLivenessPolicy: '${json['face_liveness_policy'] ?? 'certified'}',
       );
 
   /// Mesmo formato do servidor (usado para guardar o escopo e operar após reinício sem conexão).
@@ -50,6 +55,7 @@ class DeviceScope {
         'unit': {'name': unit},
         'identification_mode': identificationMode,
         'offline_policy': offlinePolicy,
+        'face_liveness_policy': faceLivenessPolicy,
       };
 }
 
@@ -132,6 +138,8 @@ const _faceMessages = <String, String>{
   'no_template': 'Sem cadastro facial. Procure o administrador.',
   'no_consent': 'Sem consentimento registrado. Procure o administrador.',
   'locked': 'Verificação facial bloqueada por tentativas. Chame um responsável.',
+  'liveness_not_accepted':
+      'Rosto reconhecido, mas a prova de presença não atende à política da empresa. Chame um responsável.',
 };
 
 String _newEventId() {
@@ -480,8 +488,9 @@ class DeviceController extends ChangeNotifier {
         (identification is Map<String, dynamic> && identification['method'] == 'registration');
   }
 
-  /// Envia a captura ao servidor para verificação 1:1. A imagem não é guardada no aparelho.
-  Future<FaceOutcome> verifyFace(String registration, Uint8List image) async {
+  /// Envia a captura ao servidor para verificação 1:1. As imagens não são guardadas no aparelho.
+  /// [frames]: quadros do desafio de movimento (prova de presença básica).
+  Future<FaceOutcome> verifyFace(String registration, Uint8List image, {List<Uint8List> frames = const []}) async {
     final reg = registration.trim();
     if (reg.isEmpty) return const FaceDenied('invalid', 'Informe a matrícula.');
     try {
@@ -491,9 +500,13 @@ class DeviceController extends ChangeNotifier {
           .post(
             Uri.parse('$_baseUrl/api/device/face/verify/'),
             headers: _headers(credential.token),
-            body: jsonEncode({'registration': reg, 'image': base64Encode(image)}),
+            body: jsonEncode({
+              'registration': reg,
+              'image': base64Encode(image),
+              if (frames.isNotEmpty) 'frames': [for (final f in frames) base64Encode(f)],
+            }),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode == 404) {
         return const FaceDenied('unknown', 'Matrícula não encontrada nesta unidade.');
       }
@@ -506,6 +519,9 @@ class DeviceController extends ChangeNotifier {
       }
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final outcome = '${body['outcome']}';
+      if (response.statusCode == 200 && outcome == 'success' && body['liveness_accepted'] == false) {
+        return FaceDenied('liveness_not_accepted', _faceMessages['liveness_not_accepted']!);
+      }
       if (response.statusCode == 200 && outcome == 'success') {
         final id = body['verification_id'];
         final verificationToken = body['verification_token'];

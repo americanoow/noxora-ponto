@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'device_controller.dart';
+import 'face_capture.dart';
 import 'offline_queue.dart';
 
 /// Relógio digital com horas, minutos e segundos (Anexo IX, item 3, da Portaria MTP 671/2021).
@@ -53,8 +54,12 @@ const _kinds = <String, String>{
 
 /// Tela de marcação do terminal compartilhado.
 class PunchPanel extends StatefulWidget {
-  const PunchPanel({super.key, required this.controller});
+  const PunchPanel({super.key, required this.controller, this.cameraFactory, this.challenge = defaultChallenge});
   final DeviceController controller;
+
+  /// Câmera da verificação facial (substituível nos testes). Padrão: câmera frontal do aparelho.
+  final FaceCameraFactory? cameraFactory;
+  final List<ChallengeStep> challenge;
 
   @override
   State<PunchPanel> createState() => _PunchPanelState();
@@ -65,6 +70,7 @@ class _PunchPanelState extends State<PunchPanel> {
   final _exceptionCode = TextEditingController();
   String _kind = '';
   PunchOutcome? _outcome;
+  String? _faceMessage;
   bool _busy = false;
 
   @override
@@ -74,17 +80,63 @@ class _PunchPanelState extends State<PunchPanel> {
     super.dispose();
   }
 
+  /// Verificação facial (câmera + desafio de movimento) seguida da marcação com o token de uso único.
+  Future<void> _faceAndPunch() async {
+    if (_busy) return;
+    final reg = _registration.text.trim();
+    if (reg.isEmpty) {
+      setState(() => _outcome = const PunchRejected('Informe a matrícula.'));
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _outcome = null;
+      _faceMessage = null;
+    });
+    final camera = (widget.cameraFactory ?? DeviceFaceCamera.new)();
+    final capture = await Navigator.of(context).push<FaceCaptureResult>(
+      MaterialPageRoute(builder: (_) => FaceCaptureView(camera: camera, steps: widget.challenge)),
+    );
+    if (!mounted) return;
+    if (capture == null) {
+      setState(() {
+        _busy = false;
+        _faceMessage = 'Captura cancelada ou câmera indisponível.';
+      });
+      return;
+    }
+    setState(() => _faceMessage = 'Verificando o rosto…');
+    final face = await widget.controller.verifyFace(reg, capture.image, frames: capture.frames);
+    if (!mounted) return;
+    switch (face) {
+      case FaceVerified():
+        setState(() => _faceMessage = null);
+        await _send(face.identification);
+      case FaceDenied(:final message):
+      case FaceUnavailable(:final message):
+        setState(() {
+          _busy = false;
+          _faceMessage = message;
+        });
+    }
+  }
+
   Future<void> _submit() async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _outcome = null;
+      _faceMessage = null;
     });
     final code = _exceptionCode.text.trim();
+    await _send(code.isEmpty ? null : {'method': 'authorized_exception', 'code': code});
+  }
+
+  Future<void> _send(Map<String, dynamic>? identification) async {
     final outcome = await widget.controller.punch(
       _registration.text,
       declaredKind: _kind,
-      identification: code.isEmpty ? null : {'method': 'authorized_exception', 'code': code},
+      identification: identification,
     );
     if (!mounted) return;
     setState(() {
@@ -119,6 +171,7 @@ class _PunchPanelState extends State<PunchPanel> {
           SizedBox(
             width: 300,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _kind,
               decoration: const InputDecoration(labelText: 'Tipo (opcional)'),
               items: [
@@ -128,13 +181,22 @@ class _PunchPanelState extends State<PunchPanel> {
             ),
           ),
           if (widget.controller.scope?.requiresFace ?? false) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('botao-face'),
+              onPressed: _busy ? null : _faceAndPunch,
+              icon: const Icon(Icons.face),
+              label: const Text('Reconhecer rosto e registrar'),
+            ),
+            if (_faceMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SizedBox(width: 300, child: Text(_faceMessage!, textAlign: TextAlign.center)),
+              ),
+            const SizedBox(height: 16),
             const SizedBox(
               width: 300,
-              child: Text(
-                'Esta empresa exige verificação facial. A captura pela câmera ainda não está '
-                'disponível neste aplicativo; chame um responsável para obter um código de exceção.',
-              ),
+              child: Text('Sem reconhecimento? Peça a um responsável um código de exceção.'),
             ),
             SizedBox(
               width: 300,
@@ -149,8 +211,13 @@ class _PunchPanelState extends State<PunchPanel> {
           ],
           const SizedBox(height: 16),
           FilledButton(
+            key: const Key('botao-registrar'),
             onPressed: _busy ? null : _submit,
-            child: Text(_busy ? 'Registrando…' : 'Registrar ponto'),
+            child: Text(_busy
+                ? 'Registrando…'
+                : (widget.controller.scope?.requiresFace ?? false)
+                    ? 'Registrar com código de exceção'
+                    : 'Registrar ponto'),
           ),
           const SizedBox(height: 16),
           _OutcomeView(outcome: _outcome),

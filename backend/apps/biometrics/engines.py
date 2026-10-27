@@ -45,12 +45,16 @@ class BiometricEngine(ABC):
     name: str
     version: str
     is_simulator = False
+    # Como a vivacidade é avaliada: "simulated" (simulador), "motion_challenge_v1" (desafio básico, não
+    # certificado) ou "certified" (motor com avaliação independente, p.ex. ISO/IEC 30107-3).
+    liveness_method = "none"
 
     @abstractmethod
     def enroll(self, images: list[bytes]) -> EnrollResult: ...
 
     @abstractmethod
-    def verify(self, template: bytes, probe: bytes) -> VerifyResult: ...
+    def verify(self, template: bytes, probe: bytes, frames: tuple[bytes, ...] = ()) -> VerifyResult:
+        """`frames`: quadros adicionais do desafio de vivacidade (podem ser ignorados pelo motor)."""
 
 
 class SimulatorEngine(BiometricEngine):
@@ -63,6 +67,7 @@ class SimulatorEngine(BiometricEngine):
     name = "simulator"
     version = "0"
     is_simulator = True
+    liveness_method = "simulated"
 
     @staticmethod
     def _require_debug():
@@ -81,7 +86,7 @@ class SimulatorEngine(BiometricEngine):
             raise PoorQuality("Imagem sem qualidade suficiente.")
         return EnrollResult(template=b"SIM1" + hashlib.sha256(images[0]).digest(), quality=1.0)
 
-    def verify(self, template, probe):
+    def verify(self, template, probe, frames=()):
         self._require_debug()
         if not self._is_image(probe):
             raise PoorQuality("Imagem inválida.")

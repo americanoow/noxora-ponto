@@ -504,7 +504,7 @@ def test_modo_facial_exige_vivacidade_aprovada(world):
         name = "simulator"
         is_simulator = False
 
-        def verify(self, template, probe):
+        def verify(self, template, probe, frames=()):
             return engines.VerifyResult(matched=True, score=0.9, liveness="not_performed")
 
     with mock.patch.object(services.engines, "get_engine", return_value=SemVivacidade()):
@@ -666,8 +666,9 @@ def test_excecao_exige_papel_escopo_motivo_e_empresa(world, tenant_b):
 
 def test_modo_de_identificacao_permissoes_e_auditoria(tenant_a, tenant_b):
     path = f"/api/companies/{tenant_a.company.pk}/identification/"
-    default = {"mode": "registration", "offline_policy": "disabled"}
-    assert tenant_a.client("manager").get(path).json() == default
+    default = {"mode": "registration", "offline_policy": "disabled", "face_liveness_policy": "certified"}
+    got = tenant_a.client("manager").get(path).json()
+    assert {k: got[k] for k in default} == default and got["engine"]["name"] == "simulator"
     assert tenant_a.client("employee").get(path).status_code == 403
     assert tenant_a.client("manager").patch(path, {"mode": "face"}, format="json").status_code == 403
     assert (
@@ -676,21 +677,26 @@ def test_modo_de_identificacao_permissoes_e_auditoria(tenant_a, tenant_b):
         .status_code
         == 403
     )
-    for bad in ({"mode": "x"}, {}, {"mode": None}, {"offline_policy": "x"}, {"offline_policy": None}):
+    for bad in (
+        {"mode": "x"},
+        {},
+        {"mode": None},
+        {"offline_policy": "x"},
+        {"offline_policy": None},
+        {"face_liveness_policy": "x"},
+    ):
         assert tenant_a.client("company_admin").patch(path, bad, format="json").status_code == 400, bad
-    assert tenant_a.client("company_admin").patch(path, {"mode": "face"}, format="json").json() == {
-        "mode": "face",
-        "offline_policy": "disabled",
-    }
+    body = tenant_a.client("company_admin").patch(path, {"mode": "face"}, format="json").json()
+    assert body["mode"] == "face" and body["offline_policy"] == "disabled"
     log = AuditLog.objects.get(action="identification.mode_changed")
     assert log.metadata["before"] == default
-    assert log.metadata["after"] == {"mode": "face", "offline_policy": "disabled"}
-    assert tenant_a.client("company_admin").patch(
-        path, {"offline_policy": "registration_only"}, format="json"
-    ).json() == {
-        "mode": "face",
-        "offline_policy": "registration_only",
-    }
+    assert log.metadata["after"] == {**default, "mode": "face"}
+    body = (
+        tenant_a.client("company_admin")
+        .patch(path, {"offline_policy": "registration_only"}, format="json")
+        .json()
+    )
+    assert body["mode"] == "face" and body["offline_policy"] == "registration_only"
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.offline_policy == "registration_only"
     assert AuditLog.objects.filter(action="identification.mode_changed").count() == 2

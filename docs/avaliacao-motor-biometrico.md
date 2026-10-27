@@ -37,3 +37,6 @@ Nenhum dos candidatos foi validado em Android real. Reconhecimento **no aparelho
 
 ## Atualização da etapa 7 — alternativa offline definida
 Nenhum motor foi validado e o reconhecimento facial **não funciona offline** neste produto. A alternativa implementada é a marcação **por matrícula**, gravada como `registration_offline`, **sinalizada para revisão** e disponível apenas se o administrador ativar `offline_policy = registration_only` (padrão: desativada). Em empresas no modo `face` isso é um rebaixamento deliberado da identificação, visível no histórico. Exceção autorizada por código também **não** funciona offline (o código é validado no servidor). Detalhes e limites: decisões D52–D61 e [requisitos-rep-p.md](requisitos-rep-p.md), seção 3.
+
+## Atualização 2026-10-27 — motor real integrado (decisões D62–D64)
+O candidato **SFace + YuNet** foi integrado como motor real no servidor, com o desafio de movimento como prova de presença **básica e não certificada**. Testado com fotos reais em ambiente de desenvolvimento; isso **não** é teste de eficácia (FAR/FRR), nem de ataques de apresentação, nem de viés demográfico. Para uso real: calibrar o limiar com voluntários, decidir se o nível básico é aceitável (política `basic_challenge`) ou contratar motor com vivacidade certificada (o contrato `BiometricEngine` aceita outro adaptador sem mudar o fluxo).

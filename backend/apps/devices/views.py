@@ -161,6 +161,7 @@ def _scope_payload(device):
         "collect_location": device.collect_location,
         "identification_mode": device.company.identification_mode,
         "offline_policy": device.company.offline_policy,
+        "face_liveness_policy": device.company.face_liveness_policy,
         "server_time": timezone.now(),
     }
 

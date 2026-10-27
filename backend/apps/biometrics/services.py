@@ -178,7 +178,7 @@ def _locked(employee) -> bool:
 
 
 @transaction.atomic
-def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
+def verify_face(*, device, employee, image: bytes, frames: tuple[bytes, ...] = ()) -> VerificationAttempt:
     """Compara a captura com o template do funcionário. Sempre registra a tentativa (sem imagem)."""
     employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if employee.company_id != device.company_id or not employee.is_active:
@@ -200,7 +200,7 @@ def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
             template.ciphertext,
             crypto.make_aad(template.company_id, template.employee_id, template.engine),
         )
-        result = engine.verify(stored, image)
+        result = engine.verify(stored, image, tuple(frames))
     except engines.PoorQuality:
         return _attempt(
             device, employee, Outcome.POOR_QUALITY, engine=engine.name, engine_version=engine.version
@@ -212,6 +212,7 @@ def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
         "engine_version": engine.version,
         "score": result.score,
         "liveness": result.liveness,
+        "liveness_method": engine.liveness_method if result.liveness != "not_performed" else "",
     }
     if result.liveness == "failed":
         return _attempt(device, employee, Outcome.LIVENESS_FAILED, **info)
@@ -219,6 +220,18 @@ def verify_face(*, device, employee, image: bytes) -> VerificationAttempt:
         return _attempt(device, employee, Outcome.NO_MATCH, **info)
     expires = timezone.now() + datetime.timedelta(seconds=settings.BIOMETRIC_VERIFICATION_TTL_SECONDS)
     return _attempt(device, employee, Outcome.SUCCESS, expires_at=expires, **info)
+
+
+def liveness_accepted(company, attempt) -> bool:
+    """Vivacidade aprovada E com método aceito pela política da empresa."""
+    if attempt.liveness != "passed":
+        return False
+    accepted = {"certified"}
+    if attempt.engine == "simulator":
+        accepted.add("simulated")  # só chega aqui em debug (ver checagem do simulador acima)
+    if company.face_liveness_policy == "basic_challenge":
+        accepted.add("motion_challenge_v1")
+    return attempt.liveness_method in accepted
 
 
 def _int_id(value, field):
@@ -270,7 +283,7 @@ class FaceProvider:
             raise IdentificationRejected({"identification": "Cadastro facial indisponível."})
         if attempt.engine == "simulator" and not (settings.DEBUG and settings.BIOMETRIC_ALLOW_SIMULATOR):
             raise IdentificationRejected({"identification": "Motor simulador não é aceito."})
-        if device.company.identification_mode == "face" and attempt.liveness != "passed":
+        if device.company.identification_mode == "face" and not liveness_accepted(device.company, attempt):
             raise IdentificationRejected({"identification": "A empresa exige prova de vivacidade aprovada."})
         attempt.consumed_at = now
         attempt.save(update_fields=["consumed_at"])

@@ -27,6 +27,14 @@ class Company(models.Model):
         default="disabled",
         choices=[("disabled", "Desativada"), ("registration_only", "Por matrícula, com revisão")],
     )
+    # Nível de prova de vivacidade aceito no modo facial. "certified" só aceita motor com avaliação
+    # independente (nenhum contratado hoje); "basic_challenge" aceita o desafio de movimento do motor OpenCV,
+    # que NÃO é antifraude certificada. A escolha é do administrador e fica auditada.
+    face_liveness_policy = models.CharField(
+        max_length=16,
+        default="certified",
+        choices=[("certified", "Somente vivacidade certificada"), ("basic_challenge", "Desafio básico")],
+    )
 
     class Meta:
         ordering = ["name", "id"]
