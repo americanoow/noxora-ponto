@@ -241,8 +241,11 @@ BIOMETRIC_MAX_FRAMES = 4
 BIOMETRIC_ALLOW_SIMULATOR = DEBUG
 if not DEBUG and BIOMETRIC_ENGINE == "simulator":
     raise RuntimeError("O motor biométrico simulador só pode ser usado com DJANGO_DEBUG=true.")
+# Alternativa a BIOMETRIC_KEYS: arquivo montado como segredo (Docker/Kubernetes secrets, cofre).
+_keys_file = os.environ.get("BIOMETRIC_KEYS_FILE", "").strip()
 try:
-    BIOMETRIC_KEYS = json.loads(os.environ.get("BIOMETRIC_KEYS", "") or "{}")
+    _keys_raw = Path(_keys_file).read_text() if _keys_file else os.environ.get("BIOMETRIC_KEYS", "")
+    BIOMETRIC_KEYS = json.loads(_keys_raw or "{}")
     if not isinstance(BIOMETRIC_KEYS, dict):
         raise ValueError
 except (ValueError, TypeError):

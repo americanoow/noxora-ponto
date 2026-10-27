@@ -1156,3 +1156,22 @@ def test_evento_gravado_e_devolvido_antes_de_validar_identificacao_ou_matricula(
         assert again.status_code == 200 and again.json()["duplicate"] is True, extra
         assert again.json()["record"]["id"] == first.json()["record"]["id"]
     assert TimeRecord.objects.count() == 1
+
+
+def test_rotacao_de_chave_recifra_templates(world, settings):
+    import base64 as b64mod
+    import os
+
+    from django.core.management import call_command
+
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    old = BiometricTemplate.objects.get(status="active")
+    settings.BIOMETRIC_KEYS = {**settings.BIOMETRIC_KEYS, "k2": b64mod.b64encode(os.urandom(32)).decode()}
+    settings.BIOMETRIC_ACTIVE_KEY_ID = "k2"
+    call_command("rotate_biometric_key")
+    new = BiometricTemplate.objects.get(pk=old.pk)
+    assert new.key_id == "k2" and bytes(new.ciphertext) != bytes(old.ciphertext)
+    # Continua verificando depois de remover a chave antiga.
+    settings.BIOMETRIC_KEYS = {"k2": settings.BIOMETRIC_KEYS["k2"]}
+    assert verify(client).json()["outcome"] == "success"
