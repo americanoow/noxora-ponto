@@ -27,3 +27,9 @@ O emulador usa `10.0.2.2`; o backend não aceita automaticamente outros hosts.
 - A confirmação offline é **provisória** (horário do aparelho, sem NSR nem comprovante). Após a sincronização cada marcação recebe NSR; recusas ficam visíveis até alguém confirmar.
 - A fila é preservada se o tablet for revogado: ao reativar o mesmo cadastro (novo código), ela é enviada.
 - Testes: `test/offline_queue_test.dart` e `test/offline_sync_test.dart` (executados com sucesso em 2026-10-27).
+
+## Reconhecimento facial (2026-10-27)
+- Em empresas no modo `face`, o botão **Reconhecer rosto e registrar** abre a câmera frontal e conduz o desafio: olhar para a câmera, virar levemente à esquerda e à direita (3 fotos). As imagens ficam só em memória e vão ao servidor, que faz a verificação 1:1 e devolve um token de uso único usado na marcação.
+- Se a política da empresa exigir vivacidade certificada, o tablet informa que a prova de presença não atende e orienta a usar o **código de exceção** com um responsável.
+- Permissão `CAMERA` declarada no manifesto principal; a câmera frontal é opcional (`required=false`).
+- Testes: `test/face_capture_test.dart` (câmera simulada). Validação em aparelho real pendente.
