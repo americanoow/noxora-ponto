@@ -7,3 +7,4 @@ opencv-python-headless==5.0.0.93
 numpy==2.5.4
 reportlab==5.1.0
 redis==8.1.0
+gunicorn==26.2.0

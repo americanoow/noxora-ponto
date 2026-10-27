@@ -130,7 +130,7 @@ REST_FRAMEWORK = {
         "login": "10/min",
         "password_reset": "5/hour",
         "device_activation": "10/min",
-        "device": "120/min",
+        "device": os.environ.get("DEVICE_RATE_LIMIT", "120/min"),
     },
 }
 
