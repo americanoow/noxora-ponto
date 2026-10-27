@@ -150,3 +150,10 @@ Pendências: throttling usa cache local (trocar por cache compartilhado em produ
 |---|---------|---------------|--------------|
 | D71 | Disponibilidade em modelo próprio, histórico só de inclusão, informado pelo gestor (escopo) ou pelo funcionário; **nunca** cria, altera ou bloqueia marcação | Princípio 3 | O painel pode mostrar "última marcação às HH:MM" como **indício** lido do ponto (desligável), sem afirmar presença |
 | D72 | Estado tem `freshness`: `confirmed`, `stale` (sem atualização há `stale_after_minutes`, padrão 120), `expired` (venceu) e `unknown` | Princípio 6 | Painel agrupado por unidade/setor da lotação **atual**, limitado a 1000 funcionários por consulta |
+
+## Etapa 11 — portal, espelho, relatórios (app `reports`)
+| # | Decisão | Justificativa | Consequência |
+|---|---------|---------------|--------------|
+| D73 | Portal (`/me/…`): marcações das últimas 48 h por padrão (art. 80), comprovante JSON/PDF com CPF completo do próprio trabalhador, espelho e pedidos | Acesso só ao autorizado | PDF gerado com reportlab **sem assinatura** (PAdES/ICP-Brasil pendente, externo) |
+| D74 | Espelho PDF/CSV usa o **instantâneo** quando o período exato está fechado; caso contrário, cálculo atual marcado "aberto" | Documento de folha não muda depois do fechamento | Ciência do funcionário (`TimesheetAcknowledgement`) guarda o hash do instantâneo dele; não é assinatura qualificada |
+| D75 | Toda exportação é auditada; CSV com `;`, BOM UTF-8 e neutralização de fórmulas; CPF completo só para administrador | LGPD e segurança de planilhas | Limites: 2000 funcionários no resumo, 50 000 marcações por arquivo |

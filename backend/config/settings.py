@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "apps.biometrics",
     "apps.attendance",
     "apps.availability",
+    "apps.reports",
     "apps.audit",
 ]
 
@@ -116,6 +117,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    # "format" é parâmetro de exportação (pdf/csv), não negociação de renderizador do DRF.
+    "URL_FORMAT_OVERRIDE": None,
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_THROTTLE_RATES": {

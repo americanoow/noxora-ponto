@@ -143,11 +143,14 @@ class DayResult:
     issues: list[str] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)
     ignored_marks: list[Mark] = field(default_factory=list)
+    tz: ZoneInfo | None = None
 
     def as_dict(self) -> dict:
         def mark(m: Mark) -> dict:
+            local = m.at.astimezone(self.tz) if self.tz else m.at
             return {
                 "at": m.at.isoformat(),
+                "local": local.strftime("%Y-%m-%d %H:%M"),
                 "record_id": m.record_id,
                 "origin": m.origin,
                 "flags": list(m.flags),
@@ -270,7 +273,7 @@ def compute_day(
     previous_journey_end: dt.datetime | None = None,
     ignored: list[Mark] | None = None,
 ) -> DayResult:
-    r = DayResult(date=date, planned=planned, holiday=holiday, marks=sorted(marks, key=lambda m: m.at))
+    r = DayResult(date=date, planned=planned, holiday=holiday, marks=sorted(marks, key=lambda m: m.at), tz=tz)
     r.ignored_marks = list(ignored or [])
     steps = r.steps
     rest_day = planned is None or bool(holiday)
