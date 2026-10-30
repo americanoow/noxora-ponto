@@ -127,7 +127,7 @@ describe("Régua do dia", () => {
     const pins = container.querySelectorAll<HTMLElement>(".pin");
     expect([...pins].map((p) => p.style.left)).toEqual(["25%", "75%"]);
     expect(container.querySelector<HTMLElement>(".planned")!.style.left).toBe(`${(8 / 24) * 100}%`);
-    expect(screen.getByRole("img")).toHaveAttribute("aria-label", "Marcações: 06:00, 18:00");
+    expect(screen.getByRole("img")).toHaveAttribute("aria-label", "Registros: 06:00, 18:00");
   });
 
   it("turno que cruza a meia-noite usa régua de 30 h e marca período aberto", () => {
@@ -146,7 +146,9 @@ describe("Régua do dia", () => {
       parseFloat(p.style.left),
     );
     expect(pins[1]).toBeCloseTo((26 / 30) * 100);
-    expect(container.querySelector(".worked.open")).not.toBeNull();
+    // O último registro não tem par: vira pendência e nenhum período é inventado para ele.
+    expect(container.querySelector(".pin.pending")).not.toBeNull();
+    expect(container.querySelectorAll(".worked")).toHaveLength(1);
   });
 });
 
@@ -160,9 +162,9 @@ describe("Espelho de ponto", () => {
     routes["POST /api/companies/7/attendance/requests/"] = () => ({ status: 201, body: {} });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: /seg 19\/10/ }));
-    expect(screen.getByText("Como chegamos a esses números")).toBeInTheDocument();
+    expect(screen.getByText(/Como chegamos a esse número/)).toBeInTheDocument();
     expect(screen.getByText(/Número ímpar/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Pedir correção ou justificar ausência/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pedir ajuste/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText(/Que horas você deveria ter batido/), {
       target: { value: "17:30" },
@@ -170,7 +172,7 @@ describe("Espelho de ponto", () => {
     fireEvent.change(within(dialog).getByLabelText(/Explique o motivo/), {
       target: { value: "Esqueci a saída" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar pedido" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar solicitação" }));
     await waitFor(() =>
       expect(calls.some((c) => c.url.endsWith("/attendance/requests/"))).toBe(true),
     );
@@ -186,7 +188,7 @@ describe("Espelho de ponto", () => {
   });
 });
 
-describe("Pedidos", () => {
+describe("Solicitações", () => {
   it("recusa exige observação e aprova com um toque", async () => {
     window.location.hash = "#/requests";
     const pending = {
@@ -214,14 +216,13 @@ describe("Pedidos", () => {
         : { status: 400, body: { note: ["Informe o motivo da recusa."] } };
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Responder" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Recusar" }));
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "Informe o motivo da recusa.",
+    expect(await screen.findByText("Original e solicitado")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Recusar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Informe o motivo da recusa.");
+    fireEvent.click(screen.getByRole("button", { name: "Aprovar" }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url.endsWith("/justifications/9/decision/"))).toHaveLength(2),
     );
-    fireEvent.click(within(dialog).getByRole("button", { name: "Aprovar" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
 

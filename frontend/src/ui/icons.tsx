@@ -26,6 +26,11 @@ const paths: Record<string, string> = {
   x: "M6 6l12 12M18 6 6 18",
   menu: "M4 7h16M4 12h16M4 17h16",
   shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3Z",
+  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01",
+  alert: "M12 4l9 16H3L12 4ZM12 10v4M12 17h.01",
+  receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2V3ZM9 8h6M9 12h6",
+  home: "M4 11l8-7 8 7v9H4z",
 };
 
 export type IconName = keyof typeof paths;

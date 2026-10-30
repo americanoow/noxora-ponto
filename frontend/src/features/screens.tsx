@@ -14,23 +14,17 @@ import { PlatformScreen } from "./Platform";
 import { MyClosingsScreen, MyDayScreen, MyRequestsScreen, MyTimesheetScreen } from "./Portal";
 import { RequestsScreen } from "./Requests";
 import { TimesheetScreen } from "./Timesheet";
-import { HomeScreen } from "./Home";
 import { TodayScreen } from "./Today";
-import type { NavGroup } from "../Shell";
 
 /** Mapa de destinos para telas (como `.navigationDestination(for:)`). */
 export function ScreenView({
   destination,
   refreshPending,
-  groups,
 }: {
   destination: Destination;
   refreshPending: () => void;
-  groups: NavGroup[];
 }) {
   switch (destination.screen) {
-    case "home":
-      return <HomeScreen groups={groups} />;
     case "today":
       return <TodayScreen />;
     case "timesheet":
@@ -53,7 +47,7 @@ export function ScreenView({
       return (
         <Legacy
           title="Registros de ponto"
-          subtitle="Todas as batidas feitas nos tablets. Só para consulta: elas não podem ser alteradas nem apagadas."
+          subtitle="Todos os registros feitos nos tablets. Só para consulta: o registro original não é alterado nem apagado."
           render={(c) => <RecordsTab companyId={c} />}
         />
       );

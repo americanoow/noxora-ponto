@@ -6,6 +6,7 @@ import 'api_client.dart';
 import 'device_controller.dart';
 import 'offline_queue.dart';
 import 'punch_panel.dart';
+import 'theme.dart';
 import 'token_store.dart';
 
 void main() => runApp(const NoxoraApp());
@@ -18,7 +19,8 @@ class NoxoraApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'Noxora Ponto',
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+        debugShowCheckedModeBanner: false,
+        theme: noxoraTheme(),
         home: StatusPage(client: client, deviceController: deviceController),
       );
 }
@@ -59,44 +61,126 @@ class _StatusPageState extends State<StatusPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Noxora Ponto')),
-        body: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FutureBuilder<ApiStatus>(
-                  future: _status,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState != ConnectionState.done) {
-                      return const Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [CircularProgressIndicator(), SizedBox(height: 16), Text('Verificando a API…')],
-                      );
-                    }
-                    final result = snapshot.data;
-                    if (result is ApiOk) {
-                      return Text('API disponível (saúde: ${result.health}, banco: ${result.database}).');
-                    }
-                    final message = result is ApiError ? result.message : 'Falha inesperada.';
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(message),
-                        const SizedBox(height: 16),
-                        FilledButton(onPressed: _retry, child: const Text('Tentar novamente')),
-                      ],
-                    );
-                  },
+        body: SafeArea(
+          child: Column(
+            children: [
+              _TopBar(controller: _device, status: _status, onRetry: _retry),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: DevicePanel(controller: _device),
+                  ),
                 ),
-                const SizedBox(height: 32),
-                DevicePanel(controller: _device),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );
+}
+
+/// Marca, unidade em destaque e estado da conexão. A unidade fica sempre visível para quem registra.
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.controller, required this.status, required this.onRetry});
+  final DeviceController controller;
+  final Future<ApiStatus> status;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+        decoration: const BoxDecoration(
+          color: NoxoraColors.bgAlt,
+          border: Border(bottom: BorderSide(color: NoxoraColors.line)),
+        ),
+        child: ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            final scope = controller.scope;
+            final offline = controller.state == DeviceState.offline;
+            return Row(children: [
+              const _Brand(),
+              const SizedBox(width: 28),
+              if (controller.state == DeviceState.active || offline)
+                Expanded(
+                  child: Text(
+                    scope == null ? '' : '${scope.unit} · ${scope.company}',
+                    key: const Key('unidade'),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                )
+              else
+                const SizedBox.shrink(),
+              Flexible(
+                  child: offline
+                  ? _ConnectionChip(
+                      color: NoxoraColors.warn,
+                      hollow: true,
+                      label: 'Sem conexão',
+                      action: TextButton(
+                        onPressed: controller.heartbeat,
+                        child: const Text('Tentar novamente'),
+                      ),
+                    )
+                  : FutureBuilder<ApiStatus>(
+                      future: status,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          return const _ConnectionChip(
+                            color: NoxoraColors.ink2,
+                            hollow: true,
+                            label: 'Verificando a conexão…',
+                          );
+                        }
+                        final result = snapshot.data;
+                        if (result is ApiOk) {
+                          return const _ConnectionChip(
+                            color: NoxoraColors.accent,
+                            label: 'Conectado',
+                          );
+                        }
+                        return _ConnectionChip(
+                          color: NoxoraColors.danger,
+                          hollow: true,
+                          label: result is ApiError ? result.message : 'Falha inesperada.',
+                          action: TextButton(onPressed: onRetry, child: const Text('Tentar novamente')),
+                        );
+                      },
+                    )),
+            ]);
+          },
+        ),
+      );
+}
+
+class _Brand extends StatelessWidget {
+  const _Brand();
+
+  @override
+  Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: const [
+        Text('Noxora', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+        SizedBox(width: 2),
+        StatusDot(color: NoxoraColors.accent, size: 9),
+        SizedBox(width: 8),
+        Text('PONTO', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: NoxoraColors.ink2)),
+      ]);
+}
+
+class _ConnectionChip extends StatelessWidget {
+  const _ConnectionChip({required this.color, required this.label, this.hollow = false, this.action});
+  final Color color;
+  final String label;
+  final bool hollow;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+        StatusDot(color: color, hollow: hollow),
+        const SizedBox(width: 10),
+        Flexible(child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+        if (action != null) action!,
+      ]);
 }
 
 /// Ativação do tablet por código temporário e situação do dispositivo.
@@ -124,52 +208,81 @@ class _DevicePanelState extends State<DevicePanel> {
           final c = widget.controller;
           switch (c.state) {
             case DeviceState.loading:
-              return const Text('Verificando o dispositivo…');
+              return const Text('Verificando o dispositivo…', style: TextStyle(fontSize: 18));
             case DeviceState.active:
-              return Column(mainAxisSize: MainAxisSize.min, children: [
-                Text('Tablet "${c.scope?.name}" — ${c.scope?.company} / ${c.scope?.unit}'),
-                const SizedBox(height: 16),
-                PunchPanel(controller: c),
-              ]);
+              return PunchPanel(controller: c);
             case DeviceState.offline:
               final canPunchOffline = c.scope?.allowsOfflinePunch ?? false;
               return Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(c.message ?? 'Sem conexão.'),
-                const SizedBox(height: 8),
-                FilledButton(onPressed: c.heartbeat, child: const Text('Tentar novamente')),
+                Text(c.message ?? 'Sem conexão.', style: const TextStyle(fontSize: 18)),
+                const SizedBox(height: 12),
                 QueueStatus(controller: c),
                 if (canPunchOffline) ...[
                   const SizedBox(height: 16),
-                  const Text(
-                    'Modo offline: a marcação será guardada neste tablet e enviada ao reconectar.',
-                    style: TextStyle(color: Colors.orange),
+                  const _Notice(
+                    'Sem conexão: o registro fica guardado neste tablet e só é confirmado quando '
+                    'ele voltar a se conectar. Reconhecimento facial não funciona sem conexão.',
                   ),
+                  const SizedBox(height: 16),
                   PunchPanel(controller: c),
                 ],
               ]);
             case DeviceState.unactivated:
             case DeviceState.revoked:
-              return Column(mainAxisSize: MainAxisSize.min, children: [
-                if (c.message != null) Text(c.message!),
-                QueueStatus(controller: c),
-                const Text('Digite o código de ativação gerado no painel.'),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: 260,
-                  child: TextField(
+              return ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (c.message != null) ...[Text(c.message!), const SizedBox(height: 12)],
+                  QueueStatus(controller: c),
+                  const Text(
+                    'Ativar este tablet',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Digite o código de ativação gerado no painel.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 17, color: NoxoraColors.ink2),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
                     controller: _code,
                     textCapitalization: TextCapitalization.characters,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 28, letterSpacing: 4, fontWeight: FontWeight.w700),
                     decoration: const InputDecoration(labelText: 'Código de ativação'),
                   ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(onPressed: () {
-                  final code = _code.text;
-                  _code.clear();
-                  c.activate(code);
-                }, child: const Text('Ativar tablet')),
-              ]);
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () {
+                        final code = _code.text;
+                        _code.clear();
+                        c.activate(code);
+                      },
+                      child: const Text('Ativar tablet'),
+                    ),
+                  ),
+                ]),
+              );
           }
         },
+      );
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        constraints: const BoxConstraints(maxWidth: 520),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: NoxoraColors.warnSoft,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(text, style: const TextStyle(fontSize: 16, color: NoxoraColors.warn)),
       );
 }

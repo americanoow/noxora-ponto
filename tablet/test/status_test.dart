@@ -8,7 +8,7 @@ import 'package:noxora_ponto_tablet/main.dart';
 import 'package:noxora_ponto_tablet/token_store.dart';
 
 void main() {
-  testWidgets('mostra sucesso quando a API responde', (tester) async {
+  testWidgets('mostra conectado quando o sistema responde', (tester) async {
     final client = ApiClient(
       baseUrl: 'http://teste',
       client: MockClient((request) async => http.Response(
@@ -18,15 +18,15 @@ void main() {
     );
     final device = DeviceController(store: MemoryTokenStore());
     await tester.pumpWidget(NoxoraApp(client: client, deviceController: device));
-    expect(find.text('Verificando a API…'), findsOneWidget);
+    expect(find.text('Verificando a conexão…'), findsOneWidget);
     await tester.pumpAndSettle();
-    expect(find.textContaining('API disponível'), findsOneWidget);
+    expect(find.text('Conectado'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     device.dispose();
     client.close();
   });
 
-  testWidgets('mostra falha quando o banco está indisponível', (tester) async {
+  testWidgets('mostra falha quando os dados estão indisponíveis', (tester) async {
     final client = ApiClient(
       baseUrl: 'http://teste',
       client: MockClient((request) async =>
@@ -35,7 +35,7 @@ void main() {
     final device = DeviceController(store: MemoryTokenStore());
     await tester.pumpWidget(NoxoraApp(client: client, deviceController: device));
     await tester.pumpAndSettle();
-    expect(find.textContaining('banco está indisponível'), findsOneWidget);
+    expect(find.textContaining('não consegue acessar os dados'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     device.dispose();
     client.close();

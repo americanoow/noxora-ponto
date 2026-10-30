@@ -1,18 +1,23 @@
 import { useState } from "react";
 import {
+  type SummaryRow,
   closePeriod,
   getClosing,
+  getSummary,
   listAcknowledgements,
   listClosings,
+  listRequests,
   reopenPeriod,
 } from "../api/attendance";
 import { downloads, getPayrollProfiles } from "../api/operational";
+import { listDevices } from "../devicesApi";
 import { addDays, dateBR, dateTimeBR, hm, isoDate, monthRange } from "../lib/format";
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
 import { useAction, useTask } from "../lib/task";
 import {
   Badge,
+  Dot,
   Download,
   Empty,
   ErrorText,
@@ -28,15 +33,24 @@ export function ClosingsScreen() {
   const { companyId, isAdmin } = useCompany();
   const router = useRouter();
   const list = useTask(() => listClosings(companyId), [companyId]);
-  const [creating, setCreating] = useState(false);
+  const [closing, setClosing] = useState(false);
+  if (closing)
+    return (
+      <CloseWizard
+        onCancel={() => setClosing(false)}
+        onClosed={() => {
+          list.reload();
+        }}
+      />
+    );
   return (
     <Screen
-      title="Fechar o mês"
-      subtitle="Ao fechar, as horas do período ficam travadas para a folha de pagamento e para a conferência dos funcionários."
+      title="Fechamento"
+      subtitle="Ao fechar, as horas do período ficam registradas para a folha de pagamento e para a conferência dos funcionários."
       toolbar={
         isAdmin && (
-          <button className="primary" onClick={() => setCreating(true)}>
-            Fechar um período
+          <button className="primary" onClick={() => setClosing(true)}>
+            Fechar o mês
           </button>
         )
       }
@@ -54,7 +68,7 @@ export function ClosingsScreen() {
               subtitle={`${c.employees} funcionário(s). Fechado por ${c.closed_by?.email ?? "—"} em ${dateTimeBR(c.closed_at)}`}
               accessory={
                 <Badge tone={c.status === "closed" ? "tint" : "amber"}>
-                  {c.status === "closed" ? "Fechado" : "Reaberto"}
+                  {c.status === "closed" ? "Período fechado" : "Reabertura registrada"}
                 </Badge>
               }
               onClick={() => router.push({ screen: "closing", id: c.id })}
@@ -62,66 +76,289 @@ export function ClosingsScreen() {
           ))
         ) : (
           <Empty title="Nenhum período fechado ainda">
-            {isAdmin && <p>Feche o mês depois de responder a todos os pedidos aguardando.</p>}
+            {isAdmin && <p>Feche o mês depois de responder a todas as solicitações aguardando.</p>}
           </Empty>
         )}
       </Group>
-      <CloseSheet
-        open={creating}
-        onClose={() => setCreating(false)}
-        onDone={(id) => {
-          setCreating(false);
-          list.reload();
-          router.push({ screen: "closing", id });
-        }}
-      />
     </Screen>
   );
 }
 
-function CloseSheet({
-  open,
-  onClose,
-  onDone,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onDone: (id: number) => void;
-}) {
+const STEPS = ["Conferir", "Revisar totais", "Confirmar", "Documentos"];
+
+function Stepper({ step }: { step: number }) {
+  return (
+    <ol className="stepper" aria-label="Etapas do fechamento">
+      {STEPS.map((s, i) => (
+        <li
+          key={s}
+          className={i < step ? "done" : undefined}
+          aria-current={i === step ? "step" : undefined}
+        >
+          <span className="n">{i + 1}</span>
+          {s}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Fluxo guiado: conferir → revisar totais → confirmar → documentos. */
+function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: () => void }) {
   const { companyId } = useCompany();
+  const router = useRouter();
   const last = monthRange(addDays(monthRange(isoDate(new Date())).from, -1));
+  const [step, setStep] = useState(0);
   const [start, setStart] = useState(last.from);
   const [end, setEnd] = useState(last.to);
+  const [ok, setOk] = useState(false);
+  const [closedId, setClosedId] = useState<number | null>(null);
   const { pending, error, run } = useAction();
+
+  const requests = useTask(() => listRequests(companyId, "pending"), [companyId]);
+  const devices = useTask(() => listDevices(companyId), [companyId]);
+  const summary = useTask(() => getSummary(companyId, start, end), [companyId, start, end]);
+  const profiles = useTask(
+    async () => (closedId ? (await getPayrollProfiles(companyId)).profiles : []),
+    [companyId, closedId],
+  );
+
+  const inPeriod = (d: string) => d >= start && d <= end;
+  const blocking = (requests.data ?? []).filter((r) =>
+    inPeriod(r.type === "adjustment" ? r.reference_date : r.date),
+  );
+  const rows: SummaryRow[] = summary.data?.results ?? [];
+  const incomplete = rows.reduce((n, r) => n + r.totals.inconsistent_days, 0);
+  const absences = rows.reduce((n, r) => n + r.totals.absences, 0);
+  const silent = (devices.data ?? []).filter(
+    (d) => d.status === "active" && d.connectivity !== "online",
+  );
+  const loaded = !requests.loading && !summary.loading && !devices.loading;
+
   return (
-    <Sheet title="Fechar um período" open={open} onClose={onClose}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run(async () => onDone((await closePeriod(companyId, start, end)).id));
-        }}
-      >
-        <div className="form-grid">
-          <Field label="Primeiro dia">
-            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} required />
-          </Field>
-          <Field label="Último dia">
-            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} required />
-          </Field>
-        </div>
-        <p style={{ color: "var(--ink-2)", marginTop: 12 }}>
-          Todos os funcionários ativos entram no fechamento. Se houver pedidos aguardando resposta
-          nesse período, não será possível fechar. Batidas que chegarem depois continuam sendo
-          guardadas, e a folha de ponto avisará que mudou.
-        </p>
-        <ErrorText message={error} />
-        <div className="actions">
-          <button type="submit" disabled={pending}>
-            Fechar período
+    <Screen
+      title="Fechar o mês"
+      subtitle="Quatro etapas: conferir, revisar os totais, confirmar e acessar os documentos."
+      toolbar={
+        closedId === null && (
+          <button className="plain" onClick={onCancel}>
+            Cancelar
           </button>
-        </div>
-      </form>
-    </Sheet>
+        )
+      }
+    >
+      <Stepper step={step} />
+
+      {step === 0 && (
+        <>
+          <Group padded>
+            <div className="form-grid">
+              <Field label="Primeiro dia">
+                <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+              </Field>
+              <Field label="Último dia">
+                <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+              </Field>
+            </div>
+          </Group>
+          <Group
+            title="O que conferir"
+            footer="Pendências conhecidas e tablets sem comunicação são coisas diferentes: no segundo caso, o sistema não consegue saber se há registros ainda não enviados."
+          >
+            {!loaded ? (
+              <Loading />
+            ) : (
+              <ul className="checks">
+                <li>
+                  <Dot state={blocking.length ? "warn" : "on"} />
+                  <div>
+                    <b>
+                      {blocking.length
+                        ? `${blocking.length} solicitação(ões) aguardando resposta no período`
+                        : "Nenhuma solicitação aguardando no período"}
+                    </b>
+                    <small>
+                      {blocking.length
+                        ? "Responda antes de fechar: elas impedem o fechamento."
+                        : "Tudo respondido."}
+                    </small>
+                  </div>
+                  {blocking.length > 0 && (
+                    <button onClick={() => router.select({ screen: "requests" })}>
+                      Abrir solicitações
+                    </button>
+                  )}
+                </li>
+                <li>
+                  <Dot state={incomplete ? "hollow-warn" : "on"} />
+                  <div>
+                    <b>
+                      {incomplete
+                        ? `${incomplete} dia(s) com registro incompleto`
+                        : "Nenhum registro incompleto"}
+                    </b>
+                    <small>
+                      Pendência conhecida. Não impede o fechamento, mas fica fora da soma até haver
+                      um ajuste aprovado.
+                    </small>
+                  </div>
+                </li>
+                <li>
+                  <Dot state={absences ? "hollow-warn" : "on"} />
+                  <div>
+                    <b>{absences} falta(s) no período</b>
+                    <small>Confira se há justificativas a registrar.</small>
+                  </div>
+                </li>
+                <li>
+                  <Dot state={silent.length ? "hollow-warn" : "on"} />
+                  <div>
+                    <b>
+                      {silent.length
+                        ? `${silent.length} tablet(s) sem comunicação recente`
+                        : "Todos os tablets ativos estão se comunicando"}
+                    </b>
+                    <small>
+                      {silent.length
+                        ? `${silent.map((d) => d.name).join(", ")}. Não conseguimos confirmar se há registros guardados nesses tablets ainda sem envio.`
+                        : "Mesmo assim, registros feitos sem internet só chegam quando o tablet reconecta."}
+                    </small>
+                  </div>
+                </li>
+              </ul>
+            )}
+          </Group>
+          <div className="actions">
+            <button
+              className="primary"
+              disabled={!loaded || blocking.length > 0 || !start || !end}
+              onClick={() => setStep(1)}
+            >
+              Continuar
+            </button>
+          </div>
+        </>
+      )}
+
+      {step === 1 && (
+        <>
+          <Group
+            title={`Totais por funcionário · ${dateBR(start)} a ${dateBR(end)}`}
+            aside={summary.data ? `${summary.data.count} funcionário(s)` : undefined}
+          >
+            {summary.loading ? (
+              <Loading />
+            ) : summary.error ? (
+              <ErrorText message={summary.error} />
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Funcionário</th>
+                    <th>Horas trabalhadas</th>
+                    <th>Horas extras</th>
+                    <th>Horas devidas</th>
+                    <th>Faltas</th>
+                    <th>Incompletos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.employee.id}>
+                      <td>{r.employee.name}</td>
+                      <td className="num">{hm(r.totals.worked_minutes)}</td>
+                      <td className="num">{hm(r.totals.overtime_minutes)}</td>
+                      <td className="num">{hm(r.totals.deficit_minutes)}</td>
+                      <td className="num">{r.totals.absences}</td>
+                      <td className="num">{r.totals.inconsistent_days}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Group>
+          <div className="actions">
+            <button onClick={() => setStep(0)}>Voltar</button>
+            <button className="primary" onClick={() => setStep(2)}>
+              Continuar
+            </button>
+          </div>
+        </>
+      )}
+
+      {step === 2 && (
+        <Group title="Confirmar o fechamento" padded>
+          <p>
+            Período de <b>{dateBR(start)}</b> a <b>{dateBR(end)}</b>, com todos os funcionários
+            ativos. Depois de fechar:
+          </p>
+          <ul className="steps">
+            <li>o período fica registrado como fechado, com quem fechou e quando;</li>
+            <li>
+              registros que chegarem depois continuam guardados, e a folha de ponto mostrará que ela
+              difere da versão fechada;
+            </li>
+            <li>a reabertura é possível e fica registrada com o motivo.</li>
+          </ul>
+          <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "12px 0" }}>
+            <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} />
+            Revisei as pendências e os totais deste período.
+          </label>
+          <ErrorText message={error} />
+          <div className="actions">
+            <button onClick={() => setStep(1)}>Voltar</button>
+            <button
+              className="primary"
+              disabled={!ok || pending}
+              onClick={() =>
+                void run(async () => {
+                  const c = await closePeriod(companyId, start, end);
+                  setClosedId(c.id);
+                  setStep(3);
+                  onClosed();
+                })
+              }
+            >
+              Fechar período
+            </button>
+          </div>
+        </Group>
+      )}
+
+      {step === 3 && closedId !== null && (
+        <>
+          <p className="notice info" role="status">
+            <b>Período fechado.</b> {dateBR(start)} a {dateBR(end)}.
+          </p>
+          <Group title="Documentos e exportações">
+            <Row
+              title="Ver o fechamento"
+              subtitle="Totais por funcionário, quem conferiu e o código de verificação."
+              onClick={() => router.push({ screen: "closing", id: closedId })}
+            />
+            {profiles.data?.map((p) => (
+              <Row
+                key={p.id}
+                title={`Arquivo da folha de pagamento: ${p.name}`}
+                accessory={
+                  <Download href={downloads.payroll(companyId, p.id, closedId)}>Baixar</Download>
+                }
+              />
+            ))}
+            <Row
+              title="Relatórios e arquivos"
+              subtitle="Planilhas do período e arquivo para a fiscalização (AFD)."
+              onClick={() => router.select({ screen: "reports" })}
+            />
+          </Group>
+          <div className="actions">
+            <button className="primary" onClick={onCancel}>
+              Concluir
+            </button>
+          </div>
+        </>
+      )}
+    </Screen>
   );
 }
 
@@ -157,8 +394,8 @@ export function ClosingDetailScreen({ id }: { id: number }) {
       title={`${dateBR(c.start)} a ${dateBR(c.end)}`}
       subtitle={
         c.status === "closed"
-          ? "Fechado"
-          : `Reaberto em ${dateTimeBR(c.reopened_at)}: ${c.reopen_reason}`
+          ? "Período fechado"
+          : `Reabertura registrada em ${dateTimeBR(c.reopened_at)}: ${c.reopen_reason}`
       }
       toolbar={
         <>
@@ -232,19 +469,19 @@ export function ClosingDetailScreen({ id }: { id: number }) {
         </table>
       </Group>
       <Group
-        title="Garantia de que nada mudou"
-        footer="Este código é uma “impressão digital” do período fechado. Se qualquer número mudasse, o código mudaria."
+        title="Código de verificação"
+        footer="O código identifica o conteúdo registrado neste fechamento e permite conferir se ele foi alterado depois. Ele não substitui a validação jurídica dos documentos."
       >
         <Row
-          title="Código de verificação"
+          title="Código do conteúdo fechado"
           value={<code style={{ fontSize: 12, wordBreak: "break-all" }}>{c.snapshot_sha256}</code>}
         />
         <Row title="Versão do cálculo" value={c.engine_version} />
       </Group>
       <Sheet title="Reabrir o período" open={reopening} onClose={() => setReopening(false)}>
         <p>
-          A reabertura fica registrada no histórico e permite novas correções no período. A cópia do
-          fechamento atual é guardada.
+          A reabertura fica registrada com o seu nome e o motivo, e permite novas correções no
+          período. O conteúdo do fechamento atual é preservado.
         </p>
         <Field label="Motivo da reabertura" hint="Escreva pelo menos 5 letras.">
           <textarea
@@ -267,7 +504,7 @@ export function ClosingDetailScreen({ id }: { id: number }) {
               })
             }
           >
-            Reabrir período
+            Registrar reabertura
           </button>
         </div>
       </Sheet>

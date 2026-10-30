@@ -3,8 +3,10 @@ import {
   type DayResult,
   JUSTIFICATION_KINDS,
   type NewRequest,
+  type RulesInfo,
   type Timesheet,
   createRequest,
+  getRules,
   getTimesheet,
 } from "../api/attendance";
 import { downloads } from "../api/operational";
@@ -12,10 +14,18 @@ import { dateBR, dateTimeBR, dayLabel, hm, isoDate, monthRange } from "../lib/fo
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
 import { useAction, useTask } from "../lib/task";
-import { DayRuler, RulerScale } from "../ui/DayRuler";
+import {
+  DayRuler,
+  Legend,
+  type NightWindow,
+  RulerScale,
+  nightFor,
+  spanHours,
+} from "../ui/DayRuler";
 import { Icon } from "../ui/icons";
 import {
   Badge,
+  Dot,
   Download,
   Empty,
   ErrorText,
@@ -31,7 +41,7 @@ import { EmployeePicker } from "./EmployeePicker";
 
 const STATUS: Record<string, [string, "tint" | "amber" | "seal" | undefined]> = {
   ok: ["Em dia", "tint"],
-  inconsistent: ["Revisar", "seal"],
+  inconsistent: ["Registro incompleto", "amber"],
   absent: ["Falta", "seal"],
   day_off: ["Folga", undefined],
   justified: ["Justificado", "amber"],
@@ -58,6 +68,8 @@ export function TimesheetScreen({
     async () => (employeeId ? getTimesheet(companyId, employeeId, period.from, period.to) : null),
     [companyId, employeeId, period.from, period.to],
   );
+  // As regras (horário noturno) só entram na linha do tempo quando o sistema as entrega.
+  const rules = useTask(() => getRules(companyId).catch(() => null), [companyId]);
 
   return (
     <Screen
@@ -65,7 +77,7 @@ export function TimesheetScreen({
       subtitle={
         sheet.data
           ? `${sheet.data.employee.name}, matrícula ${sheet.data.employee.registration}`
-          : undefined
+          : "Confira os horários, os totais e as ocorrências de cada dia."
       }
       toolbar={
         <>
@@ -96,8 +108,8 @@ export function TimesheetScreen({
         <Group>
           <Empty title="Escolha um funcionário">
             <p>
-              A folha de ponto mostra, dia a dia, os horários batidos, as horas a cumprir, as horas
-              extras e como cada valor foi calculado.
+              A folha de ponto mostra, dia a dia, os registros, as horas a cumprir, as horas extras
+              e como cada valor foi calculado.
             </p>
           </Empty>
         </Group>
@@ -108,6 +120,7 @@ export function TimesheetScreen({
       ) : sheet.data ? (
         <TimesheetBody
           sheet={sheet.data}
+          rules={rules.data ?? null}
           onRequest={(body) => createRequest(companyId, sheet.data!.employee.id, body)}
           onChanged={sheet.reload}
         />
@@ -143,32 +156,52 @@ export function PeriodPicker({
   );
 }
 
-/** Corpo compartilhado pelo espelho do gestor e pelo do funcionário. */
+/** Horários do dia em texto exato: pares "entrada → saída"; o último sem par vira pendência. */
+function timesText(day: DayResult) {
+  if (!day.marks.length) return "—";
+  const parts: React.ReactNode[] = [];
+  for (let i = 0; i < day.marks.length; i += 2) {
+    const a = day.marks[i];
+    const b = day.marks[i + 1];
+    parts.push(
+      <span key={a.at}>
+        {i > 0 && " · "}
+        {a.local.slice(11)} → {b ? b.local.slice(11) : <em>falta o par</em>}
+      </span>,
+    );
+  }
+  return parts;
+}
+
+/** Corpo compartilhado pela folha do gestor e pela do funcionário. */
 export function TimesheetBody({
   sheet,
+  rules = null,
   onRequest,
   onChanged,
 }: {
   sheet: Timesheet;
+  rules?: RulesInfo | null;
   onRequest: (body: NewRequest) => Promise<unknown>;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<DayResult | null>(null);
   const [requestFor, setRequestFor] = useState<DayResult | null>(null);
   const t = sheet.totals;
   const closed = sheet.closings.filter((c) => c.status === "closed");
   const overtime = Object.entries(t.overtime_by_rate)
     .map(([rate, m]) => `${hm(m)} a ${rate}%`)
     .join(", ");
-  const crosses = sheet.days.some((d) => d.marks.some((m) => m.local.slice(0, 10) > d.date));
+  const crosses = sheet.days.some((d) => spanHours(d) > 24);
+  const hasNight = !!rules;
 
   return (
     <>
       {closed.map((c) => (
         <p key={c.id} role={c.divergent ? "alert" : "status"} className="notice">
-          Período de {dateBR(c.start)} a {dateBR(c.end)} fechado em {dateTimeBR(c.closed_at)}.
+          Período fechado de {dateBR(c.start)} a {dateBR(c.end)} em {dateTimeBR(c.closed_at)}.
           {c.divergent &&
-            " Chegaram batidas depois do fechamento: a folha de ponto de hoje é diferente da que foi fechada."}
+            " Chegaram registros depois do fechamento: esta folha é diferente da versão fechada."}
         </p>
       ))}
       <Stats>
@@ -190,7 +223,7 @@ export function TimesheetBody({
           tone={t.balance_minutes < 0 ? "seal" : "tint"}
         />
         <Stat
-          label="Dias com problema"
+          label="Dias para revisar"
           figure={t.days_with_issues}
           tone={t.days_with_issues ? "amber" : undefined}
         />
@@ -198,80 +231,68 @@ export function TimesheetBody({
 
       <Group
         title="Dias"
-        aside={`Regras de cálculo usadas: ${sheet.rule_versions.map((v) => `versão ${v.version}`).join(", ")}`}
-        footer={
-          <div className="legend">
-            <span>
-              <i style={{ background: "var(--tint)" }} />
-              Trabalhado
-            </span>
-            <span>
-              <i style={{ border: "1.5px dashed var(--ink-2)" }} />
-              Horário previsto
-            </span>
-            <span>
-              <i style={{ background: "var(--night-soft)" }} />
-              Horário noturno
-            </span>
-            <span>
-              <i style={{ borderLeft: "2px dotted var(--amber)", width: 2 }} />
-              Horário incluído por pedido
-            </span>
-          </div>
-        }
+        aside={`Regras de cálculo: ${sheet.rule_versions.map((v) => `versão ${v.version}`).join(", ") || "padrão"}`}
+        footer={<Legend night={hasNight} />}
       >
-        <div
-          className="day-row"
-          aria-hidden="true"
-          style={{ cursor: "default", paddingTop: 6, paddingBottom: 0 }}
-        >
-          <span />
-          <RulerScale hours={crosses ? 30 : 24} />
-          <span className="num hide-sm" style={{ fontSize: 12, color: "var(--ink-3)" }}>
-            Trabalho
+        <div className="table-head" aria-hidden="true">
+          <span>Dia</span>
+          <span>
+            Linha do tempo
+            <RulerScale hours={crosses ? 30 : 24} />
           </span>
-          <span className="num hide-sm" style={{ fontSize: 12, color: "var(--ink-3)" }}>
-            Saldo
-          </span>
-          <span />
+          <span className="times">Registros</span>
+          <span className="num hide-sm">Trabalho</span>
+          <span className="num">Saldo</span>
+          <span className="col-status hide-sm">Situação</span>
           <span />
         </div>
         {sheet.days.map((day) => {
           const [label, tone] = STATUS[day.status];
           const balance = day.overtime_minutes - day.deficit_minutes;
-          const expanded = open === day.date;
+          const incomplete = day.marks.length % 2 === 1;
           return (
-            <div key={day.date}>
-              <button
-                className="day-row"
-                aria-expanded={expanded}
-                onClick={() => setOpen(expanded ? null : day.date)}
-              >
-                <span className="date">
-                  {dayLabel(day.date)}
-                  {day.holiday && <small>{day.holiday}</small>}
-                </span>
-                <DayRuler day={day} />
-                <span className="num hide-sm">
-                  {day.marks.length ? hm(day.worked_minutes) : "—"}
-                </span>
-                <span className="num">{balance ? hm(balance) : "—"}</span>
-                <span className="hide-sm">
-                  {day.issues.length > 0 && day.status === "ok" ? (
-                    <Badge tone="amber">Com problema</Badge>
-                  ) : (
-                    <Badge tone={tone}>{label}</Badge>
-                  )}
-                </span>
-                <span className="chevron hide-sm">
-                  <Icon name={expanded ? "chevronDown" : "chevronRight"} size={16} />
-                </span>
-              </button>
-              {expanded && <DayDetail day={day} onRequest={() => setRequestFor(day)} />}
-            </div>
+            <button
+              key={day.date}
+              className="day-row"
+              aria-haspopup="dialog"
+              onClick={() => setOpen(day)}
+            >
+              <span className="date">
+                {dayLabel(day.date)}
+                {day.holiday && <small>{day.holiday}</small>}
+              </span>
+              <DayRuler day={day} night={nightFor(rules, day.date)} />
+              <span className="times">{timesText(day)}</span>
+              <span className="num hide-sm">{day.marks.length ? hm(day.worked_minutes) : "—"}</span>
+              <span className="num">{balance ? hm(balance) : "—"}</span>
+              <span className="col-status hide-sm">
+                {incomplete ? (
+                  <Badge tone="amber">
+                    <Dot state="hollow-warn" /> Pendência
+                  </Badge>
+                ) : day.issues.length > 0 && day.status === "ok" ? (
+                  <Badge tone="amber">Revisar</Badge>
+                ) : (
+                  <Badge tone={tone}>{label}</Badge>
+                )}
+              </span>
+              <span className="chevron">
+                <Icon name="chevronRight" size={16} />
+              </span>
+            </button>
           );
         })}
       </Group>
+      <DayPanel
+        day={open}
+        sheet={sheet}
+        night={open ? nightFor(rules, open.date) : null}
+        onClose={() => setOpen(null)}
+        onRequest={() => {
+          setRequestFor(open);
+          setOpen(null);
+        }}
+      />
       <RequestSheet
         day={requestFor}
         onClose={() => setRequestFor(null)}
@@ -285,47 +306,139 @@ export function TimesheetBody({
   );
 }
 
-function DayDetail({ day, onRequest }: { day: DayResult; onRequest: () => void }) {
+/** Painel do dia: registros (originais e ajustes), totais e a explicação do cálculo. */
+function DayPanel({
+  day,
+  sheet,
+  night,
+  onClose,
+  onRequest,
+}: {
+  day: DayResult | null;
+  sheet: Timesheet;
+  night: NightWindow | null;
+  onClose: () => void;
+  onRequest: () => void;
+}) {
+  const router = useRouter();
+  if (!day) return null;
+  const [label, tone] = STATUS[day.status];
+  const incomplete = day.marks.length % 2 === 1;
+  const rule = sheet.rule_versions.find((v) => v.from <= day.date && day.date <= v.to);
+  const row = (k: string, v: string) => (
+    <div className="row" style={{ padding: "8px 0", minHeight: 0 }}>
+      <span className="title">{k}</span>
+      <span className="value num">{v}</span>
+    </div>
+  );
   return (
-    <div className="day-detail">
-      <div className="toolbar" style={{ marginTop: 8 }}>
-        {day.marks.map((m) => (
-          <Badge key={m.at} tone={m.origin === "included" ? "amber" : undefined}>
-            {m.local.slice(11)}
-            {m.origin === "included" ? " (incluído)" : ""}
-          </Badge>
-        ))}
-        {day.night_minutes > 0 && (
-          <Badge tone="night">
-            Horas noturnas {hm(day.night_minutes)} (contam como {hm(day.night_reduced_minutes)} pela
-            hora reduzida)
-          </Badge>
-        )}
-        {day.break_suppressed_minutes > 0 && (
-          <Badge tone="seal">Intervalo não cumprido: {day.break_suppressed_minutes} min</Badge>
-        )}
+    <Sheet
+      title={`${dayLabel(day.date)} · Como chegamos a esse número`}
+      open
+      side
+      onClose={onClose}
+    >
+      <div className="panel-section">
+        <Badge tone={tone}>{label}</Badge> {day.holiday && <Badge>{day.holiday}</Badge>}
+        <div style={{ marginTop: 12 }}>
+          <DayRuler day={day} night={night} />
+          <RulerScale hours={spanHours(day)} />
+        </div>
       </div>
-      {day.issues.length > 0 && (
-        <ul className="steps" style={{ color: "var(--seal)" }}>
-          {day.issues.map((i) => (
-            <li key={i}>{i}</li>
+
+      <div className="panel-section">
+        <h3>Registros do dia</h3>
+        {day.marks.length === 0 && <p>Nenhum registro neste dia.</p>}
+        <div className="toolbar">
+          {day.marks.map((m) => (
+            <span key={m.at} className={m.origin === "included" ? "chip-time adjust" : "chip-time"}>
+              {m.local.slice(11)}
+              <small style={{ fontWeight: 500 }}>
+                {m.origin === "included" ? "ajuste aprovado" : "original"}
+              </small>
+            </span>
           ))}
-        </ul>
-      )}
-      <details open>
-        <summary style={{ fontSize: 13, color: "var(--ink-2)", cursor: "pointer" }}>
-          Como chegamos a esses números
-        </summary>
+          {day.ignored_marks.map((m) => (
+            <span
+              key={m.at}
+              className="chip-time ignored"
+              title="Desconsiderado por ajuste aprovado"
+            >
+              {m.local.slice(11)}
+              <small style={{ fontWeight: 500 }}>desconsiderado</small>
+            </span>
+          ))}
+        </div>
+        {incomplete && (
+          <p className="notice warn" style={{ marginTop: 12 }}>
+            Falta o par do último registro. Esse período ficou fora da soma até haver um ajuste
+            aprovado.
+          </p>
+        )}
+        <p style={{ color: "var(--ink-2)", fontSize: "var(--text-sm)", marginTop: 8 }}>
+          Os registros originais nunca são alterados. Ajustes aprovados aparecem à parte e podem ser
+          consultados em Solicitações.
+        </p>
+      </div>
+
+      <div className="panel-section">
+        <h3>Totais do dia</h3>
+        {day.planned &&
+          row(
+            "Jornada prevista",
+            `${day.planned.start_local.slice(11)} – ${day.planned.end_local.slice(11)} (intervalo ${day.planned.break_minutes} min)`,
+          )}
+        {row("Horas a cumprir", hm(day.expected_minutes))}
+        {row("Horas trabalhadas", day.marks.length ? hm(day.worked_minutes) : "—")}
+        {row("Intervalo registrado", `${day.break_minutes} min`)}
+        {day.overtime_minutes > 0 &&
+          row("Horas extras", `${hm(day.overtime_minutes)} a ${day.overtime_rate_percent}%`)}
+        {day.deficit_minutes > 0 && row("Horas devidas", hm(day.deficit_minutes))}
+        {day.justified_minutes > 0 && row("Horas justificadas", hm(day.justified_minutes))}
+        {day.night_minutes > 0 &&
+          row(
+            "Horas noturnas",
+            `${hm(day.night_minutes)} (contam como ${hm(day.night_reduced_minutes)})`,
+          )}
+        {day.break_suppressed_minutes > 0 &&
+          row("Intervalo não cumprido", `${day.break_suppressed_minutes} min`)}
+      </div>
+
+      <div className="panel-section">
+        <h3>Como o sistema calculou</h3>
         <ol className="steps">
           {day.steps.map((s, i) => (
             <li key={i}>{s}</li>
           ))}
         </ol>
-      </details>
-      <button onClick={onRequest}>
-        <Icon name="plus" size={16} /> Pedir correção ou justificar ausência
-      </button>
-    </div>
+        {day.issues.length > 0 && (
+          <ul className="steps" style={{ color: "var(--danger)" }}>
+            {day.issues.map((i) => (
+              <li key={i}>{i}</li>
+            ))}
+          </ul>
+        )}
+        <p style={{ color: "var(--ink-2)", fontSize: "var(--text-sm)" }}>
+          Regras de cálculo {rule ? `versão ${rule.version}` : "padrão do sistema"}
+          {day.tolerance_applied ? ", com tolerância aplicada" : ""}. Fuso da unidade:{" "}
+          {sheet.timezone}. Versão do cálculo: {sheet.engine_version}.
+        </p>
+      </div>
+
+      <div className="actions" style={{ justifyContent: "flex-start" }}>
+        <button className="primary" onClick={onRequest}>
+          <Icon name="plus" size={16} /> Pedir ajuste
+        </button>
+        <button
+          onClick={() => {
+            onClose();
+            router.select({ screen: "requests" });
+          }}
+        >
+          Ver solicitações
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -375,7 +488,7 @@ export function RequestSheet({
     });
 
   return (
-    <Sheet title={`Pedido para o dia ${dayLabel(day.date)}`} open={!!day} onClose={onClose}>
+    <Sheet title={`Pedir ajuste · ${dayLabel(day.date)}`} open={!!day} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -456,7 +569,7 @@ export function RequestSheet({
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Enviar pedido
+            Enviar solicitação
           </button>
         </div>
       </form>

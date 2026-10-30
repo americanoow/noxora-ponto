@@ -135,20 +135,41 @@ class _FaceCaptureViewState extends State<FaceCaptureView> {
     Navigator.of(context).pop();
   }
 
+  /// A moldura só orienta posição e luz. Quem decide se há uma pessoa presente é o motor biométrico
+  /// no servidor; nenhuma animação desta tela comprova presença física.
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFF1F2422),
         body: SafeArea(
           child: Column(children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 0),
+              child: Text(
+                'Fique de frente, com boa luz, e deixe o rosto dentro da moldura.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFFD9DDD9), fontSize: 18),
+              ),
+            ),
             Expanded(
               child: Center(
                 child: _error != null
                     ? Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Text(_error!, style: const TextStyle(color: Colors.white, fontSize: 20)),
+                        child: Text(_error!, style: const TextStyle(color: Colors.white, fontSize: 22)),
                       )
                     : _ready
-                        ? ClipOval(child: SizedBox(width: 320, height: 400, child: widget.camera.preview()))
+                        ? Container(
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.fromBorderSide(
+                                BorderSide(color: Color(0xFF8FB8A8), width: 5),
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(8),
+                            child: ClipOval(
+                              child: SizedBox(width: 320, height: 400, child: widget.camera.preview()),
+                            ),
+                          )
                         : const CircularProgressIndicator(),
               ),
             ),
@@ -158,14 +179,18 @@ class _FaceCaptureViewState extends State<FaceCaptureView> {
                 _error == null ? _instruction : '',
                 key: const Key('instrucao-face'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
+                style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w700),
               ),
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: OutlinedButton(
                 onPressed: _cancel,
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Color(0xFF8FB8A8)),
+                  minimumSize: const Size(200, 60),
+                ),
                 child: const Text('Cancelar'),
               ),
             ),

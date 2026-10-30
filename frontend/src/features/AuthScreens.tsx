@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { requestPasswordReset } from "../auth";
 import { useSession } from "../lib/session";
 import { useAction } from "../lib/task";
+import { Brand } from "../ui/Brand";
 import { ErrorText } from "../ui/kit";
 import { ResetPasswordScreen } from "../screens";
 
@@ -9,23 +10,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <main className="auth">
       <div className="auth-panel">
-        <div className="brand">
-          <span className="brand-mark">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              aria-hidden="true"
-            >
-              <path d="M12 7v5l3 2" />
-              <circle cx="12" cy="12" r="9" />
-            </svg>
-          </span>
-          Noxora Ponto
-        </div>
+        <Brand />
         {children}
       </div>
     </main>

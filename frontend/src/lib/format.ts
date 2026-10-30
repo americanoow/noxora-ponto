@@ -51,3 +51,20 @@ export function monthRange(iso: string): { from: string; to: string } {
 export function money(cents: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
 }
+
+export function timeBR(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(
+    new Date(iso),
+  );
+}
+
+/** "há 3 min", "há 2 h" — para dizer há quanto tempo uma informação foi atualizada. */
+export function agoLabel(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "sem data";
+  const min = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `há ${h} h` : `há ${Math.floor(h / 24)} d`;
+}

@@ -134,6 +134,43 @@ export function Stat({
   );
 }
 
+/** O "ponto" da marca: preenchido = estado/registro real; vazado = pendente; sem estado = decorativo. */
+export function Dot({ state }: { state?: "on" | "warn" | "bad" | "hollow" | "hollow-warn" }) {
+  const cls = state === "hollow-warn" ? "dot hollow warn" : state ? `dot ${state}` : "dot deco";
+  return <span className={cls} aria-hidden="true" />;
+}
+
+/** Indicador que abre a lista correspondente. */
+export function Kpi({
+  label,
+  figure,
+  hint,
+  tone,
+  dot,
+  onClick,
+}: {
+  label: string;
+  figure: ReactNode;
+  hint?: ReactNode;
+  tone?: "tint" | "amber" | "seal";
+  dot?: "on" | "warn" | "bad" | "hollow";
+  onClick: () => void;
+}) {
+  return (
+    <button className={tone ? `kpi ${tone}` : "kpi"} onClick={onClick}>
+      <span className="label">
+        {dot && <Dot state={dot} />}
+        {label}
+        <span className="go">
+          <Icon name="chevronRight" size={16} />
+        </span>
+      </span>
+      <span className="figure">{figure}</span>
+      {hint && <span className="hint">{hint}</span>}
+    </button>
+  );
+}
+
 export function Loading({ label = "Carregando…" }: { label?: string }) {
   return (
     <div className="loading" role="status">
@@ -201,11 +238,13 @@ export function Sheet({
   open,
   onClose,
   children,
+  side,
 }: {
   title: string;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  side?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -222,13 +261,18 @@ export function Sheet({
   }, [open]);
   if (!open) return null;
   return (
-    <dialog ref={ref} className="sheet" aria-label={title} onCancel={onClose} onClose={onClose}>
+    <dialog
+      ref={ref}
+      className={side ? "sheet side" : "sheet"}
+      aria-label={title}
+      onCancel={onClose}
+      onClose={onClose}
+    >
       <div className="sheet-header">
-        <button className="plain" onClick={onClose}>
-          Cancelar
-        </button>
         <h2>{title}</h2>
-        <span style={{ width: 70 }} />
+        <button className="plain" onClick={onClose} aria-label="Fechar">
+          <Icon name="x" size={18} /> {side ? "Fechar" : "Cancelar"}
+        </button>
       </div>
       <div className="sheet-body">{children}</div>
     </dialog>

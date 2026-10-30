@@ -81,7 +81,7 @@ describe("App", () => {
     });
     routes["PATCH /api/companies/7/members/5/"] = () => ({ body: {} });
     render(<App />);
-    fireEvent.click(await menuItem("Quem usa o sistema"));
+    fireEvent.click(await menuItem("Acessos"));
     expect(await screen.findByText(/g@a.test/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Bloquear acesso" }));
     await waitFor(() =>
@@ -89,22 +89,25 @@ describe("App", () => {
     );
   });
 
-  it("abre na tela de início com atalhos agrupados por categoria", async () => {
+  it("abre em Hoje, sem tela de início duplicada, com a navegação em grupos", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
     render(<App />);
-    expect(await screen.findByRole("heading", { name: /Início/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Controle de ponto" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Cadastros" })).toBeInTheDocument();
-    fireEvent.click(await menuItem("Início"));
-    expect(screen.getByRole("heading", { name: /Início/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: /^Hoje/ })).toBeInTheDocument();
+    for (const grupo of ["Dia a dia", "Jornada", "Equipe", "Configurações"])
+      expect(nav().getByRole("heading", { name: grupo })).toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Início" })).not.toBeInTheDocument();
+    fireEvent.click(await menuItem("Folhas de ponto"));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /^Folha de ponto/ }),
+    ).toBeInTheDocument();
   });
 
   it("funcionário vê só o próprio ponto e não carrega acessos", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("employee") });
     render(<App />);
     expect(await menuItem("Minha folha de ponto")).toBeInTheDocument();
-    expect(nav().queryByRole("button", { name: "Quem usa o sistema" })).not.toBeInTheDocument();
-    expect(nav().queryByRole("button", { name: "Pedidos" })).not.toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Acessos" })).not.toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Solicitações" })).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("/members/"))).toBe(false);
   });
 
@@ -141,11 +144,11 @@ it("descarta membros anteriores ao trocar para empresa que retorna 403", async (
   });
   routes["GET /api/companies/8/members/"] = () => ({ status: 403 });
   render(<App />);
-  fireEvent.click(await menuItem("Quem usa o sistema"));
+  fireEvent.click(await menuItem("Acessos"));
   expect(await screen.findByText(/privado@a.test/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Trocar de empresa"), { target: { value: "8" } });
   // Trocar de empresa volta à raiz da navegação: os dados da empresa anterior somem.
-  fireEvent.click(await menuItem("Quem usa o sistema"));
+  fireEvent.click(await menuItem("Acessos"));
   expect(await screen.findByText(/Você não tem permissão para fazer isto/)).toBeInTheDocument();
   expect(screen.queryByText(/privado@a.test/)).not.toBeInTheDocument();
 });

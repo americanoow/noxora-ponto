@@ -16,13 +16,14 @@ import {
   listMyPunches,
   setMyAvailability,
 } from "../api/operational";
-import { dateBR, dateTimeBR, isoDate, monthRange } from "../lib/format";
+import { dateBR, dateTimeBR, hm, isoDate, monthRange } from "../lib/format";
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
 import { useAction, useTask } from "../lib/task";
-import { formatLocalTime } from "../timeclockApi";
+import { KIND_LABELS, formatLocalTime } from "../timeclockApi";
 import {
   Badge,
+  Dot,
   Download,
   Empty,
   ErrorText,
@@ -33,6 +34,7 @@ import {
   Screen,
   Sheet,
 } from "../ui/kit";
+import { Icon } from "../ui/icons";
 import { StatusPicker } from "./Availability";
 import { STATUS_LABEL, describeRequest } from "./Requests";
 import { PeriodPicker, TimesheetBody } from "./Timesheet";
@@ -47,34 +49,101 @@ export function MyDayScreen() {
     return current?.status ? current : null;
   }, [companyId]);
   const { error, run } = useAction();
+  const today = isoDate(new Date());
+  const all = [...(punches.data?.results ?? [])].sort((a, b) =>
+    a.occurred_at < b.occurred_at ? -1 : 1,
+  );
+  const todays = all.filter((r) => r.occurred_local_date === today);
+  const last = todays[todays.length - 1] ?? null;
+  // Estimativa: soma os pares completos e, se houver registro aberto, conta até agora.
+  let minutes = 0;
+  for (let i = 0; i < todays.length; i += 2) {
+    const a = new Date(todays[i].occurred_at).getTime();
+    const b = todays[i + 1] ? new Date(todays[i + 1].occurred_at).getTime() : Date.now();
+    minutes += Math.max(0, Math.round((b - a) / 60000));
+  }
+  const open = todays.length % 2 === 1;
+  const hhmm = (r: (typeof all)[number]) =>
+    formatLocalTime(r.occurred_at, r.occurred_offset_minutes).slice(11, 16);
   return (
-    <Screen
-      title="Meu ponto"
-      subtitle="Suas batidas de ponto das últimas 48 horas e os comprovantes."
-    >
-      <Group
-        title="Batidas recentes"
-        footer="O comprovante é um PDF informativo. O comprovante oficial com assinatura digital ainda não está disponível."
-      >
+    <Screen title="Hoje" subtitle="Seus registros de ponto e comprovantes.">
+      <div className="hero-card" aria-live="polite">
         {punches.loading && !punches.data ? (
           <Loading />
         ) : punches.error ? (
           <ErrorText message={punches.error} />
-        ) : punches.data?.results.length ? (
-          punches.data.results.map((r) => (
-            <Row
-              key={r.id}
-              title={formatLocalTime(r.occurred_at, r.occurred_offset_minutes)}
-              subtitle={`${r.unit.name}. Registro nº ${r.nsr}${r.offline ? ". Batida feita sem internet e enviada depois" : ""}`}
-              accessory={
-                <Download href={downloads.myReceipt(companyId, r.id)}>Comprovante</Download>
-              }
-            />
-          ))
+        ) : last ? (
+          <>
+            <div style={{ color: "var(--ink-2)", display: "flex", gap: 8, alignItems: "center" }}>
+              <Dot state={open ? "on" : undefined} />
+              {open ? "Jornada em aberto" : "Último registro de hoje"}
+            </div>
+            <div className="last">
+              {last.declared_kind ? `${KIND_LABELS[last.declared_kind]} às ` : "Registro às "}
+              <span className="num">{hhmm(last)}</span>
+            </div>
+            <div className="est">
+              {last.unit.name}
+              {last.offline ? " · feito sem internet e enviado depois" : ""}
+            </div>
+            <div className="est">
+              Cerca de <b className="num">{hm(minutes)}</b> trabalhadas hoje: <b>estimativa</b> a
+              partir dos seus registros{open ? ", contando até agora" : ""}. O valor oficial está na
+              folha de ponto.
+            </div>
+          </>
         ) : (
-          <Empty title="Nenhuma batida nas últimas 48 horas" />
+          <>
+            <div className="last">Nenhum registro hoje</div>
+            <div className="est">Quando você registrar o ponto no tablet, ele aparece aqui.</div>
+          </>
+        )}
+      </div>
+
+      <div className="quick">
+        <button onClick={() => router.select({ screen: "my-timesheet" })}>
+          <Icon name="sheet" size={22} /> Folha de ponto
+        </button>
+        <button onClick={() => router.select({ screen: "my-timesheet" })}>
+          <Icon name="plus" size={22} /> Pedir ajuste
+        </button>
+        <button onClick={() => router.select({ screen: "my-closings" })}>
+          <Icon name="lock" size={22} /> Meses fechados
+        </button>
+      </div>
+
+      <Group
+        title="Registros das últimas 48 horas"
+        footer="O comprovante é um PDF informativo. O comprovante oficial com assinatura digital ainda não está disponível."
+      >
+        {punches.loading && !punches.data ? (
+          <Loading />
+        ) : all.length ? (
+          <div className="group-body padded" style={{ border: 0, boxShadow: "none" }}>
+            <ol className="tl">
+              {[...all].reverse().map((r) => (
+                <li key={r.id}>
+                  <Dot state="on" />
+                  <span>
+                    <b className="num">
+                      {formatLocalTime(r.occurred_at, r.occurred_offset_minutes).slice(0, 16)}
+                    </b>
+                    <small>
+                      {r.declared_kind ? `${KIND_LABELS[r.declared_kind]} · ` : ""}
+                      {r.unit.name} · registro nº {r.nsr}
+                      {r.offline ? " · enviado depois (estava sem internet)" : ""}
+                    </small>
+                  </span>
+                  <Download href={downloads.myReceipt(companyId, r.id)}>Comprovante</Download>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <Empty title="Nenhum registro nas últimas 48 horas" />
         )}
       </Group>
+
       <Group
         title="Como estou agora"
         padded
@@ -82,7 +151,9 @@ export function MyDayScreen() {
       >
         <p>
           Agora:{" "}
-          {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "nada informado"}
+          <b>
+            {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "nada informado"}
+          </b>
           {availability.data && ` (desde ${dateTimeBR(availability.data.set_at)})`}
         </p>
         <StatusPicker
@@ -95,16 +166,6 @@ export function MyDayScreen() {
           }
         />
         <ErrorText message={error} />
-      </Group>
-      <Group>
-        <Row
-          title="Ver minha folha de ponto do mês"
-          onClick={() => router.select({ screen: "my-timesheet" })}
-        />
-        <Row
-          title="Pedir correção ou justificar ausência"
-          onClick={() => router.select({ screen: "my-requests" })}
-        />
       </Group>
     </Screen>
   );
@@ -120,6 +181,7 @@ export function MyTimesheetScreen() {
   return (
     <Screen
       title="Minha folha de ponto"
+      subtitle="Toque em um dia para ver os registros e como o cálculo foi feito."
       toolbar={
         <>
           <PeriodPicker
@@ -153,8 +215,8 @@ export function MyRequestsScreen() {
   const { error, run } = useAction();
   return (
     <Screen
-      title="Meus pedidos"
-      subtitle="Para fazer um pedido, abra o dia na sua folha de ponto e toque em “Pedir correção ou justificar ausência”."
+      title="Minhas solicitações"
+      subtitle="Para pedir um ajuste, abra o dia na sua folha de ponto e toque em “Pedir ajuste”."
       toolbar={
         <button className="primary" onClick={() => router.select({ screen: "my-timesheet" })}>
           Abrir minha folha de ponto
@@ -195,7 +257,7 @@ export function MyRequestsScreen() {
             );
           })
         ) : (
-          <Empty title="Você ainda não fez nenhum pedido" />
+          <Empty title="Você ainda não fez nenhuma solicitação" />
         )}
       </Group>
     </Screen>
@@ -211,7 +273,7 @@ export function MyClosingsScreen() {
   return (
     <Screen
       title="Meses fechados"
-      subtitle="Confira suas horas de cada período fechado e confirme que está tudo certo."
+      subtitle="Consulte cada período fechado. Você pode registrar ciência, sem que isso substitua um pedido de ajuste."
     >
       <Group>
         {list.loading && !list.data ? (
@@ -223,9 +285,9 @@ export function MyClosingsScreen() {
               title={`${dateBR(c.start)} a ${dateBR(c.end)}`}
               subtitle={
                 c.acknowledged_at
-                  ? `Você confirmou em ${dateTimeBR(c.acknowledged_at)}`
+                  ? `Ciência registrada em ${dateTimeBR(c.acknowledged_at)}`
                   : c.status === "reopened"
-                    ? "A empresa reabriu este período"
+                    ? "Reabertura registrada pela empresa"
                     : undefined
               }
               accessory={
@@ -234,7 +296,7 @@ export function MyClosingsScreen() {
                     Folha de ponto
                   </Download>
                   {!c.acknowledged_at && c.status === "closed" && (
-                    <button onClick={() => setAcking(c.id)}>Está correto</button>
+                    <button onClick={() => setAcking(c.id)}>Registrar ciência</button>
                   )}
                 </span>
               }
@@ -249,7 +311,10 @@ export function MyClosingsScreen() {
         open={acking !== null}
         onClose={() => setAcking(null)}
       >
-        <p>Ao confirmar, fica registrado que você conferiu suas horas deste período.</p>
+        <p>
+          Isto registra que você viu a folha deste período, com data e hora. Não é uma assinatura e
+          não significa concordar com todos os valores. Se algo estiver errado, peça um ajuste.
+        </p>
         <Field label="Quer deixar um comentário? (opcional)">
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={500} />
         </Field>
@@ -267,7 +332,7 @@ export function MyClosingsScreen() {
               })
             }
           >
-            Confirmar que está correto
+            Registrar ciência
           </button>
         </div>
       </Sheet>

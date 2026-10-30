@@ -54,3 +54,8 @@ Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](p
 - Interface reescrita em linguagem do dia a dia (glossário em D86), com descrição de cada função no Início, mensagens de erro acionáveis e leitura mais fácil (D87). Textos gerados pelo servidor continuam técnicos (D88, pendente). Frontend: 70 testes, tipos, lint e formatação limpos.
 - Motor facial OpenCV ativo em desenvolvimento (D89); funcionou no fluxo completo em celular Android (APK debug gerado neste computador). **Pendente:** recusa de outra pessoa/foto/vídeo, calibração do limiar, vivacidade certificada, LGPD, cofre de chaves, APK de produção assinado.
 - `availability`: o indício de ponto passa a citar a unidade da última batida.
+
+## 2026-10-30 — Redesenho da interface (web e tablet)
+- Nova identidade (D90–D98): tokens, ponto como assinatura, barra lateral agrupada, Hoje, folha de ponto com linha do tempo e painel do dia, solicitações em lista+detalhe, fechamento guiado, portal mobile e tablet Flutter.
+- Verificações: frontend 70 testes, tipos, lint e formatação limpos; tablet 78 testes e `flutter analyze` limpos. Capturas renderizadas em `docs/design/capturas/` (web). Tablet: APK de teste gerado, sem captura de tela.
+- Pendências listadas em `decisoes-tecnicas.md` (som, crachá/QR, anexos, histórico por dia, fonte no Flutter, modo escuro).

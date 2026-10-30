@@ -7,14 +7,12 @@ import { type Destination, Router, RouterContext, type ScreenName } from "./lib/
 import { type CompanyContext, CompanyCtx, useSession } from "./lib/session";
 import { useAction, useTask } from "./lib/task";
 import { Icon, type IconName } from "./ui/icons";
+import { Brand } from "./ui/Brand";
 import { ScreenView } from "./features/screens";
-
-const ACCOUNT = "__conta";
 
 interface NavItem {
   screen: ScreenName;
   label: string;
-  hint: string;
   icon: IconName;
   count?: number;
 }
@@ -23,7 +21,8 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-function navFor(
+/** Navegação por grupos de tarefa. Itens de configuração só aparecem para quem pode usá-los. */
+export function navFor(
   company: CompanyContext | null,
   isPlatform: boolean,
   linked: boolean,
@@ -33,167 +32,56 @@ function navFor(
   if (company && (company.isAdmin || company.isManager)) {
     groups.push(
       {
-        title: "Visão geral",
+        title: "Dia a dia",
         items: [
-          {
-            screen: "today",
-            label: "Hoje",
-            hint: "Quem está trabalhando agora e o que precisa da sua atenção.",
-            icon: "today",
-          },
+          { screen: "today", label: "Hoje", icon: "today" },
+          { screen: "availability", label: "Situação da equipe", icon: "pulse" },
+          { screen: "requests", label: "Solicitações", icon: "inbox", count: pending || undefined },
         ],
       },
       {
-        title: "Controle de ponto",
+        title: "Jornada",
         items: [
-          {
-            screen: "timesheet",
-            label: "Folha de ponto",
-            hint: "Veja as horas de cada funcionário, dia a dia.",
-            icon: "sheet",
-          },
-          {
-            screen: "requests",
-            label: "Pedidos",
-            hint: "Aprove ou recuse correções de ponto e justificativas de ausência.",
-            icon: "inbox",
-            count: pending || undefined,
-          },
-          {
-            screen: "closings",
-            label: "Fechar o mês",
-            hint: "Trave o período para a folha de pagamento e envie a conferência aos funcionários.",
-            icon: "lock",
-          },
+          { screen: "records", label: "Registros de ponto", icon: "list" },
+          { screen: "timesheet", label: "Folhas de ponto", icon: "sheet" },
+          { screen: "closings", label: "Fechamento", icon: "lock" },
+          { screen: "reports", label: "Relatórios e arquivos", icon: "doc" },
         ],
       },
       {
-        title: "Equipe e tablets",
+        title: "Equipe",
         items: [
-          {
-            screen: "availability",
-            label: "Situação da equipe",
-            hint: "Informe e consulte quem está disponível, em pausa ou fora.",
-            icon: "pulse",
-          },
-          {
-            screen: "records",
-            label: "Registros de ponto",
-            hint: "Lista de todas as batidas de ponto feitas nos tablets.",
-            icon: "list",
-          },
-          {
-            screen: "devices",
-            label: "Tablets de ponto",
-            hint: "Cadastre e ative os tablets usados para bater o ponto.",
-            icon: "tablet",
-          },
-        ],
-      },
-      {
-        title: "Cadastros",
-        items: [
-          {
-            screen: "employees",
-            label: "Funcionários",
-            hint: "Cadastre pessoas, mude de setor e defina o horário de trabalho.",
-            icon: "people",
-          },
-          {
-            screen: "structure",
-            label: "Unidades e setores",
-            hint: "Lojas, filiais e departamentos da empresa.",
-            icon: "building",
-          },
-          {
-            screen: "schedules",
-            label: "Horários de trabalho",
-            hint: "Defina em quais dias e horas cada pessoa deve trabalhar.",
-            icon: "calendar",
-          },
+          { screen: "employees", label: "Funcionários", icon: "people" },
+          { screen: "structure", label: "Unidades e setores", icon: "building" },
+          { screen: "schedules", label: "Horários de trabalho", icon: "calendar" },
         ],
       },
     );
-    const companyItems: NavItem[] = [
-      {
-        screen: "reports",
-        label: "Relatórios e arquivos",
-        hint: "Baixe planilhas, arquivos para a fiscalização e para a folha de pagamento.",
-        icon: "doc",
-      },
-    ];
-    if (company.isAdmin) {
-      companyItems.unshift({
-        screen: "rules",
-        label: "Regras e feriados",
-        hint: "Tolerâncias, hora extra, adicional noturno e feriados.",
-        icon: "scale",
-      });
-      companyItems.push(
-        {
-          screen: "company",
-          label: "Dados da empresa",
-          hint: "Dados da empresa e como os funcionários se identificam no tablet.",
-          icon: "shield",
-        },
-        {
-          screen: "members",
-          label: "Quem usa o sistema",
-          hint: "Convide pessoas e escolha o que cada uma pode fazer.",
-          icon: "key",
-        },
-        {
-          screen: "billing",
-          label: "Plano e pagamentos",
-          hint: "Seu plano, uso e faturas.",
-          icon: "card",
-        },
+    const settings: NavItem[] = [{ screen: "devices", label: "Tablets de ponto", icon: "tablet" }];
+    if (company.isAdmin)
+      settings.push(
+        { screen: "rules", label: "Regras e feriados", icon: "scale" },
+        { screen: "members", label: "Acessos", icon: "key" },
+        { screen: "company", label: "Empresa", icon: "shield" },
+        { screen: "billing", label: "Plano e pagamentos", icon: "card" },
       );
-    }
-    groups.push({ title: "Administração", items: companyItems });
+    groups.push({ title: "Configurações", items: settings });
   }
   if (company && (linked || company.role === "employee")) {
     groups.push({
       title: "Meu ponto",
       items: [
-        {
-          screen: "my-day",
-          label: "Hoje",
-          hint: "Suas batidas de ponto recentes e comprovantes.",
-          icon: "today",
-        },
-        {
-          screen: "my-timesheet",
-          label: "Minha folha de ponto",
-          hint: "Veja suas horas do mês e peça correções.",
-          icon: "sheet",
-        },
-        {
-          screen: "my-requests",
-          label: "Meus pedidos",
-          hint: "Acompanhe os pedidos de correção que você fez.",
-          icon: "inbox",
-        },
-        {
-          screen: "my-closings",
-          label: "Meses fechados",
-          hint: "Confira o mês encerrado e confirme que está correto.",
-          icon: "lock",
-        },
+        { screen: "my-day", label: "Hoje", icon: "today" },
+        { screen: "my-timesheet", label: "Minha folha de ponto", icon: "sheet" },
+        { screen: "my-requests", label: "Minhas solicitações", icon: "inbox" },
+        { screen: "my-closings", label: "Meses fechados", icon: "lock" },
       ],
     });
   }
   if (isPlatform)
     groups.push({
       title: "Noxora",
-      items: [
-        {
-          screen: "platform",
-          label: "Plataforma",
-          hint: "Empresas clientes e assinaturas.",
-          icon: "grid",
-        },
-      ],
+      items: [{ screen: "platform", label: "Empresas e assinaturas", icon: "grid" }],
     });
   return groups;
 }
@@ -220,6 +108,17 @@ export function Shell() {
   );
 }
 
+function initials(text: string): string {
+  const parts = text.split(/[\s@._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "•";
+}
+
+const SHORT: Record<string, string> = {
+  "Minha folha de ponto": "Folha",
+  "Minhas solicitações": "Pedidos",
+  "Meses fechados": "Meses",
+};
+
 function CompanyShell({ company }: { company: CompanyContext | null }) {
   const session = useSession();
   const me = useObservable(session, (s) => s.me)!;
@@ -240,16 +139,22 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
   const allowed = useMemo(() => {
     const names = new Set<string>(groups.flatMap((g) => g.items.map((i) => i.screen)));
     names.add("account");
-    names.add("home");
     if (staff) ["closing", "employee"].forEach((n) => names.add(n));
     return names;
   }, [groups, staff]);
-  const rootScreen: ScreenName = groups.length ? "home" : "account";
+  // "Hoje" é a página inicial do gestor; o funcionário abre direto no próprio dia.
+  const rootScreen: ScreenName = staff
+    ? "today"
+    : company?.role === "employee"
+      ? "my-day"
+      : me.is_platform_admin
+        ? "platform"
+        : "account";
   const root = useMemo(() => ({ screen: rootScreen }) as Destination, [rootScreen]);
   const [router] = useState(() => new Router(root, (s) => allowed.has(s)));
   const path = useObservable(router, (s) => s.path);
   const top = path[path.length - 1];
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
   const signOut = useAction();
 
   useEffect(() => router.attach(), [router]);
@@ -262,77 +167,35 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
   const go = useCallback(
     (screen: ScreenName) => {
       router.select({ screen } as Destination);
-      setOpenGroup(null);
+      setDrawer(false);
     },
     [router],
   );
+  const current = path[0]?.screen;
+  const portal = groups.find((g) => g.title === "Meu ponto");
+  const employeeOnly = !staff && !!portal;
+  const name = me.name || me.email;
 
   return (
     <RouterContext.Provider value={router}>
       <div className="window">
-        <header className="topbar">
-          <div className="brand">
-            <span className="brand-mark">
-              <Icon name="today" size={16} />
-            </span>
-            Noxora Ponto
-          </div>
-          <nav className="topnav" aria-label="Menu principal">
-            <button
-              className="menu-trigger"
-              aria-current={path[0]?.screen === "home" ? "page" : undefined}
-              onClick={() => go("home")}
-            >
-              Início
-            </button>
-            {groups.map((g) => {
-              const active = g.items.some((i) => i.screen === path[0]?.screen);
-              const open = openGroup === g.title;
-              return (
-                <div
-                  key={g.title}
-                  className="menu"
-                  data-open={open}
-                  onMouseEnter={() => setOpenGroup(g.title)}
-                  onMouseLeave={() => setOpenGroup((o) => (o === g.title ? null : o))}
-                  onBlur={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                      setOpenGroup((o) => (o === g.title ? null : o));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setOpenGroup(null);
-                  }}
-                >
-                  <button
-                    className="menu-trigger"
-                    aria-haspopup="true"
-                    aria-expanded={open}
-                    aria-current={active ? "true" : undefined}
-                    onClick={() => setOpenGroup(open ? null : g.title)}
-                  >
-                    {g.title}
-                    <span className="caret" aria-hidden="true" />
-                  </button>
-                  <div className="menu-panel">
-                    {g.items.map((item) => (
-                      <button
-                        key={item.screen}
-                        className="nav-item"
-                        aria-current={path[0]?.screen === item.screen ? "page" : undefined}
-                        onClick={() => go(item.screen)}
-                      >
-                        <Icon name={item.icon} />
-                        {item.label}
-                        {item.count !== undefined && <span className="count">{item.count}</span>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </nav>
-          <div className="topbar-end">
-            {me.memberships.length > 1 && (
+        <header className="mobile-bar">
+          <button
+            className="plain"
+            aria-label="Abrir menu"
+            aria-expanded={drawer}
+            onClick={() => setDrawer(true)}
+          >
+            <Icon name="menu" size={22} />
+          </button>
+          <Brand />
+        </header>
+        {drawer && <div className="scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
+        <aside className="sidebar" data-open={drawer} aria-label="Barra lateral">
+          <Brand />
+          <div className="company-switch">
+            <span className="label">Empresa</span>
+            {me.memberships.length > 1 ? (
               <select
                 aria-label="Trocar de empresa"
                 value={company?.companyId ?? ""}
@@ -344,57 +207,78 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
                   </option>
                 ))}
               </select>
+            ) : (
+              <strong>{company?.companyName ?? "Plataforma Noxora"}</strong>
             )}
-            <div
-              className="menu menu-right"
-              data-open={openGroup === ACCOUNT}
-              onMouseEnter={() => setOpenGroup(ACCOUNT)}
-              onMouseLeave={() => setOpenGroup((o) => (o === ACCOUNT ? null : o))}
-              onBlur={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                  setOpenGroup((o) => (o === ACCOUNT ? null : o));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setOpenGroup(null);
-              }}
-            >
-              <button
-                className="menu-trigger"
-                aria-haspopup="true"
-                aria-expanded={openGroup === ACCOUNT}
-                onClick={() => setOpenGroup(openGroup === ACCOUNT ? null : ACCOUNT)}
-              >
-                {me.email}
-                <span className="caret" aria-hidden="true" />
-              </button>
-              <div className="menu-panel sidebar-footer">
-                {company && (
-                  <div>
-                    {company.companyName} — {ROLE_LABELS[company.role]}
-                  </div>
-                )}
-                <button className="plain" onClick={() => go("account")}>
-                  Minha conta
-                </button>
-                <button
-                  className="plain"
-                  disabled={signOut.pending}
-                  onClick={() => void signOut.run(session.signOut)}
-                >
-                  Sair
-                </button>
-                {signOut.error && <p role="alert">{signOut.error}</p>}
-              </div>
-            </div>
           </div>
-        </header>
+          <nav className="sidenav" aria-label="Menu principal">
+            {groups.map((g) => (
+              <div className="nav-group" key={g.title}>
+                <h2>
+                  <span className="dot deco" aria-hidden="true" />
+                  {g.title}
+                </h2>
+                {g.items.map((item) => (
+                  <button
+                    key={item.screen}
+                    className="nav-item"
+                    aria-current={current === item.screen ? "page" : undefined}
+                    onClick={() => go(item.screen)}
+                  >
+                    <Icon name={item.icon} />
+                    {item.label}
+                    {item.count !== undefined && <span className="count">{item.count}</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div className="account">
+            <div className="who">
+              <span className="avatar" aria-hidden="true">
+                {initials(name)}
+              </span>
+              <span>
+                <b>{me.email}</b>
+                <small>{company ? ROLE_LABELS[company.role] : "Equipe Noxora"}</small>
+              </span>
+            </div>
+            <div className="links">
+              <button className="plain" onClick={() => go("account")}>
+                Minha conta
+              </button>
+              <button
+                className="plain"
+                disabled={signOut.pending}
+                onClick={() => void signOut.run(session.signOut)}
+              >
+                Sair
+              </button>
+            </div>
+            {signOut.error && <p role="alert">{signOut.error}</p>}
+          </div>
+        </aside>
         <main className="content">
           {!company && !me.is_platform_admin ? (
             <NoCompany />
           ) : (
-            <ScreenView destination={top} refreshPending={pending.reload} groups={groups} />
+            <ScreenView destination={top} refreshPending={pending.reload} />
           )}
         </main>
+        {employeeOnly && (
+          <nav className="bottom-nav" aria-label="Atalhos">
+            {portal.items.map((item) => (
+              <button
+                key={item.screen}
+                aria-current={current === item.screen ? "page" : undefined}
+                onClick={() => go(item.screen)}
+              >
+                <Icon name={item.icon} size={20} />
+                {SHORT[item.label] ?? item.label}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
     </RouterContext.Provider>
   );

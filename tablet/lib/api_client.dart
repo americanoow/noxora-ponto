@@ -37,24 +37,24 @@ class ApiClient {
     try {
       final health = await _get('/api/health/');
       if (health.statusCode != 200) {
-        return const ApiError('A API não respondeu corretamente.');
+        return const ApiError('O sistema não respondeu como esperado.');
       }
       final healthBody = jsonDecode(health.body);
       if (healthBody is! Map<String, dynamic> || healthBody['status'] != 'ok') {
-        return const ApiError('A API não respondeu corretamente.');
+        return const ApiError('O sistema não respondeu como esperado.');
       }
       final ready = await _get('/api/ready/');
       if (ready.statusCode != 200) {
-        return const ApiError('A API está no ar, mas o banco está indisponível.');
+        return const ApiError('O sistema está no ar, mas não consegue acessar os dados agora.');
       }
       final readyBody = jsonDecode(ready.body);
       if (readyBody is! Map<String, dynamic> ||
           readyBody['status'] != 'ok' || readyBody['database'] != 'ok') {
-        return const ApiError('A API não respondeu corretamente.');
+        return const ApiError('O sistema não respondeu como esperado.');
       }
       return const ApiOk(health: 'ok', database: 'ok');
     } catch (_) {
-      return const ApiError('Não foi possível contatar a API.');
+      return const ApiError('Sem conexão com o sistema.');
     }
   }
 

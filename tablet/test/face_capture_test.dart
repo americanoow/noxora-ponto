@@ -87,8 +87,18 @@ Widget app(DeviceController c, FaceCameraFactory factory) => MaterialApp(
       ),
     );
 
+
+/// Tablet de verdade é grande; o padrão do teste (800x600) cortaria os botões fora da tela.
+void bigScreen(WidgetTester t) {
+  t.view.physicalSize = const Size(1280, 1800);
+  t.view.devicePixelRatio = 1.0;
+  addTearDown(t.view.resetPhysicalSize);
+  addTearDown(t.view.resetDevicePixelRatio);
+}
+
 void main() {
   testWidgets('desafio captura 3 quadros, verifica e registra com o token facial', (tester) async {
+    bigScreen(tester);
     final requests = <http.Request>[];
     final c = await tester.runAsync(() => activeController(requests));
     final camera = FakeCamera();
@@ -112,6 +122,7 @@ void main() {
   });
 
   testWidgets('vivacidade fora da política: não registra e orienta', (tester) async {
+    bigScreen(tester);
     final requests = <http.Request>[];
     final c = await tester.runAsync(() => activeController(requests, verifyBody: const {
           'outcome': 'success',
@@ -132,6 +143,7 @@ void main() {
   });
 
   testWidgets('câmera indisponível não registra e sugere o código de exceção', (tester) async {
+    bigScreen(tester);
     final requests = <http.Request>[];
     final c = await tester.runAsync(() => activeController(requests));
     await tester.pumpWidget(app(c!, () => FakeCamera(fail: true)));
@@ -149,6 +161,7 @@ void main() {
   });
 
   testWidgets('sem matrícula não abre a câmera', (tester) async {
+    bigScreen(tester);
     final requests = <http.Request>[];
     final c = await tester.runAsync(() => activeController(requests));
     var opened = false;
