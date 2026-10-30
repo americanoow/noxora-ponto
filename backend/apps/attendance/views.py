@@ -21,6 +21,7 @@ from .models import (
     ClosingStatus,
     DayJustification,
     Holiday,
+    HourBankEntry,
     JustificationKind,
     PeriodClosing,
     PunchAdjustment,
@@ -41,6 +42,15 @@ def _date(value, field):
 def _period(request):
     p = request.query_params
     return services.parse_period(_date(p.get("from"), "from"), _date(p.get("to"), "to"))
+
+
+def _positive(value, field, default, maximum):
+    if value in (None, ""):
+        return default
+    number = _int_param(value, field)
+    if not 1 <= number <= maximum:
+        raise ValidationError({field: f"Informe um número entre 1 e {maximum}."})
+    return number
 
 
 def _int_param(value, field):
@@ -131,6 +141,7 @@ def closing_dict(c: PeriodClosing, *, include_snapshot=False) -> dict:
         "reopened_by": _user(c.reopened_by),
         "reopened_at": c.reopened_at,
         "reopen_reason": c.reopen_reason,
+        "exceptions": c.snapshot.get("exceptions"),
     }
     if include_snapshot:
         body["snapshot"] = c.snapshot
@@ -279,7 +290,7 @@ class SummaryView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
         start, end = _period(request)
-        employees = ops_services.visible_employees(request, company).filter(is_active=True)
+        employees = services.employees_in_period(ops_services.visible_employees(request, company), start, end)
         p = request.query_params
         if unit := p.get("unit"):
             employees = employees.filter(assignments__unit_id=_int_param(unit, "unit"))
@@ -308,6 +319,7 @@ def _create_adjustment(request, company, employee):
     kind = request.data.get("kind")
     record = None
     occurred_at = None
+    occurred_local = None
     if kind == AdjustmentKind.DISREGARD:
         rid = request.data.get("record_id")
         record = (
@@ -318,10 +330,19 @@ def _create_adjustment(request, company, employee):
         if record is None:
             raise ValidationError({"record_id": "Marcação inválida."})
     elif kind == AdjustmentKind.INCLUDE:
-        raw = request.data.get("occurred_at")
-        occurred_at = parse_datetime(raw) if isinstance(raw, str) else None
-        if occurred_at is None or occurred_at.tzinfo is None:
-            raise ValidationError({"occurred_at": "Informe data e hora com fuso (ISO 8601)."})
+        raw_local = request.data.get("occurred_local")
+        if raw_local is not None:
+            # Data e hora da unidade do funcionário (sem fuso): o servidor aplica a lotação vigente na data.
+            occurred_local = parse_datetime(raw_local) if isinstance(raw_local, str) else None
+            if occurred_local is None or occurred_local.tzinfo is not None:
+                raise ValidationError(
+                    {"occurred_local": "Informe data e hora da unidade (AAAA-MM-DDTHH:MM)."}
+                )
+        else:
+            raw = request.data.get("occurred_at")
+            occurred_at = parse_datetime(raw) if isinstance(raw, str) else None
+            if occurred_at is None or occurred_at.tzinfo is None:
+                raise ValidationError({"occurred_at": "Informe data e hora com fuso (ISO 8601)."})
     with transaction.atomic():
         item = services.request_adjustment(
             company=company,
@@ -331,6 +352,7 @@ def _create_adjustment(request, company, employee):
             reason=request.data.get("reason"),
             record=record,
             occurred_at=occurred_at,
+            occurred_local=occurred_local,
         )
         audit.record(request, "attendance.adjustment_requested", company=company, target=item, kind=item.kind)
     return item
@@ -366,11 +388,29 @@ def _requests_payload(request, adjustments, justifications):
         if status not in RequestStatus.values:
             raise ValidationError({"status": "Situação inválida."})
         adjustments, justifications = adjustments.filter(status=status), justifications.filter(status=status)
-    adjustments = adjustments.select_related("employee", "record", "requested_by", "decided_by")[:200]
-    justifications = justifications.select_related("employee", "requested_by", "decided_by")[:200]
+    p = request.query_params
+    if p.get("from") or p.get("to"):
+        start, end = _date(p.get("from"), "from"), _date(p.get("to"), "to")
+        adjustments = adjustments.filter(reference_date__gte=start, reference_date__lte=end)
+        justifications = justifications.filter(date__gte=start, date__lte=end)
+    page = _positive(p.get("page"), "page", 1, 10_000)
+    size = _positive(p.get("page_size"), "page_size", 50, 200)
+    total = adjustments.count() + justifications.count()
+    need = page * size  # cada lado precisa trazer no máximo o que cabe até o fim da página pedida
+    adjustments = adjustments.select_related("employee", "record", "requested_by", "decided_by").order_by(
+        "-requested_at", "-id"
+    )[:need]
+    justifications = justifications.select_related("employee", "requested_by", "decided_by").order_by(
+        "-requested_at", "-id"
+    )[:need]
     items = [adjustment_dict(a) for a in adjustments] + [justification_dict(j) for j in justifications]
     items.sort(key=lambda x: x["requested_at"], reverse=True)
-    return items
+    return {
+        "count": total,
+        "next": f"?page={page + 1}" if page * size < total else None,
+        "previous": f"?page={page - 1}" if page > 1 else None,
+        "results": items[(page - 1) * size : page * size],
+    }
 
 
 class RequestListView(APIView):
@@ -391,6 +431,8 @@ class RequestListView(APIView):
 
     def post(self, request, company_id):
         company = reader_company(request, company_id)
+        if request.membership.role == Role.MANAGER and not request.membership.can_request_adjustments:
+            raise PermissionDenied("Seu acesso permite consultar solicitações, mas não fazê-las.")
         employee_id = request.data.get("employee_id")
         if not isinstance(employee_id, int):
             raise ValidationError({"employee_id": "Informe o funcionário."})
@@ -446,32 +488,42 @@ class DecisionView(APIView):
 class ClosingListView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
-        return Response(
-            [
-                closing_dict(c)
-                for c in PeriodClosing.objects.filter(company=company).select_related(
-                    "closed_by", "reopened_by"
-                )[:100]
-            ]
-        )
+        queryset = PeriodClosing.objects.filter(company=company).select_related("closed_by", "reopened_by")
+        paginator = Pagination()
+        page = paginator.paginate_queryset(queryset.order_by("-start", "-id"), request)
+        return paginator.get_paginated_response([closing_dict(c) for c in page])
 
     def post(self, request, company_id):
         company = admin_company(request, company_id)
         start = _date(request.data.get("start"), "start")
         end = _date(request.data.get("end"), "end")
-        employees = Employee.objects.filter(company=company, is_active=True).order_by("full_name", "id")
+        accept = request.data.get("accept_incomplete", False)
+        reason = request.data.get("exception_reason", "")
+        if not isinstance(accept, bool) or not isinstance(reason, str):
+            raise ValidationError({"accept_incomplete": "Informe verdadeiro ou falso e o motivo em texto."})
+        employees = services.employees_in_period(
+            Employee.objects.filter(company=company), start, end
+        ).order_by("full_name", "id")
         with transaction.atomic():
             closing = services.close_period(
-                company=company, user=request.user, start=start, end=end, employees=employees
+                company=company,
+                user=request.user,
+                start=start,
+                end=end,
+                employees=employees,
+                accept_incomplete=accept,
+                exception_reason=reason,
             )
+            exception = closing.snapshot.get("exceptions")
             audit.record(
                 request,
-                "attendance.period_closed",
+                "attendance.period_closed_with_exception" if exception else "attendance.period_closed",
                 company=company,
                 target=closing,
                 start=str(start),
                 end=str(end),
                 sha256=closing.snapshot_sha256,
+                **({"exception_reason": exception["reason"]} if exception else {}),
             )
         return Response(closing_dict(closing), status=201)
 
@@ -569,3 +621,68 @@ class MyRequestCancelView(APIView):
             item = services.cancel(item=item, user=request.user)
             audit.record(request, f"attendance.{kind[:-1]}_cancelled", company=company, target=item)
         return Response({"id": item.pk, "status": item.status})
+
+
+# ---------- Banco de horas ----------
+
+
+class HourBankView(APIView):
+    """GET: saldo e lançamentos (funcionário no escopo). POST (administrador): novo lançamento."""
+
+    def get(self, request, company_id, employee_id):
+        company = reader_company(request, company_id)
+        employee = _visible_employee(request, company, employee_id)
+        return Response(services.hour_bank(employee))
+
+    def post(self, request, company_id, employee_id):
+        company = admin_company(request, company_id)
+        employee = Employee.objects.filter(company=company, pk=employee_id).first()
+        if employee is None:
+            raise Http404
+        entry = services.add_hour_bank_entry(
+            company=company,
+            employee=employee,
+            user=request.user,
+            kind=request.data.get("kind"),
+            date=_date(request.data.get("date"), "date"),
+            minutes=request.data.get("minutes"),
+            reason=request.data.get("reason"),
+        )
+        audit.record(
+            request,
+            "attendance.hour_bank_entry",
+            company=company,
+            target=entry,
+            kind=entry.kind,
+            minutes=entry.minutes,
+            employee=employee.pk,
+        )
+        return Response(services.hour_bank(employee), status=201)
+
+
+class HourBankReverseView(APIView):
+    def post(self, request, company_id, employee_id, entry_id):
+        company = admin_company(request, company_id)
+        entry = HourBankEntry.objects.filter(company=company, employee_id=employee_id, pk=entry_id).first()
+        if entry is None:
+            raise Http404
+        reversal = services.reverse_hour_bank_entry(
+            company=company, entry=entry, user=request.user, reason=request.data.get("reason")
+        )
+        audit.record(
+            request,
+            "attendance.hour_bank_reversal",
+            company=company,
+            target=reversal,
+            reverses=entry.pk,
+            minutes=reversal.minutes,
+        )
+        return Response(services.hour_bank(entry.employee), status=201)
+
+
+class MyHourBankView(APIView):
+    def get(self, request, company_id):
+        company = resolve_company(request, company_id)
+        if request.membership is None:
+            raise PermissionDenied("Você não tem permissão para esta operação.")
+        return Response(services.hour_bank(own_employee(request, company)))

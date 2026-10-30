@@ -5,9 +5,9 @@
   "ia_responsavel": "Claude Code",
   "estado_geral": "em andamento",
   "motivo_pausa": null,
-  "ultima_tarefa_concluida": "Etapas 6 (motor real), 7 (Dart validado), 8–15 no backend/tablet/implantação; ver docs/progresso.md",
+  "ultima_tarefa_concluida": "Revisão de segurança e consistência (19 achados, D99–D113); ver docs/progresso.md",
   "proxima_acao": "Push ao GitHub (acesso pendente) e itens de docs/pendencias-externas.md",
-  "ultimo_checkpoint": "frontend-concluido",
+  "ultimo_checkpoint": "revisao-19-achados",
   "referencia_git": null,
   "codex_execucao_id": null,
   "verificacoes_pendentes": [

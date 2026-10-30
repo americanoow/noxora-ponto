@@ -278,6 +278,11 @@ if not DEBUG and BIOMETRIC_ENGINE and (BIOMETRIC_ENGINE not in BIOMETRIC_ENGINES
     raise RuntimeError("Motor biométrico desconhecido ou sem chaves configuradas.")
 if BIOMETRIC_KEYS and BIOMETRIC_ACTIVE_KEY_ID not in BIOMETRIC_KEYS:
     raise RuntimeError("BIOMETRIC_ACTIVE_KEY_ID deve apontar para uma chave de BIOMETRIC_KEYS.")
+# Desafio de vivacidade: sequência aleatória emitida pelo servidor, de uso único e curta.
+BIOMETRIC_CHALLENGE_TTL_SECONDS = 45
+# Sentido de `yaw_proxy` quando a pessoa vira para a SUA esquerda numa imagem sem espelho (+1) ou
+# espelhada (-1). Valide no aparelho real: um valor errado reprova todo desafio (falha fechada).
+BIOMETRIC_YAW_LEFT_SIGN = -1 if os.environ.get("BIOMETRIC_YAW_MIRRORED", "").lower() in {"1", "true"} else 1
 BIOMETRIC_VERIFICATION_TTL_SECONDS = 60  # validade do token de verificação facial (uso único)
 BIOMETRIC_LOCKOUT_FAILURES = 5  # falhas seguidas que bloqueiam a verificação facial do funcionário
 BIOMETRIC_LOCKOUT_WINDOW_SECONDS = 600

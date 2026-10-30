@@ -10,6 +10,7 @@ import 'package:noxora_ponto_tablet/token_store.dart';
 final t0 = DateTime.utc(2026, 10, 24, 12);
 
 Map<String, dynamic> scopeJson({String policy = 'registration_only', DateTime? serverTime, String mode = 'registration'}) => {
+      'device_id': 7,
       'name': 'Tablet 1',
       'company': {'id': 1, 'name': 'Empresa A'},
       'unit': {'id': 2, 'name': 'Centro'},
@@ -26,6 +27,7 @@ class FakeServer {
   final batches = <Map<String, dynamic>>[];
   http.Response Function(Map<String, dynamic> body)? batchHandler;
   int batchCalls = 0;
+  Map<String, dynamic>? activationScope; // identidade devolvida na ativação (outra empresa, por exemplo)
 
   http.Response confirmAll(Map<String, dynamic> body, {int firstNsr = 1}) {
     var nsr = firstNsr;
@@ -51,7 +53,8 @@ class FakeServer {
         batches.add(body);
         return (batchHandler ?? confirmAll)(body);
       case '/api/device/activate/':
-        return http.Response(jsonEncode({'token': '9.novo', ...scopeJson(policy: policy)}), 201);
+        return http.Response(
+            jsonEncode({'token': '9.novo', ...(activationScope ?? scopeJson(policy: policy))}), 201);
       default:
         return http.Response('{}', 404);
     }
@@ -69,6 +72,8 @@ DeviceController make(FakeServer server, MemoryTokenStore tokens, MemoryQueueSto
 MemoryTokenStore credential() => MemoryTokenStore()..value = StoredCredential(token: '7.s', issuedAt: t0);
 
 void main() {
+  inflightTests();
+  identityTests();
   test('sem rede e com a política ligada, a marcação é guardada e enviada ao reconectar', () async {
     final server = FakeServer();
     final c = make(server, credential(), MemoryQueueStorage());
@@ -414,5 +419,218 @@ void main() {
     expect(c.queue.clockOffsetSeconds, anyOf(60, 59, 61));
     expect(c.queue.clockMeasuredAt, t0.add(const Duration(seconds: 61)));
     c.dispose();
+  });
+}
+
+// ---------- Tentativa sem confirmação sobrevive ao reinício (sem duplicar o evento) ----------
+
+class LostResponseServer {
+  bool online = true;
+  bool loseResponse = true;
+  final punchBodies = <Map<String, dynamic>>[];
+  final recorded = <String>{};
+
+  Future<http.Response> handle(http.Request r) async {
+    if (!online) throw http.ClientException('sem rede');
+    if (r.url.path == '/api/device/heartbeat/') {
+      return http.Response(jsonEncode(scopeJson(policy: 'disabled')), 200);
+    }
+    if (r.url.path == '/api/device/punches/') {
+      final body = jsonDecode(r.body) as Map<String, dynamic>;
+      punchBodies.add(body);
+      final id = body['client_event_id'] as String;
+      final existing = recorded.contains(id);
+      // O servidor grava (idempotente por identificador) e, na primeira vez, a resposta se perde.
+      recorded.add(id);
+      if (loseResponse && !existing) throw http.ClientException('resposta perdida');
+      return http.Response(
+        jsonEncode({
+          'duplicate': existing,
+          'receipt': {
+            'nsr': 9,
+            'worker': {'name': 'Maria'},
+            'occurred_at': '2026-10-24T12:00:00-03:00',
+            'hash_sha256': 'b' * 64,
+          },
+        }),
+        existing ? 200 : 201,
+      );
+    }
+    return http.Response('{}', 404);
+  }
+}
+
+DeviceController makeLost(LostResponseServer s, MemoryTokenStore tokens, MemoryQueueStorage storage) =>
+    DeviceController(
+      store: tokens,
+      queueStorage: storage,
+      client: MockClient(s.handle),
+      baseUrl: 'http://teste',
+      now: () => t0,
+    );
+
+void inflightTests() {
+  test('identificador é guardado antes do envio e reaproveitado após reiniciar', () async {
+    final server = LostResponseServer();
+    final tokens = credential();
+    final storage = MemoryQueueStorage();
+    final first = makeLost(server, tokens, storage);
+    await first.init();
+
+    final outcome = await first.punch('100');
+    expect(outcome, isA<PunchUnconfirmed>());
+    final sentId = server.punchBodies.single['client_event_id'] as String;
+    // Gravado em disco ANTES do envio, sem identificação sensível.
+    final saved = jsonDecode((await storage.read())!) as Map<String, dynamic>;
+    expect((saved['inflight'] as Map)['100']['client_event_id'], sentId);
+    expect(((saved['inflight'] as Map)['100'] as Map).containsKey('identification'), isFalse);
+
+    // O tablet reinicia (novo controlador sobre o mesmo armazenamento) e o servidor volta a responder.
+    first.dispose();
+    server.punchBodies.clear();
+    final second = makeLost(server, tokens, storage);
+    await second.init(); // heartbeat + reconciliação
+    expect(server.punchBodies.single['client_event_id'], sentId); // MESMO evento: nada de duplicar
+    expect(server.recorded, {sentId});
+    expect(second.queue.inflight, isEmpty); // confirmado: a tentativa foi encerrada
+    final after = jsonDecode((await storage.read())!) as Map<String, dynamic>;
+    expect(after['inflight'], isEmpty);
+    second.dispose();
+  });
+
+  test('sem rede após o reinício, a nova tentativa usa o mesmo identificador', () async {
+    final server = LostResponseServer();
+    final tokens = credential();
+    final storage = MemoryQueueStorage();
+    final first = makeLost(server, tokens, storage);
+    await first.init();
+    await first.punch('100');
+    final sentId = server.punchBodies.single['client_event_id'] as String;
+    first.dispose();
+
+    server.online = false;
+    final second = makeLost(server, tokens, storage);
+    await second.init();
+    expect(second.queue.inflight.keys, ['100']); // continua pendente de reconciliação
+    server.online = true;
+    server.loseResponse = false;
+    server.punchBodies.clear();
+    final outcome = await second.punch('100');
+    expect(outcome, isA<PunchRecorded>());
+    expect((outcome as PunchRecorded).duplicate, isTrue);
+    expect(server.punchBodies.single['client_event_id'], sentId);
+    expect(second.queue.inflight, isEmpty);
+    second.dispose();
+  });
+
+  test('recusa definitiva (400/404) prova que o evento não existe e encerra a tentativa', () async {
+    final storage = MemoryQueueStorage();
+    final tokens = credential();
+    var reject = false;
+    final c = DeviceController(
+      store: tokens,
+      queueStorage: storage,
+      baseUrl: 'http://teste',
+      now: () => t0,
+      client: MockClient((r) async {
+        if (r.url.path == '/api/device/heartbeat/') return http.Response(jsonEncode(scopeJson(policy: 'disabled')), 200);
+        if (reject) return http.Response('{}', 404);
+        throw http.ClientException('sem resposta');
+      }),
+    );
+    await c.init();
+    await c.punch('100');
+    expect(c.queue.inflight.keys, ['100']);
+    reject = true;
+    await c.reconcileInflight();
+    expect(c.queue.inflight, isEmpty);
+    c.dispose();
+  });
+}
+
+
+void identityTests() {
+  test('reativação em OUTRA empresa retém os registros antigos e não os envia', () async {
+    final server = FakeServer();
+    final tokens = credential();
+    final storage = MemoryQueueStorage();
+    final c = make(server, tokens, storage);
+    await c.init();
+    server.online = false;
+    await c.punch('100', declaredKind: 'entry'); // guardado sob a identidade A (tablet 7, empresa 1)
+    expect(c.queue.pendingCount, 1);
+    expect(c.queue.items.single.originCompanyId, 1);
+    // O tablet é revogado e ativado de novo, agora em OUTRA empresa (a matrícula 100 existe lá também).
+    server.online = true;
+    server.activationScope = {
+      ...scopeJson(),
+      'device_id': 31,
+      'company': {'id': 2, 'name': 'Empresa B'},
+    };
+    await c.activate('ABC');
+    expect(c.state, DeviceState.active);
+    expect(server.batchCalls, 0); // nada foi enviado com a credencial nova
+    expect(c.queue.pendingCount, 0);
+    expect(c.queue.heldCount, 1);
+    expect(c.queue.items.single.state, QueuedState.held);
+    // E continua retido depois de heartbeats e de reiniciar: nunca vira envio automático.
+    await c.heartbeat();
+    await c.syncPending();
+    expect(server.batchCalls, 0);
+    c.dispose();
+    final again = make(server, credential(), storage);
+    await again.init();
+    expect(server.batchCalls, 0);
+    expect(again.queue.heldCount, 1);
+    again.dispose();
+  });
+
+  test('o evento leva a origem no envio e a mesma identidade continua enviando', () async {
+    final server = FakeServer();
+    final c = make(server, credential(), MemoryQueueStorage());
+    await c.init();
+    server.online = false;
+    await c.punch('100');
+    server.online = true;
+    await c.syncPending();
+    final event = (server.batches.single['events'] as List).single as Map<String, dynamic>;
+    expect(event['origin_device_id'], 7);
+    expect(event['origin_company_id'], 1);
+    expect(c.queue.confirmedCount, 1);
+    c.dispose();
+  });
+
+  test('tentativa em aberto de outra identidade vira registro retido, nunca é reconciliada', () async {
+    final server = LostResponseServer();
+    final tokens = credential();
+    final storage = MemoryQueueStorage();
+    final first = makeLost(server, tokens, storage);
+    await first.init();
+    await first.punch('100');
+    first.dispose();
+    // Reinicia já sob outra identidade: a tentativa pendente pertence à antiga.
+    final second = DeviceController(
+      store: tokens,
+      queueStorage: storage,
+      baseUrl: 'http://teste',
+      now: () => t0,
+      client: MockClient((r) async {
+        if (r.url.path == '/api/device/activate/') {
+          return http.Response(
+              jsonEncode({'token': '9.novo', ...scopeJson(policy: 'disabled'), 'device_id': 31, 'company': {'id': 2, 'name': 'B'}}),
+              201);
+        }
+        if (r.url.path == '/api/device/heartbeat/') return http.Response('{}', 401); // credencial revogada
+        throw StateError('nenhuma chamada de marcação era esperada: ${r.url.path}');
+      }),
+    );
+    await second.init();
+    expect(second.state, DeviceState.revoked);
+    expect(second.queue.inflight.keys, ['100']);
+    await second.activate('ABC');
+    expect(second.queue.inflight, isEmpty);
+    expect(second.queue.heldCount, 1);
+    await second.reconcileInflight(); // não há o que reconciliar
+    second.dispose();
   });
 }

@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from apps.audit import services as audit
 from apps.core.throttling import AtomicScopedRateThrottle as ScopedRateThrottle
 
-from . import mfa, totp
+from . import mfa, sensitive, totp
 from .services import send_password_reset
 
 
@@ -110,12 +110,34 @@ class MfaVerifyView(PublicView):
         return Response(serialize_me(user))
 
 
-class MfaSetupView(APIView):
-    """POST inicia (segredo mostrado uma vez); PUT confirma com código; DELETE desativa (senha + código)."""
+class ReauthView(APIView):
+    """Confirma a senha da sessão atual e renova o "login recente" exigido por operações sensíveis."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        sensitive.guard(request.user, "reauth")
+        password = request.data.get("password")
+        if not isinstance(password, str) or not request.user.check_password(password):
+            sensitive.register_failure(request.user, "reauth")
+            audit.record(request, "auth.reauth_failed")
+            return Response({"detail": "Senha incorreta."}, status=status.HTTP_400_BAD_REQUEST)
+        sensitive.reset(request.user, "reauth")
+        request.session["auth_at"] = time.time()
+        audit.record(request, "auth.reauth")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MfaSetupView(APIView):
+    """POST inicia (segredo mostrado uma vez); PUT confirma com código; DELETE desativa (senha + código).
+
+    As três exigem login recente; confirmar e desativar têm limite de tentativas por usuário (espera
+    crescente), para impedir tentativa automatizada de código ou senha."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        sensitive.require_recent_login(request)
         try:
             secret = mfa.start_setup(request.user)
         except ValueError as exc:
@@ -126,18 +148,30 @@ class MfaSetupView(APIView):
         )
 
     def put(self, request):
+        sensitive.require_recent_login(request)
+        sensitive.guard(request.user, "mfa_confirm")
         codes = mfa.confirm_setup(request.user, request.data.get("code"))
         if codes is None:
+            sensitive.register_failure(request.user, "mfa_confirm")
+            audit.record(request, "auth.mfa_confirm_failed")
             return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        sensitive.reset(request.user, "mfa_confirm")
         audit.record(request, "auth.mfa_enabled")
         return Response({"recovery_codes": codes}, headers={"Cache-Control": "no-store"})
 
     def delete(self, request):
+        sensitive.require_recent_login(request)
+        sensitive.guard(request.user, "mfa_disable")
         password = request.data.get("password")
         if not isinstance(password, str) or not request.user.check_password(password):
+            sensitive.register_failure(request.user, "mfa_disable")
+            audit.record(request, "auth.mfa_disable_failed")
             return Response({"detail": "Senha incorreta."}, status=status.HTTP_400_BAD_REQUEST)
         if not mfa.check(request.user, request.data.get("code")):
+            sensitive.register_failure(request.user, "mfa_disable")
+            audit.record(request, "auth.mfa_disable_failed")
             return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        sensitive.reset(request.user, "mfa_disable")
         mfa.disable(request.user)
         audit.record(request, "auth.mfa_disabled")
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -198,3 +198,90 @@ def test_jornada_futura_ou_em_andamento_nao_e_falta():
     assert r[1].status == "upcoming" and r[1].deficit_minutes == 0
     # Sem `now` (fechamento de período passado) o comportamento continua o mesmo.
     assert compute_period(start=MON, end=MON, marks=[], ctx=ctx(), params=P)[0].status == "absent"
+
+
+# ---------- Turnos longos e noturnos (jornada aberta aceita a saída do outro lado da madrugada) ----------
+
+
+def test_turno_noturno_19h_as_7h_vira_uma_jornada_com_12_horas():
+    c = ctx("19:00", "07:00", 60)
+    m = marks(MON, "19:00", "+07:00")
+    r = compute_period(start=MON, end=MON + dt.timedelta(days=1), marks=m, ctx=c, params=P)
+    assert r[0].status != "inconsistent" and r[0].worked_minutes == 720
+    assert r[0].night_minutes == 420  # 22h às 5h, conforme as regras
+    assert r[1].worked_minutes == 0 and "Número ímpar" not in " ".join(r[1].issues)
+    assert not any("Número ímpar" in i for x in r for i in x.issues)
+
+
+def test_turno_diurno_de_12_horas_com_um_par_so():
+    c = ctx("07:00", "19:00", 60)
+    r = one(marks(MON, "07:00", "19:00"), c)
+    assert r.worked_minutes == 720 and r.status != "inconsistent"
+
+
+def test_saida_esquecida_nao_engole_a_entrada_do_dia_seguinte():
+    tue = MON + dt.timedelta(days=1)
+    m = marks(MON, "08:00") + marks(tue, "06:00", "12:00", "13:00", "17:00")
+    r = compute_period(start=MON, end=tue, marks=m, ctx=ctx(), params=P)
+    assert r[0].status == "inconsistent" and r[0].worked_minutes == 0  # nada inventado para a saída
+    assert r[1].worked_minutes == 600 and r[1].status != "inconsistent"
+
+
+def test_registro_solto_fora_do_turno_nao_vira_saida_de_outro_dia():
+    tue = MON + dt.timedelta(days=1)
+    m = marks(MON, "08:00", "12:00", "13:00", "23:00") + marks(tue, "08:00", "12:00", "13:00", "17:00")
+    r = compute_period(start=MON, end=tue, marks=m, ctx=ctx(), params=P)
+    assert r[1].worked_minutes == 480  # a terça não perde horas por causa do registro solto de segunda
+
+
+def test_parametro_de_jornada_aberta_validado():
+    assert validate_params({"journey_max_open_hours": 20})["journey_max_open_hours"] == 20
+    with pytest.raises(ValueError):
+        validate_params({"journey_max_open_hours": 1})
+
+
+# ---------- Fuso por vigência da lotação ----------
+
+
+def test_transferencia_entre_fusos_nao_desloca_o_passado():
+    manaus = ZoneInfo("America/Manaus")  # UTC-4, sem horário de verão
+    day = SimpleNamespace(start_time=dt.time(8), end_time=dt.time(17), break_minutes=60)
+    cutoff = MON + dt.timedelta(days=2)  # a partir de quarta, a unidade é em Manaus
+    c = EmployeeContext(
+        tz=manaus,
+        schedule_for=lambda d: day if d.weekday() < 5 else None,
+        tz_for=lambda d: manaus if d >= cutoff else TZ,
+    )
+    # Segunda em Brasília (UTC-3): 08:00–17:00 locais = 11:00–20:00 UTC.
+    m = [
+        Mark(dt.datetime(2026, 10, 19, 8, 0, tzinfo=TZ)),
+        Mark(dt.datetime(2026, 10, 19, 12, 0, tzinfo=TZ)),
+        Mark(dt.datetime(2026, 10, 19, 13, 0, tzinfo=TZ)),
+        Mark(dt.datetime(2026, 10, 19, 17, 0, tzinfo=TZ)),
+    ]
+    first = compute_period(start=MON, end=MON, marks=m, ctx=c, params=P)[0]
+    assert first.status == "ok" and first.worked_minutes == 480 and first.late_minutes == 0
+    assert first.as_dict()["timezone"] == "America/Sao_Paulo"
+    # Com o fuso único do fim do período (Manaus) o mesmo dia deslocaria 1 h e viraria atraso/extra.
+    single = EmployeeContext(tz=manaus, schedule_for=c.schedule_for)
+    shifted = compute_period(start=MON, end=MON, marks=m, ctx=single, params=P)[0]
+    assert shifted.planned.start != first.planned.start  # o previsto andaria 1 h
+
+
+def test_prorrogacao_noturna_considera_todos_os_periodos_da_jornada():
+    c = ctx("22:00", "07:00", 60)
+    # 22h-2h, 2h30-5h30 (cruza as 5h) e 6h-7h: depois das 5h tudo é prorrogação da jornada noturna.
+    m = marks(MON, "22:00", "+02:00", "+02:30", "+05:30", "+06:00", "+07:00")
+    sem = one(m, c)
+    assert sem.night_minutes == 240 + 150  # só a faixa 22h-5h
+    com = one(m, c, params=validate_params({"night_extension": True}))
+    assert com.night_minutes == 240 + 150 + 30 + 60
+    assert any("Prorrogação" in s for s in com.steps)
+
+
+def test_prorrogacao_noturna_so_vale_se_a_jornada_comecou_na_faixa_noturna():
+    c = ctx("08:00", "17:00", 60, weekdays=range(7))
+    com = one(
+        marks(MON, "06:00", "12:00", "13:00", "17:00"), c, params=validate_params({"night_extension": True})
+    )
+    assert com.night_minutes == 0 and not any("Prorrogação" in x for x in com.steps)

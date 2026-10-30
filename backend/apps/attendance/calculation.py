@@ -15,7 +15,7 @@ import datetime as dt
 from dataclasses import dataclass, field, replace
 from zoneinfo import ZoneInfo
 
-RULES_ENGINE_VERSION = "apuracao-v1"
+RULES_ENGINE_VERSION = "apuracao-v2"
 
 DEFAULT_PARAMS = {
     "tolerance_per_mark_minutes": 5,
@@ -34,6 +34,7 @@ DEFAULT_PARAMS = {
     "min_rest_between_journeys_hours": 11,
     "max_daily_overtime_minutes": 120,
     "journey_split_gap_hours": 8,
+    "journey_max_open_hours": 16,
     "duplicate_mark_window_seconds": 120,
 }
 
@@ -50,6 +51,7 @@ DEFAULT_PARAMS_REFS = {
     "min_rest_between_journeys_hours": "CLT art. 66 (11 h entre jornadas)",
     "max_daily_overtime_minutes": "CLT art. 59, caput (até 2 h extras diárias) — alerta, não bloqueia",
     "journey_split_gap_hours": "Parâmetro técnico do produto (separação de jornadas)",
+    "journey_max_open_hours": "Parâmetro técnico do produto (duração máxima de jornada sem saída registrada)",
     "duplicate_mark_window_seconds": "Parâmetro técnico do produto (toque duplo no terminal)",
 }
 
@@ -69,6 +71,7 @@ def validate_params(params: dict) -> dict:
         "min_rest_between_journeys_hours": (0, 48),
         "max_daily_overtime_minutes": (0, 1440),
         "journey_split_gap_hours": (2, 24),
+        "journey_max_open_hours": (2, 48),
         "duplicate_mark_window_seconds": (0, 3600),
     }
     for key, (low, high) in ints.items():
@@ -190,6 +193,7 @@ class DayResult:
             "justified_minutes": self.justified_minutes,
             "tolerance_applied": self.tolerance_applied,
             "status": self.status,
+            "timezone": str(self.tz) if self.tz else "",
             "issues": list(self.issues),
             "steps": list(self.steps),
         }
@@ -220,14 +224,67 @@ def dedupe_marks(marks: list[Mark], window_seconds: int) -> tuple[list[Mark], li
     return kept, ignored
 
 
-def split_journeys(marks: list[Mark], gap_hours: int) -> list[list[Mark]]:
-    """Separa as marcações em jornadas: intervalo maior ou igual a `gap_hours` inicia nova jornada."""
+# Folga máxima, depois do fim previsto do turno, para um registro ainda ser a saída dele.
+PLANNED_OVERRUN = dt.timedelta(hours=4)
+
+
+def _shift_for(first: dt.datetime, tz: ZoneInfo, planned_for):
+    """Turno que contém o primeiro registro (de 6 h antes do início até o fim + `PLANNED_OVERRUN`).
+
+    Devolve `(turno, houve_turno_no_dia)`: o segundo valor distingue um registro solto fora de qualquer
+    turno (dia com jornada, mas registro longe dela) de um dia sem jornada prevista (folga).
+    """
+    local = first.astimezone(tz).date()
+    any_planned = planned_for(local) is not None
+    best, best_gap = None, None
+    for candidate in (local - dt.timedelta(days=1), local, local + dt.timedelta(days=1)):
+        planned = planned_for(candidate)
+        if planned is None:
+            continue
+        if planned.start - dt.timedelta(hours=6) <= first <= planned.end + PLANNED_OVERRUN:
+            gap = abs((planned.start - first).total_seconds())
+            if best_gap is None or gap < best_gap:
+                best, best_gap = planned, gap
+    return best, any_planned
+
+
+def split_journeys(
+    marks: list[Mark],
+    gap_hours: int,
+    max_open_hours: int | None = None,
+    *,
+    tz_at=None,
+    planned_for=None,
+) -> list[list[Mark]]:
+    """Separa as marcações em jornadas.
+
+    - Jornada **fechada** (número par de registros): o próximo registro só continua a jornada se vier
+      antes de `gap_hours` (volta de intervalo); depois disso começa outra jornada.
+    - Jornada **aberta** (entrada sem saída): o próximo registro é tratado como a saída enquanto vier em
+      até `max_open_hours` e, havendo turno previsto, até o fim dele mais `PLANNED_OVERRUN`. Assim um
+      turno de 12 h ou noturno (19h–7h) não é cortado ao meio, e uma saída esquecida não engole a entrada
+      do dia seguinte. Registro solto fora de qualquer turno usa só `gap_hours`.
+    """
+    max_open = dt.timedelta(hours=max_open_hours if max_open_hours else gap_hours)
     journeys: list[list[Mark]] = []
     for m in sorted(marks, key=lambda x: x.at):
-        if journeys and (m.at - journeys[-1][-1].at) < dt.timedelta(hours=gap_hours):
-            journeys[-1].append(m)
-        else:
-            journeys.append([m])
+        if journeys:
+            current = journeys[-1]
+            gap = m.at - current[-1].at
+            if len(current) % 2 == 0:
+                joins = gap < dt.timedelta(hours=gap_hours)
+            else:
+                joins = gap < max_open
+                if joins and planned_for is not None and tz_at is not None:
+                    shift, any_planned = _shift_for(current[0].at, tz_at(current[0].at), planned_for)
+                    if shift is not None:
+                        joins = m.at <= shift.end + PLANNED_OVERRUN
+                    elif any_planned:
+                        joins = gap < dt.timedelta(hours=gap_hours)
+            if joins:
+                current.append(m)
+                continue
+        journeys.append([m])
     return journeys
 
 
@@ -351,15 +408,23 @@ def compute_day(
     if params["night_reduced_hour"] or params["night_additional_percent"]:
         night = sum(_night_minutes(a.at, b.at, tz, params) for a, b in pairs)
         if night and params["night_extension"] and pairs:
-            # Prorrogação: o trabalho contínuo após o fim da faixa, iniciado nela, também é noturno.
-            night_end = dt.time.fromisoformat(params["night_end"])
-            last_a, last_b = pairs[-1]
-            local_end = last_b.at.astimezone(tz)
-            boundary = dt.datetime.combine(local_end.date(), night_end, tzinfo=tz)
-            if last_a.at < boundary < last_b.at:
-                extra = _minutes(last_b.at - boundary.astimezone(dt.UTC))
-                night += extra
-                steps.append(f"Prorrogação do horário noturno: +{_hm(extra)} após {params['night_end']}.")
+            # Prorrogação (Súmula 60, II, do TST — conferir com a política da empresa): se a jornada começou
+            # dentro da faixa noturna, todo o trabalho depois do fim da faixa também é noturno, em qualquer
+            # período da jornada (intervalos não a interrompem). Considera TODOS os períodos, não só o último.
+            first_start = pairs[0][0].at
+            if _night_minutes(first_start, first_start + dt.timedelta(minutes=1), tz, params):
+                night_end = dt.time.fromisoformat(params["night_end"])
+                local_start = first_start.astimezone(tz)
+                boundary_local = dt.datetime.combine(local_start.date(), night_end, tzinfo=tz)
+                if boundary_local <= local_start:
+                    boundary_local = dt.datetime.combine(
+                        local_start.date() + dt.timedelta(days=1), night_end, tzinfo=tz
+                    )
+                boundary = boundary_local.astimezone(dt.UTC)
+                extra = sum(_minutes(b.at - max(a.at, boundary)) for a, b in pairs if b.at > boundary)
+                if extra > 0:
+                    night += extra
+                    steps.append(f"Prorrogação do horário noturno: +{_hm(extra)} após {params['night_end']}.")
         r.night_minutes = night
         if night:
             r.night_reduced_minutes = round(night * 60 / 52.5) if params["night_reduced_hour"] else night
@@ -439,19 +504,31 @@ def compute_day(
 
 @dataclass
 class EmployeeContext:
-    """Como montar a jornada prevista de cada data para um funcionário."""
+    """Como montar a jornada prevista de cada data para um funcionário.
+
+    `tz_for(date)` devolve o fuso da lotação vigente na data (uma transferência entre unidades de fusos
+    diferentes não desloca o passado). Sem ele, vale `tz` em todo o período.
+    """
 
     tz: ZoneInfo
     schedule_for: callable  # (date) -> ScheduleDay-like | None
     holiday_for: callable = lambda d: ""  # noqa: E731
+    tz_for: callable | None = None  # (date) -> ZoneInfo
+
+    def tz_on(self, date: dt.date) -> ZoneInfo:
+        return self.tz_for(date) if self.tz_for else self.tz
+
+    def tz_at(self, instant: dt.datetime) -> ZoneInfo:
+        return self.tz_on(instant.astimezone(dt.UTC).date())
 
     def planned(self, date: dt.date) -> PlannedDay | None:
         day = self.schedule_for(date)
         if day is None:
             return None
-        start = dt.datetime.combine(date, day.start_time, tzinfo=self.tz)
+        tz = self.tz_on(date)
+        start = dt.datetime.combine(date, day.start_time, tzinfo=tz)
         end_date = date + dt.timedelta(days=1) if day.end_time <= day.start_time else date
-        end = dt.datetime.combine(end_date, day.end_time, tzinfo=self.tz)
+        end = dt.datetime.combine(end_date, day.end_time, tzinfo=tz)
         # Em UTC: a subtração entre horários do mesmo fuso em Python ignora o horário de verão.
         return PlannedDay(
             start=start.astimezone(dt.UTC), end=end.astimezone(dt.UTC), break_minutes=day.break_minutes
@@ -471,13 +548,19 @@ def compute_period(
     medir o descanso entre jornadas."""
     marks = [replace(m, at=m.at.astimezone(dt.UTC)) for m in marks]
     kept, ignored = dedupe_marks(marks, params["duplicate_mark_window_seconds"])
-    journeys = split_journeys(kept, params["journey_split_gap_hours"])
+    journeys = split_journeys(
+        kept,
+        params["journey_split_gap_hours"],
+        params["journey_max_open_hours"],
+        tz_at=ctx.tz_at,
+        planned_for=ctx.planned,
+    )
     by_date: dict[dt.date, list[list[Mark]]] = {}
     for journey in journeys:
-        by_date.setdefault(journey_date(journey, ctx.tz, ctx.planned), []).append(journey)
+        by_date.setdefault(journey_date(journey, ctx.tz_at(journey[0].at), ctx.planned), []).append(journey)
     ignored_by_date: dict[dt.date, list[Mark]] = {}
     for m in ignored:
-        ignored_by_date.setdefault(m.at.astimezone(ctx.tz).date(), []).append(m)
+        ignored_by_date.setdefault(m.at.astimezone(ctx.tz_at(m.at)).date(), []).append(m)
 
     results = []
     previous_end = None
@@ -491,7 +574,7 @@ def compute_period(
         day_marks = [m for j in day_journeys for m in j]
         result = compute_day(
             date=day,
-            tz=ctx.tz,
+            tz=ctx.tz_on(day),
             planned=ctx.planned(day),
             marks=day_marks,
             params=params,

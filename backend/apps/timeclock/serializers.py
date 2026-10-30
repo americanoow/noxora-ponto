@@ -13,6 +13,10 @@ class PunchSerializer(serializers.Serializer):
     )
     device_reported_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
     identification = serializers.DictField(required=False, default=None, allow_null=True)
+    # Origem do evento: tablet e empresa em que foi feito. Se não conferir com a credencial que o envia
+    # (tablet reativado em outra empresa, por exemplo), o evento NUNCA é gravado para outra pessoa.
+    origin_device_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    origin_company_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
     def validate_registration(self, value):
         return value.strip()
@@ -38,6 +42,10 @@ class OfflineEventSerializer(serializers.Serializer):
     )
     offset_measured_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
     identification = serializers.DictField(required=False, allow_null=True, default=None)
+    # Origem do evento: tablet e empresa em que foi feito. Se não conferir com a credencial que o envia
+    # (tablet reativado em outra empresa, por exemplo), o evento NUNCA é gravado para outra pessoa.
+    origin_device_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    origin_company_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
     def validate_registration(self, value):
         value = value.strip()

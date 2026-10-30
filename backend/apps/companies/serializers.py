@@ -29,7 +29,17 @@ class MembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Membership
-        fields = ["id", "email", "name", "role", "is_active", "scope_unit_ids", "scope_sector_ids"]
+        fields = [
+            "id",
+            "email",
+            "name",
+            "role",
+            "is_active",
+            "can_request_adjustments",
+            "can_decide_requests",
+            "scope_unit_ids",
+            "scope_sector_ids",
+        ]
 
     def get_scope_unit_ids(self, obj):
         return sorted(u.pk for u in obj.scope_units.all())
@@ -42,6 +52,8 @@ class MembershipCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
     role = serializers.ChoiceField(choices=Role.choices)
+    can_request_adjustments = serializers.BooleanField(required=False, default=True)
+    can_decide_requests = serializers.BooleanField(required=False, default=True)
 
 
 class MembershipUpdateSerializer(serializers.Serializer):
@@ -49,5 +61,7 @@ class MembershipUpdateSerializer(serializers.Serializer):
 
     role = serializers.ChoiceField(choices=Role.choices, required=False)
     is_active = serializers.BooleanField(required=False)
+    can_request_adjustments = serializers.BooleanField(required=False)
+    can_decide_requests = serializers.BooleanField(required=False)
     scope_unit_ids = serializers.ListField(child=serializers.IntegerField(), required=False, max_length=200)
     scope_sector_ids = serializers.ListField(child=serializers.IntegerField(), required=False, max_length=500)

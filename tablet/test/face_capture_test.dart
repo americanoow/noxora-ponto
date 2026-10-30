@@ -60,6 +60,11 @@ Future<DeviceController> activeController(List<http.Request> requests,
       if (r.url.path.endsWith('heartbeat/')) {
         return http.Response(jsonEncode({...faceScope, 'server_time': DateTime.now().toUtc().toIso8601String()}), 200);
       }
+      if (r.url.path.endsWith('face/challenge/')) {
+        return http.Response(
+            jsonEncode({'challenge_id': 5, 'steps': ['center', 'left', 'right'], 'expires_at': '2026-10-27T08:00:45Z'}),
+            201);
+      }
       if (r.url.path.endsWith('face/verify/')) return http.Response(jsonEncode(verifyBody), 200);
       if (r.url.path.endsWith('punches/')) {
         return http.Response(
@@ -114,6 +119,9 @@ void main() {
     final body = jsonDecode(verify.body) as Map<String, dynamic>;
     expect(body['registration'], '100');
     expect((body['frames'] as List).length, 2);
+    expect(body['challenge_id'], 5); // os quadros valem junto do desafio emitido pelo servidor
+    expect(requests.indexWhere((r) => r.url.path.endsWith('face/challenge/')),
+        lessThan(requests.indexWhere((r) => r.url.path.endsWith('face/verify/'))));
     final punch = requests.firstWhere((r) => r.url.path.endsWith('punches/'));
     expect((jsonDecode(punch.body) as Map)['identification'],
         {'method': 'face', 'verification_id': 7, 'verification_token': 'tok'});

@@ -23,6 +23,9 @@ export interface Member {
   name: string;
   role: Role;
   is_active: boolean;
+  /** Permissões do gestor, separadas do papel: solicitar ajustes e decidir solicitações. */
+  can_request_adjustments: boolean;
+  can_decide_requests: boolean;
 }
 
 export interface Company {
@@ -85,7 +88,9 @@ export const addMember = (companyId: number, email: string, name: string, role: 
 export const updateMember = (
   companyId: number,
   memberId: number,
-  changes: Partial<Pick<Member, "role" | "is_active">>,
+  changes: Partial<
+    Pick<Member, "role" | "is_active" | "can_request_adjustments" | "can_decide_requests">
+  >,
 ) => request<Member>("PATCH", `/api/companies/${companyId}/members/${memberId}/`, changes);
 
 export const listCompanies = () => request<Company[]>("GET", "/api/companies/");
@@ -96,7 +101,11 @@ export const createCompany = (name: string, adminEmail: string) =>
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 429)
-      return "Você tentou muitas vezes seguidas. Aguarde alguns minutos e tente de novo.";
+      return typeof error.body.detail === "string" && error.body.code === "throttled"
+        ? error.body.detail
+        : "Você tentou muitas vezes seguidas. Aguarde alguns minutos e tente de novo.";
+    if (error.body.code === "reauth_required")
+      return "Por segurança, confirme sua senha para continuar.";
     if (error.status === 401) return "Sua sessão acabou. Entre de novo para continuar.";
     if (error.status === 404) return "Não encontramos o que você procurou. Pode ter sido removido.";
     if (error.status >= 500)

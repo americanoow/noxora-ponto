@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ApiError } from "../http";
 import {
   type SummaryRow,
   closePeriod,
@@ -14,6 +15,7 @@ import { listDevices } from "../devicesApi";
 import { addDays, dateBR, dateTimeBR, hm, isoDate, monthRange } from "../lib/format";
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
+import { usePaged } from "../lib/paged";
 import { useAction, useTask } from "../lib/task";
 import {
   Badge,
@@ -23,6 +25,7 @@ import {
   ErrorText,
   Field,
   Group,
+  LoadMore,
   Loading,
   Row,
   Screen,
@@ -32,7 +35,7 @@ import {
 export function ClosingsScreen() {
   const { companyId, isAdmin } = useCompany();
   const router = useRouter();
-  const list = useTask(() => listClosings(companyId), [companyId]);
+  const list = usePaged((page) => listClosings(companyId, page), [companyId]);
   const [closing, setClosing] = useState(false);
   if (closing)
     return (
@@ -56,20 +59,23 @@ export function ClosingsScreen() {
       }
     >
       <Group>
-        {list.loading && !list.data ? (
+        {list.loading && !list.ready ? (
           <Loading />
-        ) : list.error ? (
+        ) : list.error && !list.items.length ? (
           <ErrorText message={list.error} />
-        ) : list.data && list.data.length ? (
-          list.data.map((c) => (
+        ) : list.items.length ? (
+          list.items.map((c) => (
             <Row
               key={c.id}
               title={`${dateBR(c.start)} a ${dateBR(c.end)}`}
               subtitle={`${c.employees} funcionário(s). Fechado por ${c.closed_by?.email ?? "—"} em ${dateTimeBR(c.closed_at)}`}
               accessory={
-                <Badge tone={c.status === "closed" ? "tint" : "amber"}>
-                  {c.status === "closed" ? "Período fechado" : "Reabertura registrada"}
-                </Badge>
+                <span className="toolbar">
+                  {c.exceptions && <Badge tone="amber">Com exceção</Badge>}
+                  <Badge tone={c.status === "closed" ? "tint" : "amber"}>
+                    {c.status === "closed" ? "Período fechado" : "Reabertura registrada"}
+                  </Badge>
+                </span>
               }
               onClick={() => router.push({ screen: "closing", id: c.id })}
             />
@@ -80,6 +86,13 @@ export function ClosingsScreen() {
           </Empty>
         )}
       </Group>
+      <LoadMore
+        shown={list.items.length}
+        total={list.count}
+        hasMore={list.hasMore}
+        loading={list.loading}
+        onMore={list.loadMore}
+      />
     </Screen>
   );
 }
@@ -112,10 +125,17 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
   const [start, setStart] = useState(last.from);
   const [end, setEnd] = useState(last.to);
   const [ok, setOk] = useState(false);
+  // Excecao autorizada: so aparece depois que o servidor recusa por registro incompleto.
+  const [needsException, setNeedsException] = useState(false);
+  const [exceptionReason, setExceptionReason] = useState("");
   const [closedId, setClosedId] = useState<number | null>(null);
   const { pending, error, run } = useAction();
 
-  const requests = useTask(() => listRequests(companyId, "pending"), [companyId]);
+  // So os pendentes dentro do periodo barram o fechamento; o servidor filtra e informa o total real.
+  const requests = useTask(
+    () => listRequests(companyId, { status: "pending", from: start, to: end, pageSize: 1 }),
+    [companyId, start, end],
+  );
   const devices = useTask(() => listDevices(companyId), [companyId]);
   const summary = useTask(() => getSummary(companyId, start, end), [companyId, start, end]);
   const profiles = useTask(
@@ -123,13 +143,12 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
     [companyId, closedId],
   );
 
-  const inPeriod = (d: string) => d >= start && d <= end;
-  const blocking = (requests.data ?? []).filter((r) =>
-    inPeriod(r.type === "adjustment" ? r.reference_date : r.date),
-  );
+  const blockingCount = requests.data?.count ?? 0;
   const rows: SummaryRow[] = summary.data?.results ?? [];
   const incomplete = rows.reduce((n, r) => n + r.totals.inconsistent_days, 0);
   const absences = rows.reduce((n, r) => n + r.totals.absences, 0);
+  // O resumo e paginado: se ha mais paginas, as contagens abaixo cobrem so parte dos funcionarios.
+  const partial = Boolean(summary.data?.next);
   const silent = (devices.data ?? []).filter(
     (d) => d.status === "active" && d.connectivity !== "online",
   );
@@ -170,20 +189,20 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
             ) : (
               <ul className="checks">
                 <li>
-                  <Dot state={blocking.length ? "warn" : "on"} />
+                  <Dot state={blockingCount ? "warn" : "on"} />
                   <div>
                     <b>
-                      {blocking.length
-                        ? `${blocking.length} solicitação(ões) aguardando resposta no período`
+                      {blockingCount
+                        ? `${blockingCount} solicitação(ões) aguardando resposta no período`
                         : "Nenhuma solicitação aguardando no período"}
                     </b>
                     <small>
-                      {blocking.length
+                      {blockingCount
                         ? "Responda antes de fechar: elas impedem o fechamento."
                         : "Tudo respondido."}
                     </small>
                   </div>
-                  {blocking.length > 0 && (
+                  {blockingCount > 0 && (
                     <button onClick={() => router.select({ screen: "requests" })}>
                       Abrir solicitações
                     </button>
@@ -198,8 +217,11 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
                         : "Nenhum registro incompleto"}
                     </b>
                     <small>
-                      Pendência conhecida. Não impede o fechamento, mas fica fora da soma até haver
-                      um ajuste aprovado.
+                      {partial
+                        ? "Contagem apenas das primeiras páginas do resumo; o fechamento confere todos. "
+                        : ""}
+                      Sem ajuste aprovado, o fechamento é recusado. Só um administrador pode
+                      autorizar uma exceção, com motivo registrado.
                     </small>
                   </div>
                 </li>
@@ -231,7 +253,7 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
           <div className="actions">
             <button
               className="primary"
-              disabled={!loaded || blocking.length > 0 || !start || !end}
+              disabled={!loaded || blockingCount > 0 || !start || !end}
               onClick={() => setStep(1)}
             >
               Continuar
@@ -304,22 +326,45 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} />
             Revisei as pendências e os totais deste período.
           </label>
+          {needsException && (
+            <Field
+              label="Motivo da exceção"
+              hint="Há dias com registro incompleto. Para fechar assim mesmo, explique o motivo (mínimo de 10 letras). Fica registrado com seu nome e aparece no fechamento."
+            >
+              <textarea
+                rows={3}
+                value={exceptionReason}
+                onChange={(e) => setExceptionReason(e.target.value)}
+              />
+            </Field>
+          )}
           <ErrorText message={error} />
           <div className="actions">
             <button onClick={() => setStep(1)}>Voltar</button>
             <button
               className="primary"
-              disabled={!ok || pending}
+              disabled={!ok || pending || (needsException && exceptionReason.trim().length < 10)}
               onClick={() =>
                 void run(async () => {
-                  const c = await closePeriod(companyId, start, end);
-                  setClosedId(c.id);
-                  setStep(3);
-                  onClosed();
+                  try {
+                    const c = await closePeriod(
+                      companyId,
+                      start,
+                      end,
+                      needsException ? exceptionReason.trim() : undefined,
+                    );
+                    setClosedId(c.id);
+                    setStep(3);
+                    onClosed();
+                  } catch (e) {
+                    if (e instanceof ApiError && e.body.code === "incomplete_marks")
+                      setNeedsException(true);
+                    throw e;
+                  }
                 })
               }
             >
-              Fechar período
+              {needsException ? "Fechar com exceção" : "Fechar período"}
             </button>
           </div>
         </Group>
@@ -414,6 +459,16 @@ export function ClosingDetailScreen({ id }: { id: number }) {
         </>
       }
     >
+      {c.exceptions && (
+        <div className="notice warn" role="status">
+          <b>Fechado com exceção.</b> {c.exceptions.authorized_by.email} autorizou em{" "}
+          {dateTimeBR(c.exceptions.authorized_at)}. Motivo: {c.exceptions.reason}. Dias incompletos:{" "}
+          {c.exceptions.employees
+            .map((e) => `${e.name} (${e.dates.map(dateBR).join(", ")})`)
+            .join("; ")}
+          .
+        </div>
+      )}
       <Group
         title="Funcionários"
         aside={`${ackCount} de ${c.snapshot.employees.length} já conferiram`}

@@ -11,7 +11,7 @@ from apps.attendance.models import ClosingStatus, PeriodClosing
 from apps.attendance.views import _date
 from apps.audit import services as audit
 from apps.operations.models import Unit
-from apps.operations.views import admin_company
+from apps.operations.views import Pagination, admin_company
 from apps.reports.views import _file
 from apps.timeclock.models import TimeRecord
 
@@ -135,7 +135,10 @@ class PayrollExportView(APIView):
             (e["employee"]["registration"], e["employee"]["name"], e["totals"])
             for e in closing.snapshot.get("employees", [])
         ]
-        content = payroll.build(profile, rows, start=closing.start, end=closing.end)
+        try:
+            content = payroll.build(profile, rows, start=closing.start, end=closing.end)
+        except payroll.PayrollFormatError as exc:
+            raise ValidationError({"detail": str(exc)}) from None
         ext = "txt" if profile.file_format == "fixed" else "csv"
         _log(
             request,
@@ -155,7 +158,14 @@ class PayrollExportView(APIView):
 class GeneratedFileListView(APIView):
     def get(self, request, company_id):
         company = admin_company(request, company_id)
-        return Response(
+        paginator = Pagination()
+        page = paginator.paginate_queryset(
+            GeneratedFile.objects.filter(company=company)
+            .select_related("generated_by")
+            .order_by("-generated_at", "-id"),
+            request,
+        )
+        return paginator.get_paginated_response(
             [
                 {
                     "id": f.pk,
@@ -170,6 +180,6 @@ class GeneratedFileListView(APIView):
                     "generated_by": f.generated_by.email,
                     "metadata": f.metadata,
                 }
-                for f in GeneratedFile.objects.filter(company=company).select_related("generated_by")[:200]
+                for f in page
             ]
         )

@@ -9,7 +9,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// `sent` significa "enviado e SEM resposta definitiva": após reinício ou falha volta a pending, e o reenvio é
 /// seguro porque o servidor é idempotente pelo identificador do evento. `acknowledged` = recusa vista por
 /// uma pessoa (continua guardada por um tempo, mas não conta como pendência).
-enum QueuedState { pending, sent, confirmed, rejected, acknowledged }
+///
+/// `held` (retido) = feito sob outra identidade do tablet (outro tablet ou empresa): fica guardado, não conta
+/// como pendência de envio e NUNCA é enviado automaticamente com a credencial atual.
+enum QueuedState { pending, sent, confirmed, rejected, acknowledged, held }
 
 class QueuedPunch {
   QueuedPunch({
@@ -25,6 +28,8 @@ class QueuedPunch {
     this.nsr,
     this.reason,
     this.resolvedAt,
+    this.originDeviceId,
+    this.originCompanyId,
   });
 
   final String eventId;
@@ -45,7 +50,13 @@ class QueuedPunch {
   String? reason;
   DateTime? resolvedAt;
 
+  /// Tablet e empresa em que o registro foi feito (vínculo permanente com a origem).
+  int? originDeviceId;
+  int? originCompanyId;
+
   Map<String, dynamic> toWire() => {
+        if (originDeviceId != null) 'origin_device_id': originDeviceId,
+        if (originCompanyId != null) 'origin_company_id': originCompanyId,
         'client_event_id': eventId,
         'registration': registration,
         'declared_kind': declaredKind,
@@ -62,6 +73,8 @@ class QueuedPunch {
         'queued': queuedAt.toUtc().toIso8601String(),
         'offset': clockOffsetSeconds,
         'measured': offsetMeasuredAt?.toUtc().toIso8601String(),
+        'odev': originDeviceId,
+        'ocomp': originCompanyId,
         'state': state.name,
         'attempts': attempts,
         'nsr': nsr,
@@ -82,6 +95,8 @@ class QueuedPunch {
         nsr: json['nsr'] as int?,
         reason: json['reason'] as String?,
         resolvedAt: json['resolved'] == null ? null : DateTime.parse(json['resolved'] as String).toUtc(),
+        originDeviceId: json['odev'] as int?,
+        originCompanyId: json['ocomp'] as int?,
       );
 }
 
@@ -152,6 +167,10 @@ class OfflineQueue extends ChangeNotifier {
   static const Duration keepAcknowledgedFor = Duration(days: 30);
 
   final List<QueuedPunch> _items = [];
+  // Tentativas de marcação enviadas sem resposta definitiva, por matrícula. Guardadas ANTES do primeiro
+  // envio (sem código de exceção nem token facial): se o servidor gravou e a resposta se perdeu, o mesmo
+  // identificador é reenviado depois de reiniciar, em vez de gerar outro evento.
+  final Map<String, Map<String, dynamic>> _inflight = {};
   Map<String, dynamic>? _scope;
   int? _clockOffsetSeconds;
   DateTime? _clockMeasuredAt;
@@ -159,10 +178,13 @@ class OfflineQueue extends ChangeNotifier {
   Future<void> _serial = Future<void>.value();
 
   List<QueuedPunch> get items => List.unmodifiable(_items);
+  Map<String, Map<String, dynamic>> get inflight =>
+      {for (final e in _inflight.entries) e.key: Map<String, dynamic>.from(e.value)};
 
   /// Pendência = ainda não confirmada pelo servidor (pending ou sent).
   int get pendingCount =>
       _items.where((i) => i.state == QueuedState.pending || i.state == QueuedState.sent).length;
+  int get heldCount => _items.where((i) => i.state == QueuedState.held).length;
   int get rejectedCount => _items.where((i) => i.state == QueuedState.rejected).length;
   int get confirmedCount => _items.where((i) => i.state == QueuedState.confirmed).length;
 
@@ -182,6 +204,7 @@ class OfflineQueue extends ChangeNotifier {
   Future<void> load() => _locked(() async {
         final raw = await storage.read();
         _items.clear();
+        _inflight.clear();
         _scope = null;
         _clockOffsetSeconds = null;
         _clockMeasuredAt = null;
@@ -196,6 +219,12 @@ class OfflineQueue extends ChangeNotifier {
             _items.add(QueuedPunch.fromJson(item as Map<String, dynamic>));
           }
           _scope = data['scope'] as Map<String, dynamic>?;
+          final inflight = data['inflight'] as Map<String, dynamic>?;
+          if (inflight != null) {
+            for (final e in inflight.entries) {
+              _inflight[e.key] = Map<String, dynamic>.from(e.value as Map);
+            }
+          }
           final clock = data['clock'] as Map<String, dynamic>?;
           if (clock != null) {
             _clockOffsetSeconds = clock['offset'] as int?;
@@ -203,6 +232,7 @@ class OfflineQueue extends ChangeNotifier {
           }
         } catch (_) {
           _items.clear();
+          _inflight.clear();
           _scope = null;
           _clockOffsetSeconds = null;
           _clockMeasuredAt = null;
@@ -224,6 +254,7 @@ class OfflineQueue extends ChangeNotifier {
         'v': 1,
         'items': _items.map((i) => i.toJson()).toList(),
         'scope': _scope,
+        'inflight': _inflight,
         'clock': _clockOffsetSeconds == null || _clockMeasuredAt == null
             ? null
             : {'offset': _clockOffsetSeconds, 'measured_at': _clockMeasuredAt!.toUtc().toIso8601String()},
@@ -236,6 +267,8 @@ class OfflineQueue extends ChangeNotifier {
     required String registration,
     required String declaredKind,
     required DateTime deviceReportedAt,
+    int? originDeviceId,
+    int? originCompanyId,
   }) =>
       _locked(() async {
         if (_items.any((i) => i.eventId == eventId)) {
@@ -251,6 +284,8 @@ class OfflineQueue extends ChangeNotifier {
           queuedAt: _now().toUtc(),
           clockOffsetSeconds: _clockOffsetSeconds,
           offsetMeasuredAt: _clockMeasuredAt,
+          originDeviceId: originDeviceId,
+          originCompanyId: originCompanyId,
         );
         _items.add(item);
         try {
@@ -338,6 +373,71 @@ class OfflineQueue extends ChangeNotifier {
         }
         await _persist();
         notifyListeners();
+      });
+
+  /// Retém tudo o que NÃO pertence à identidade atual (tablet + empresa): registros pendentes sem origem
+  /// comprovada ou de outra origem, e tentativas em aberto. Nada é apagado nem enviado.
+  Future<void> holdForeign(int? deviceId, int? companyId) => _locked(() async {
+        bool mine(int? d, int? c) => d != null && c != null && d == deviceId && c == companyId;
+        var changed = false;
+        for (final item in _items) {
+          if ((item.state == QueuedState.pending || item.state == QueuedState.sent) &&
+              !mine(item.originDeviceId, item.originCompanyId)) {
+            item.state = QueuedState.held;
+            changed = true;
+          }
+        }
+        for (final e in _inflight.entries.toList()) {
+          final a = e.value;
+          if (!mine(a['origin_device_id'] as int?, a['origin_company_id'] as int?)) {
+            _inflight.remove(e.key);
+            _items.add(QueuedPunch(
+              eventId: '${a['client_event_id']}',
+              registration: '${a['registration']}',
+              declaredKind: '${a['declared_kind'] ?? ''}',
+              deviceReportedAt: DateTime.parse('${a['device_reported_at']}').toUtc(),
+              queuedAt: _now().toUtc(),
+              state: QueuedState.held,
+              originDeviceId: a['origin_device_id'] as int?,
+              originCompanyId: a['origin_company_id'] as int?,
+            ));
+            changed = true;
+          }
+        }
+        if (changed) {
+          try {
+            await _persist();
+          } catch (_) {
+            // O estado `held` é regravado no próximo salvamento; nada é enviado enquanto isso.
+          }
+        }
+        notifyListeners();
+      });
+
+  /// Guarda a tentativa antes do primeiro envio. Devolve false se não foi possível gravar.
+  Future<bool> saveInflight(String registration, Map<String, dynamic> attempt) => _locked(() async {
+        final previous = _inflight[registration];
+        _inflight[registration] = Map<String, dynamic>.from(attempt)..remove('identification');
+        try {
+          await _persist();
+          return true;
+        } catch (_) {
+          if (previous == null) {
+            _inflight.remove(registration);
+          } else {
+            _inflight[registration] = previous;
+          }
+          return false;
+        }
+      });
+
+  Future<void> clearInflight(String registration) => _locked(() async {
+        if (_inflight.remove(registration) == null) return;
+        try {
+          await _persist();
+        } catch (_) {
+          // Sem gravar, a tentativa reaparece após reiniciar e é reconciliada (resposta idempotente).
+        }
       });
 
   Future<void> saveScope(Map<String, dynamic>? scope) => _locked(() async {

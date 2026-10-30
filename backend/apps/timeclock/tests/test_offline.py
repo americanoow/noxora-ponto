@@ -487,3 +487,61 @@ def test_lotes_identicos_simultaneos_nao_duplicam(world):
     assert TimeRecord.objects.count() == 6
     assert list(TimeRecord.objects.order_by("nsr").values_list("nsr", flat=True)) == [1, 2, 3, 4, 5, 6]
     assert services.verify_unit_chain(unit) == []
+
+
+# ---------- Origem do evento: nunca vira marcação de outra pessoa ----------
+
+
+def test_evento_de_outro_tablet_ou_empresa_e_recusado_e_nada_e_gravado(world, tenant_b):
+    tenant, unit, device, client, _, employee = world
+    # Matrícula igual em outra empresa: o evento guardado em B não pode cair aqui só por coincidir.
+    unit_b = make_unit(tenant_b.company, "Matriz B")
+    other_device, other_token = make_device(tenant_b.company, unit_b)
+    tenant_b.company.offline_policy = "registration_only"
+    tenant_b.company.save()
+    make_employee(tenant_b.company, unit_b, registration="1", name="Outra Pessoa")
+    # Evento feito no tablet de A, enviado com a credencial de B (tablet reativado em outra empresa).
+    foreign = ev(origin_device_id=device.pk, origin_company_id=tenant.company.pk)
+    r = send(tablet(other_token), foreign)
+    assert r.status_code == 200
+    assert r.json()["results"][0]["status"] == "rejected"
+    assert r.json()["results"][0]["reason"] == "origin_mismatch"
+    assert TimeRecord.objects.count() == 0
+    # Só a empresa diferente, ou só o tablet diferente, já basta para recusar.
+    assert (
+        send(client, ev(origin_device_id=device.pk, origin_company_id=tenant_b.company.pk)).json()["results"][
+            0
+        ]["reason"]
+        == "origin_mismatch"
+    )
+    assert (
+        send(client, ev(origin_device_id=other_device.pk)).json()["results"][0]["reason"] == "origin_mismatch"
+    )
+    assert TimeRecord.objects.count() == 0
+    # Origem igual à da credencial (mesmo tablet reativado) e eventos antigos sem origem continuam valendo.
+    ok = ev(origin_device_id=device.pk, origin_company_id=tenant.company.pk)
+    legacy = ev()
+    results = send(client, ok, legacy).json()["results"]
+    assert [x["status"] for x in results] == ["confirmed", "confirmed"]
+    assert TimeRecord.objects.count() == 2 and all(
+        r.employee_id == employee.pk for r in TimeRecord.objects.all()
+    )
+
+
+def test_marcacao_online_com_origem_diferente_e_recusada_sem_gravar(world, tenant_b):
+    tenant, unit, device, client, _, employee = world
+    body = {
+        "registration": "1",
+        "client_event_id": str(uuid.uuid4()),
+        "origin_device_id": device.pk + 100,
+        "origin_company_id": tenant.company.pk,
+    }
+    r = client.post("/api/device/punches/", body, format="json")
+    assert r.status_code == 400 and "origin" in r.json()
+    assert TimeRecord.objects.count() == 0
+    ok = client.post(
+        "/api/device/punches/",
+        {**body, "origin_device_id": device.pk, "client_event_id": str(uuid.uuid4())},
+        format="json",
+    )
+    assert ok.status_code == 201

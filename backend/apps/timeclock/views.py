@@ -37,6 +37,9 @@ class PunchView(DeviceView):
         data = PunchSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
+        if services.origin_mismatch(request.device, v):
+            # Nada foi gravado: o evento é de outro tablet ou empresa e não pode virar marcação aqui.
+            raise ValidationError({"origin": "Este registro foi feito em outro tablet ou empresa."})
         reserved = None
         if (v["identification"] or {}).get("method") == "authorized_exception":
             from apps.biometrics.services import reserve_exception_attempt

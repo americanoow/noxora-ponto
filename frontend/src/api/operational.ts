@@ -135,8 +135,8 @@ export interface GeneratedFile {
   generated_by: string;
   metadata: { pending?: string[] };
 }
-export const listGeneratedFiles = (c: number) =>
-  request<GeneratedFile[]>("GET", `${c_(c)}/fiscal/files/`);
+export const listGeneratedFiles = (c: number, page = 1) =>
+  request<Page<GeneratedFile>>("GET", `${c_(c)}/fiscal/files/?page=${page}`);
 
 // Cobrança
 export interface Plan {
@@ -206,6 +206,9 @@ export const runBilling = () =>
   );
 
 // Conta (segundo fator)
+/** Confirma a senha e renova o "login recente" exigido para configurar ou desativar o MFA. */
+export const reauthenticate = (password: string) =>
+  request<void>("POST", "/api/auth/reauth/", { password });
 export const startMfa = () =>
   request<{ secret: string; otpauth_uri: string }>("POST", "/api/auth/mfa/");
 export const confirmMfa = (code: string) =>

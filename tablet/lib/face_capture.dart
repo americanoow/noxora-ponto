@@ -77,6 +77,16 @@ class ChallengeStep {
   final Duration delay;
 }
 
+/// Texto de cada passo sorteado pelo servidor. Quem decide se o movimento foi o pedido é o servidor.
+ChallengeStep stepFromServer(String step, Duration delay) => ChallengeStep(
+      switch (step) {
+        'left' => 'Vire levemente o rosto para a ESQUERDA',
+        'right' => 'Vire levemente o rosto para a DIREITA',
+        _ => 'Olhe para a câmera',
+      },
+      delay,
+    );
+
 const defaultChallenge = <ChallengeStep>[
   ChallengeStep('Olhe para a câmera', Duration(milliseconds: 1200)),
   ChallengeStep('Vire levemente o rosto para a ESQUERDA', Duration(milliseconds: 1400)),

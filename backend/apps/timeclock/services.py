@@ -267,6 +267,14 @@ def _assignment_covers(employee, unit_id, local_date) -> bool:
     )
 
 
+def origin_mismatch(device, data) -> bool:
+    """O evento declara ter sido feito em outro tablet ou empresa que a credencial que o envia."""
+    origin_device, origin_company = data.get("origin_device_id"), data.get("origin_company_id")
+    return (origin_device is not None and origin_device != device.pk) or (
+        origin_company is not None and origin_company != device.company_id
+    )
+
+
 def _rejected(event_id, reason, flags=None):
     return {"client_event_id": event_id, "status": "rejected", "reason": reason, "flags": flags or []}
 
@@ -293,6 +301,8 @@ def process_offline_event(*, device, credential, event_id, data):
         company = locked.company
         if not company.is_active:
             raise PermissionDenied("Empresa inativa.")
+        if origin_mismatch(locked, data):
+            return _rejected(event_id, "origin_mismatch")
 
         existing = _existing(locked, event_id)
         if existing is not None:

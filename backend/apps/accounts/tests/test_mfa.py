@@ -98,3 +98,81 @@ def test_desativar_exige_senha_e_codigo_e_suporte(tenant_a):
     enable(client)
     call_command("reset_mfa", tenant_a.users["company_admin"].email, "--reason", "perdeu o celular")
     assert client.get("/api/auth/me/").json()["mfa_enabled"] is False
+
+
+# ---------- Operações sensíveis: limite de tentativas e login recente ----------
+
+
+def test_confirmar_mfa_tem_espera_crescente_e_nao_vaza_o_codigo(tenant_a):
+    client = tenant_a.client("company_admin")
+    client.post("/api/auth/mfa/")
+    for _ in range(3):
+        assert client.put("/api/auth/mfa/", {"code": "000000"}, format="json").status_code == 400
+    blocked = client.put("/api/auth/mfa/", {"code": "000000"}, format="json")
+    assert blocked.status_code == 429 and blocked.json()["code"] == "throttled"
+    assert AuditLog.objects.filter(action="auth.mfa_confirm_failed").count() == 3
+    # O código certo também espera: durante a espera não há como adivinhar em rajada.
+    from apps.accounts import sensitive
+
+    wait = sensitive.wait_seconds(tenant_a.users["company_admin"], "mfa_confirm")
+    assert 0 < wait <= 30
+
+
+def test_espera_aumenta_com_mais_falhas_e_zera_no_acerto(tenant_a, monkeypatch):
+    from apps.accounts import sensitive
+
+    user = tenant_a.users["company_admin"]
+    clock = [1000.0]
+    monkeypatch.setattr(sensitive.time, "time", lambda: clock[0])
+    for _ in range(3):
+        sensitive.register_failure(user, "mfa_disable")
+    assert sensitive.wait_seconds(user, "mfa_disable") == 30
+    for _ in range(2):
+        sensitive.register_failure(user, "mfa_disable")
+    assert sensitive.wait_seconds(user, "mfa_disable") == 300
+    for _ in range(3):
+        sensitive.register_failure(user, "mfa_disable")
+    assert sensitive.wait_seconds(user, "mfa_disable") == 1800
+    clock[0] += 1801
+    assert sensitive.wait_seconds(user, "mfa_disable") == 0
+    sensitive.reset(user, "mfa_disable")
+    sensitive.register_failure(user, "mfa_disable")
+    assert sensitive.wait_seconds(user, "mfa_disable") == 0  # recomeça do zero
+
+
+def test_desativar_mfa_limita_tentativas_de_senha_e_codigo(tenant_a):
+    client = tenant_a.client("company_admin")
+    secret, recovery = enable(client)
+    for _ in range(3):
+        r = client.delete("/api/auth/mfa/", {"password": "errada", "code": recovery[0]}, format="json")
+        assert r.status_code == 400
+    r = client.delete("/api/auth/mfa/", {"password": PASSWORD, "code": recovery[0]}, format="json")
+    assert r.status_code == 429  # nem a senha certa passa durante a espera
+
+
+def test_operacoes_de_mfa_exigem_login_recente_e_a_senha_o_renova(tenant_a, monkeypatch):
+    import time
+
+    from apps.accounts import sensitive
+
+    client = tenant_a.client("company_admin")
+    session = client.session
+    session["login_at"] = time.time() - sensitive.REAUTH_SECONDS - 5
+    session.save()
+    r = client.post("/api/auth/mfa/")
+    assert r.status_code == 403 and r.json()["code"] == "reauth_required"
+    assert client.put("/api/auth/mfa/", {"code": "123456"}, format="json").status_code == 403
+    assert (
+        client.delete("/api/auth/mfa/", {"password": PASSWORD, "code": "1"}, format="json").status_code == 403
+    )
+    assert client.post("/api/auth/reauth/", {"password": "errada"}, format="json").status_code == 400
+    assert client.post("/api/auth/reauth/", {"password": PASSWORD}, format="json").status_code == 204
+    assert client.post("/api/auth/mfa/").status_code == 200
+    assert AuditLog.objects.filter(action="auth.reauth").exists()
+
+
+def test_reautenticacao_tambem_tem_limite_de_tentativas(tenant_a):
+    client = tenant_a.client("company_admin")
+    for _ in range(3):
+        assert client.post("/api/auth/reauth/", {"password": "errada"}, format="json").status_code == 400
+    assert client.post("/api/auth/reauth/", {"password": PASSWORD}, format="json").status_code == 429

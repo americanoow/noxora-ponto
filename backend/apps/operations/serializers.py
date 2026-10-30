@@ -97,6 +97,18 @@ class ScheduleDaySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(missing)
         if attrs["start_time"] == attrs["end_time"]:
             raise serializers.ValidationError("Início e fim não podem ser iguais.")
+        start = attrs["start_time"].hour * 60 + attrs["start_time"].minute
+        end = attrs["end_time"].hour * 60 + attrs["end_time"].minute
+        duration = (end - start) % (24 * 60)  # fim <= início: o turno cruza a meia-noite
+        if attrs.get("break_minutes", 0) >= duration:
+            raise serializers.ValidationError(
+                {
+                    "break_minutes": (
+                        f"O intervalo ({attrs.get('break_minutes', 0)} min) precisa ser menor que a duração "
+                        f"da jornada ({duration} min); senão não sobra tempo de trabalho previsto."
+                    )
+                }
+            )
         return attrs
 
 

@@ -93,7 +93,10 @@ export function TodayScreen() {
   const today = isoDate(new Date());
   const yesterday = addDays(today, -1);
   const board = useTask(() => getBoard(companyId), [companyId]);
-  const pending = useTask(() => listRequests(companyId, "pending"), [companyId]);
+  const pending = useTask(
+    () => listRequests(companyId, { status: "pending", pageSize: 5 }),
+    [companyId],
+  );
   const week = useTask(
     () => getSummary(companyId, addDays(today, -6), yesterday),
     [companyId, today],
@@ -152,9 +155,9 @@ export function TodayScreen() {
         />
         <Kpi
           label="Solicitações aguardando"
-          figure={pending.data?.length ?? "—"}
+          figure={pending.data?.count ?? "—"}
           hint="Ajustes e justificativas para responder."
-          tone={pending.data?.length ? "amber" : undefined}
+          tone={pending.data?.count ? "amber" : undefined}
           onClick={() => router.select({ screen: "requests" })}
         />
         <Kpi
@@ -178,7 +181,7 @@ export function TodayScreen() {
           <Group
             title="Solicitações aguardando"
             aside={
-              pending.data?.length ? (
+              pending.data?.count ? (
                 <button className="plain" onClick={() => router.select({ screen: "requests" })}>
                   Ver todas
                 </button>
@@ -189,18 +192,16 @@ export function TodayScreen() {
               <Loading />
             ) : pending.error ? (
               <ErrorText message={pending.error} />
-            ) : pending.data && pending.data.length ? (
-              pending.data
-                .slice(0, 5)
-                .map((r) => (
-                  <Row
-                    key={`${r.type}-${r.id}`}
-                    title={r.employee.name}
-                    subtitle={`${r.kind_label}: ${r.reason}`}
-                    accessory={<Badge tone="amber">Aguardando</Badge>}
-                    onClick={() => router.select({ screen: "requests" })}
-                  />
-                ))
+            ) : pending.data && pending.data.count ? (
+              pending.data.results.map((r) => (
+                <Row
+                  key={`${r.type}-${r.id}`}
+                  title={r.employee.name}
+                  subtitle={`${r.kind_label}: ${r.reason}`}
+                  accessory={<Badge tone="amber">Aguardando</Badge>}
+                  onClick={() => router.select({ screen: "requests" })}
+                />
+              ))
             ) : (
               <Empty title="Nenhuma solicitação aguardando" />
             )}
@@ -220,7 +221,7 @@ export function TodayScreen() {
                   <Row
                     key={r.employee.id}
                     title={r.employee.name}
-                    subtitle={`Matrícula ${r.employee.registration} · saldo ${hm(r.totals.balance_minutes)}`}
+                    subtitle={`Matrícula ${r.employee.registration} · saldo do período ${hm(r.totals.balance_minutes)}`}
                     accessory={
                       <span className="toolbar">
                         {r.totals.absences > 0 && (

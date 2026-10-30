@@ -21,6 +21,7 @@ from .models import (
     BiometricTemplate,
     ExceptionAuthorization,
     ExceptionBudget,
+    LivenessChallenge,
     Outcome,
     TemplateStatus,
     VerificationAttempt,
@@ -177,9 +178,45 @@ def _locked(employee) -> bool:
     return failures >= settings.BIOMETRIC_LOCKOUT_FAILURES
 
 
+CHALLENGE_STEPS = 4  # passo 0 (de frente) + 3 viradas sorteadas
+
+
+def issue_challenge(device):
+    """Sorteia a sequência do desafio (sempre com as duas direções) e a guarda, de uso único."""
+    rng = secrets.SystemRandom()
+    while True:
+        turns = [rng.choice(("left", "right")) for _ in range(CHALLENGE_STEPS - 1)]
+        if {"left", "right"} <= set(turns):
+            break
+    return LivenessChallenge.objects.create(
+        company_id=device.company_id,
+        device=device,
+        steps=["center", *turns],
+        expires_at=timezone.now() + datetime.timedelta(seconds=settings.BIOMETRIC_CHALLENGE_TTL_SECONDS),
+    )
+
+
+def consume_challenge(device, challenge_id) -> tuple[str, ...] | None:
+    """Consome (uma única vez) o desafio emitido para ESTE tablet e ainda dentro do prazo."""
+    if isinstance(challenge_id, bool) or not isinstance(challenge_id, int):
+        return None
+    now = timezone.now()
+    claimed = LivenessChallenge.objects.filter(
+        pk=challenge_id, device=device, consumed_at__isnull=True, expires_at__gt=now
+    ).update(consumed_at=now)
+    if not claimed:
+        return None
+    return tuple(LivenessChallenge.objects.values_list("steps", flat=True).get(pk=challenge_id))
+
+
 @transaction.atomic
-def verify_face(*, device, employee, image: bytes, frames: tuple[bytes, ...] = ()) -> VerificationAttempt:
-    """Compara a captura com o template do funcionário. Sempre registra a tentativa (sem imagem)."""
+def verify_face(
+    *, device, employee, image: bytes, frames: tuple[bytes, ...] = (), challenge_id=None
+) -> VerificationAttempt:
+    """Compara a captura com o template do funcionário. Sempre registra a tentativa (sem imagem).
+
+    Os quadros só valem como prova de vivacidade junto de um desafio emitido pelo servidor e ainda não
+    usado (`challenge_id`); sem ele, a tentativa fica reprovada na vivacidade."""
     employee = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
     if employee.company_id != device.company_id or not employee.is_active:
         raise IdentificationRejected({"identification": "Funcionário indisponível."})
@@ -200,7 +237,13 @@ def verify_face(*, device, employee, image: bytes, frames: tuple[bytes, ...] = (
             template.ciphertext,
             crypto.make_aad(template.company_id, template.employee_id, template.engine),
         )
-        result = engine.verify(stored, image, tuple(frames))
+        steps = None
+        if frames:
+            steps = consume_challenge(device, challenge_id)
+            if steps is None:  # desafio ausente, vencido, já usado ou de outro tablet
+                result = engines.VerifyResult(matched=False, score=None, liveness="failed")
+        if not frames or steps is not None:
+            result = engine.verify(stored, image, tuple(frames), steps)
     except engines.PoorQuality:
         return _attempt(
             device, employee, Outcome.POOR_QUALITY, engine=engine.name, engine_version=engine.version
@@ -230,7 +273,7 @@ def liveness_accepted(company, attempt) -> bool:
     if attempt.engine == "simulator":
         accepted.add("simulated")  # só chega aqui em debug (ver checagem do simulador acima)
     if company.face_liveness_policy == "basic_challenge":
-        accepted.add("motion_challenge_v1")
+        accepted.add("motion_challenge_v2")
     return attempt.liveness_method in accepted
 
 

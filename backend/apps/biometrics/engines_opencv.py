@@ -3,7 +3,7 @@
 Modelos do OpenCV Zoo (YuNet: MIT; SFace: Apache-2.0), baixados por `manage.py fetch_face_models` para
 `BIOMETRIC_MODEL_DIR` e conferidos por SHA-256 antes do uso. O produto não treina nem altera os modelos.
 
-Vivacidade: **desafio de movimento básico** (`motion_challenge_v1`). O tablet envia, além da captura
+Vivacidade: **desafio de movimento básico** (`motion_challenge_v2`). O tablet envia, além da captura
 principal, quadros em que o trabalhador vira levemente a cabeça. Exige-se o mesmo rosto em todos os
 quadros e variação real de pose (geometria olhos/nariz). Isso barra foto impressa ou imagem estática,
 mas **não é detecção de ataque certificada** (ISO/IEC 30107-3): vídeo reproduzido em tela ou máscara
@@ -42,7 +42,7 @@ MODELS = {
 
 TEMPLATE_MAGIC = b"SF1\x00"
 EMBEDDING_SIZE = 128
-LIVENESS_METHOD = "motion_challenge_v1"
+LIVENESS_METHOD = "motion_challenge_v2"
 MAX_SIDE = 960  # imagens maiores são reduzidas antes da detecção
 MIN_FACE_PX = 80  # rosto menor que isto (lado do retângulo) não tem qualidade
 MIN_DETECTION_SCORE = 0.85
@@ -212,7 +212,7 @@ class OpenCVFaceEngine(BiometricEngine):
         mean = mean / float(np.linalg.norm(mean))
         return EnrollResult(template=self._pack(mean), quality=round(min(qualities), 3))
 
-    def verify(self, template, probe, frames=()):
+    def verify(self, template, probe, frames=(), steps=None):
         stored = self._unpack(template)
         threshold = settings.BIOMETRIC_MATCH_THRESHOLD
         image, face = self._single_face(probe)
@@ -220,17 +220,34 @@ class OpenCVFaceEngine(BiometricEngine):
         matched = score >= threshold
         if not frames:
             return VerifyResult(matched=matched, score=round(score, 4), liveness="not_performed")
+        failed = VerifyResult(matched=matched, score=round(score, 4), liveness="failed")
+        # Sem a sequência pedida pelo servidor (ou com quadros a mais/menos) não há prova de vivacidade.
+        if steps is None or len(steps) != 1 + len(frames) or steps[0] != "center":
+            return failed
         if len({hashlib.sha256(f).digest() for f in (probe, *frames)}) != 1 + len(frames):
-            return VerifyResult(matched=matched, score=round(score, 4), liveness="failed")
+            return failed
         yaws = [self.yaw_proxy(face)]
         for frame in frames:
             try:
                 f_image, f_face = self._single_face(frame)
             except PoorQuality:
-                return VerifyResult(matched=matched, score=round(score, 4), liveness="failed")
+                return failed
             # Todos os quadros precisam ser da mesma pessoa cadastrada (impede trocar o rosto no meio).
             if self.similarity(stored, self._embed(f_image, f_face)) < threshold:
-                return VerifyResult(matched=matched, score=round(score, 4), liveness="failed")
+                return failed
             yaws.append(self.yaw_proxy(f_face))
-        moved = max(yaws) - min(yaws) >= settings.BIOMETRIC_LIVENESS_MIN_YAW_DELTA
-        return VerifyResult(matched=matched, score=round(score, 4), liveness="passed" if moved else "failed")
+        # Cada quadro precisa estar do lado pedido, em relação ao primeiro (de frente). Um vídeo gravado
+        # antes não conhece a sequência sorteada agora.
+        minimum = settings.BIOMETRIC_LIVENESS_MIN_YAW_DELTA
+        left = settings.BIOMETRIC_YAW_LEFT_SIGN
+        for step, yaw in zip(steps[1:], yaws[1:], strict=True):
+            delta = yaw - yaws[0]
+            if step == "center":
+                ok = abs(delta) < minimum / 2
+            elif step in ("left", "right"):
+                ok = delta * (left if step == "left" else -left) >= minimum
+            else:
+                ok = False
+            if not ok:
+                return failed
+        return VerifyResult(matched=matched, score=round(score, 4), liveness="passed")

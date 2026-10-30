@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { listRequests } from "./api/attendance";
+import { countRequests } from "./api/attendance";
 import { listMyClosings } from "./api/operational";
 import { ROLE_LABELS } from "./auth";
 import { useObservable } from "./lib/observable";
@@ -131,7 +131,8 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
     [company?.companyId, staff],
   );
   const pending = useTask(
-    async () => (company && staff ? (await listRequests(company.companyId, "pending")).length : 0),
+    async () =>
+      company && staff ? await countRequests(company.companyId, { status: "pending" }) : 0,
     [company?.companyId, staff],
   );
   const groups = useMemo(

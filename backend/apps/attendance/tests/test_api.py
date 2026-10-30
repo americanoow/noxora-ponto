@@ -333,7 +333,18 @@ def test_fechamento_bloqueia_alteracoes_e_detecta_divergencia(world):
     assert r.status_code == 200 and r.json()["status"] == "reopened"
     assert PeriodClosing.objects.count() == 1
     assert AuditLog.objects.filter(action="attendance.period_reopened").exists()
-    assert admin.post(world.url("attendance/closings/"), close, format="json").status_code == 201
+    # A marcação tardia deixou o dia com registro incompleto: fechar exige resolução ou exceção justificada.
+    blocked = admin.post(world.url("attendance/closings/"), close, format="json")
+    assert blocked.status_code == 400 and blocked.json()["code"] == "incomplete_marks"
+    short = {**close, "accept_incomplete": True, "exception_reason": "curto"}
+    assert admin.post(world.url("attendance/closings/"), short, format="json").status_code == 400
+    ok = admin.post(
+        world.url("attendance/closings/"),
+        {**close, "accept_incomplete": True, "exception_reason": "Saída será corrigida na folha de novembro"},
+        format="json",
+    )
+    assert ok.status_code == 201 and ok.json()["exceptions"]["employees"][0]["dates"] == [MON.isoformat()]
+    assert AuditLog.objects.filter(action="attendance.period_closed_with_exception").exists()
 
 
 def test_portal_do_funcionario(world, tenant_b):
@@ -359,7 +370,7 @@ def test_portal_do_funcionario(world, tenant_b):
         ).status_code
         == 400
     )
-    assert len(employee.get(world.url("me/requests/")).json()) == 1
+    assert employee.get(world.url("me/requests/")).json()["count"] == 1
     assert (
         employee.post(world.url(f"me/adjustments/{item['id']}/cancel/"), format="json").json()["status"]
         == "cancelled"
@@ -467,3 +478,428 @@ def test_nao_fecha_periodo_que_ainda_nao_terminou(world):
         world.url("attendance/closings/"), {"start": today, "end": today}, format="json"
     )
     assert r.status_code == 400
+
+
+# ---------- Correções da revisão: fechamento, funcionários inativos, fuso e concorrência ----------
+
+
+def close_week(admin, world, **extra):
+    body = {"start": MON.isoformat(), "end": (MON + dt.timedelta(days=6)).isoformat(), **extra}
+    return admin.post(world.url("attendance/closings/"), body, format="json")
+
+
+def snapshot_names(closing):
+    return {e["employee"]["name"] for e in closing.snapshot["employees"]}
+
+
+def test_fechamento_recusa_registro_incompleto_sem_excecao(world):
+    admin = world.tenant.client("company_admin")
+    world.day(MON, "08:00", "12:00", "13:00")  # sem a saída
+    r = close_week(admin, world)
+    assert r.status_code == 400 and r.json()["code"] == "incomplete_marks"
+    assert PeriodClosing.objects.count() == 0
+    # Um ajuste aprovado resolve a pendência e o fechamento passa sem exceção.
+    manager = world.tenant.client("manager")
+    req = manager.post(
+        world.url("attendance/requests/"),
+        {
+            "employee_id": world.employee.pk,
+            "kind": "include",
+            "occurred_at": local(MON, "17:00").isoformat(),
+            "reason": "Esqueceu de bater a saída",
+        },
+        format="json",
+    ).json()
+    admin.post(world.url(f"attendance/adjustments/{req['id']}/decision/"), {"approve": True}, format="json")
+    r = close_week(admin, world)
+    assert r.status_code == 201 and r.json()["exceptions"] is None
+
+
+def test_funcionario_desativado_continua_no_fechamento_do_periodo(world):
+    admin = world.tenant.client("company_admin")
+    outro = world.make_employee("2", "Desligado", world.schedule)
+    world.day(MON, "08:00", "12:00", "13:00", "17:00", employee=outro)
+    world.day(MON, "08:00", "12:00", "13:00", "17:00")
+    # Desativado antes de fechar o mês: as horas já trabalhadas não podem sumir do fechamento.
+    r = admin.patch(world.url(f"employees/{outro.pk}/"), {"is_active": False}, format="json")
+    assert r.status_code == 200
+    assert close_week(admin, world).status_code == 201
+    closing = PeriodClosing.objects.get()
+    assert snapshot_names(closing) == {"Maria", "Desligado"}
+    worked = {e["employee"]["name"]: e["totals"]["worked_minutes"] for e in closing.snapshot["employees"]}
+    assert worked["Desligado"] == 480
+    # O resumo do período usa o mesmo critério.
+    summary = admin.get(
+        world.url("attendance/summary/"),
+        {"from": MON.isoformat(), "to": (MON + dt.timedelta(days=6)).isoformat()},
+    ).json()
+    assert {row["employee"]["name"] for row in summary["results"]} == {"Maria", "Desligado"}
+
+
+def test_inativo_antigo_sem_movimento_nao_entra_em_periodos_novos(world):
+    admin = world.tenant.client("company_admin")
+    antigo = world.make_employee("3", "Antigo", world.schedule)
+    Employee.objects.filter(pk=antigo.pk).update(
+        is_active=False, inactivated_at=timezone.now() - dt.timedelta(days=400)
+    )
+    world.day(MON, "08:00", "12:00", "13:00", "17:00")
+    assert close_week(admin, world).status_code == 201
+    assert "Antigo" not in snapshot_names(PeriodClosing.objects.get())
+
+
+def test_inclusao_por_horario_da_unidade_usa_o_fuso_da_lotacao_e_o_dia_seguinte(world):
+    manager = world.tenant.client("manager")
+    # Turno que começa na segunda e termina na terça: a saída é terça, 06:00 da unidade (UTC-3).
+    r = manager.post(
+        world.url("attendance/requests/"),
+        {
+            "employee_id": world.employee.pk,
+            "kind": "include",
+            "occurred_local": f"{(MON + dt.timedelta(days=1)).isoformat()}T06:00",
+            "reason": "Saída do turno noturno",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    item = PunchAdjustment.objects.get()
+    assert item.occurred_at == dt.datetime(2026, 10, 20, 9, 0, tzinfo=dt.UTC)  # 06:00 em UTC-3
+    assert item.reference_date == MON + dt.timedelta(days=1)
+    # Horário com fuso no campo local é recusado: quem digita não escolhe o fuso.
+    bad = manager.post(
+        world.url("attendance/requests/"),
+        {
+            "employee_id": world.employee.pk,
+            "kind": "include",
+            "occurred_local": "2026-10-20T06:00:00-03:00",
+            "reason": "Com fuso",
+        },
+        format="json",
+    )
+    assert bad.status_code == 400
+
+
+def test_transferencia_para_outro_fuso_preserva_o_passado(world):
+    manaus = Unit.objects.create(company=world.company, name="Manaus", timezone="America/Manaus")
+    admin = world.tenant.client("company_admin")
+    world.day(MON, "08:00", "12:00", "13:00", "17:00")
+    before = timesheet(admin, world).json()["days"][0]
+    # Transferência 30 dias depois do período consultado não pode deslocar a segunda-feira.
+    ops.assign_unit(world.employee, world.company, manaus, None, MON + dt.timedelta(days=30))
+    after = timesheet(admin, world).json()["days"][0]
+    assert after["marks"] == before["marks"] and after["timezone"] == "America/Sao_Paulo"
+    # Transferência no meio do período: cada dia usa o fuso da lotação vigente na data.
+    outro = world.make_employee("9", "Transferido", world.schedule)
+    ops.assign_unit(outro, world.company, manaus, None, MON + dt.timedelta(days=2))
+    world.day(MON, "08:00", "12:00", "13:00", "17:00", employee=outro)
+    sheet = timesheet(admin, world, end=MON + dt.timedelta(days=4), employee=outro).json()
+    assert [d["timezone"] for d in sheet["days"]][:3] == [
+        "America/Sao_Paulo",
+        "America/Sao_Paulo",
+        "America/Manaus",
+    ]
+    assert [m["local"] for m in sheet["days"][0]["marks"]] == [m["local"] for m in before["marks"]]
+    assert sheet["days"][0]["status"] == "ok"
+
+
+def test_pedidos_tomam_o_bloqueio_da_empresa_antes_de_verificar_o_fechamento(world):
+    """O fechamento trava a empresa; criar pedidos passa pelo mesmo bloqueio, na mesma ordem. Em
+    PostgreSQL isso é `FOR NO KEY UPDATE` em `companies_company` antes de consultar os fechamentos."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    manager = world.tenant.client("manager")
+    body = {
+        "employee_id": world.employee.pk,
+        "type": "justification",
+        "date": MON.isoformat(),
+        "kind": "other",
+        "reason": "Teste de bloqueio",
+    }
+    with CaptureQueriesContext(connection) as ctx:
+        r = manager.post(world.url("attendance/requests/"), body, format="json")
+    assert r.status_code == 201
+    sql = [q["sql"] for q in ctx.captured_queries]
+    if connection.vendor == "postgresql":
+        lock = next(i for i, q in enumerate(sql) if "companies_company" in q and "FOR NO KEY UPDATE" in q)
+        check = next(i for i, q in enumerate(sql) if "attendance_periodclosing" in q)
+        assert lock < check
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_pedido_concorrente_ao_fechamento_espera_e_e_recusado(world):
+    import threading
+
+    from django.db import connection, transaction
+
+    from apps.attendance import services
+    from apps.attendance.models import DayJustification
+
+    if connection.vendor != "postgresql":
+        pytest.skip("Concorrência real exige PostgreSQL")
+    started, release = threading.Event(), threading.Event()
+    result = {}
+
+    def closer():
+        try:
+            with transaction.atomic():
+                services.lock_company(world.company)  # fechamento em andamento, ainda sem confirmar
+                started.set()
+                release.wait(10)
+                PeriodClosing.objects.create(
+                    company=world.company,
+                    start=MON,
+                    end=MON + dt.timedelta(days=6),
+                    snapshot={"employees": []},
+                    snapshot_sha256="0" * 64,
+                    engine_version="t",
+                    closed_by=world.tenant.users["company_admin"],
+                )
+        finally:
+            connection.close()
+
+    def requester():
+        try:
+            services.request_justification(
+                company=world.company,
+                employee=world.employee,
+                user=world.tenant.users["manager"],
+                date=MON,
+                kind="other",
+                reason="Pedido concorrente",
+            )
+            result["status"] = "aceito"
+        except Exception as exc:  # noqa: BLE001
+            result["status"] = f"recusado: {exc}"
+        finally:
+            connection.close()
+
+    t1 = threading.Thread(target=closer)
+    t1.start()
+    assert started.wait(10)
+    t2 = threading.Thread(target=requester)
+    t2.start()
+    t2.join(1.0)
+    assert t2.is_alive()  # o pedido espera o fechamento terminar
+    release.set()
+    t1.join(10)
+    t2.join(10)
+    assert result["status"].startswith("recusado") and "fechado" in result["status"].lower()
+    assert DayJustification.objects.filter(reason="Pedido concorrente").count() == 0
+
+
+def test_lista_de_pedidos_e_paginada_sem_perder_itens(world):
+    from apps.attendance.models import DayJustification
+
+    manager = world.tenant.client("manager")
+    admin_user = world.tenant.users["company_admin"]
+    for i in range(230):
+        DayJustification.objects.create(
+            company=world.company,
+            employee=world.employee,
+            date=MON,
+            kind="other",
+            reason=f"Pedido {i}",
+            requested_by=admin_user,
+        )
+    first = manager.get(world.url("attendance/requests/"), {"page_size": 200}).json()
+    assert first["count"] == 230 and len(first["results"]) == 200 and first["next"] == "?page=2"
+    second = manager.get(world.url("attendance/requests/"), {"page_size": 200, "page": 2}).json()
+    assert len(second["results"]) == 30 and second["next"] is None and second["previous"] == "?page=1"
+    ids = {r["id"] for r in first["results"]} | {r["id"] for r in second["results"]}
+    assert len(ids) == 230  # nenhum pedido some nem se repete entre as páginas
+    assert manager.get(world.url("attendance/requests/"), {"page_size": 1000}).status_code == 400
+    # Filtro por período usado pelo fechamento guiado.
+    other = manager.get(world.url("attendance/requests/"), {"from": "2020-01-01", "to": "2020-01-31"}).json()
+    assert other["count"] == 0
+
+
+# ---------- Permissões separadas: consultar, solicitar e decidir ----------
+
+
+def test_gestor_somente_consulta_nao_decide_nem_solicita(world):
+    admin = world.tenant.client("company_admin")
+    manager = world.tenant.client("manager")
+    membership = world.tenant.memberships["manager"]
+    body = {
+        "employee_id": world.employee.pk,
+        "type": "justification",
+        "date": MON.isoformat(),
+        "kind": "other",
+        "reason": "Pedido de teste",
+    }
+    assert manager.post(world.url("attendance/requests/"), body, format="json").status_code == 201
+    created = admin.post(world.url("attendance/requests/"), body, format="json")  # quem pede não decide
+    assert created.status_code == 201
+    # O administrador libera só a consulta: o gestor continua vendo, mas não decide nem solicita.
+    r = admin.patch(
+        world.url(f"members/{membership.pk}/"),
+        {"can_decide_requests": False, "can_request_adjustments": False},
+        format="json",
+    )
+    assert r.status_code == 200 and r.json()["can_decide_requests"] is False
+    assert manager.get(world.url("attendance/requests/")).json()["count"] == 2
+    assert manager.post(world.url("attendance/requests/"), body, format="json").status_code == 403
+    decide = manager.post(
+        world.url(f"attendance/justifications/{created.json()['id']}/decision/"),
+        {"approve": True},
+        format="json",
+    )
+    assert decide.status_code == 403
+    statuses = {r["status"] for r in admin.get(world.url("attendance/requests/")).json()["results"]}
+    assert statuses == {"pending"}
+    # Pode receber só a decisão, ou só a solicitação, independentemente.
+    admin.patch(world.url(f"members/{membership.pk}/"), {"can_decide_requests": True}, format="json")
+    assert (
+        manager.post(
+            world.url(f"attendance/justifications/{created.json()['id']}/decision/"),
+            {"approve": False, "note": "Sem documento"},
+            format="json",
+        ).status_code
+        == 200
+    )
+    assert manager.post(world.url("attendance/requests/"), body, format="json").status_code == 403
+    # O gestor não altera as próprias permissões; administrador não é limitado pelas marcas.
+    assert (
+        manager.patch(
+            world.url(f"members/{membership.pk}/"), {"can_decide_requests": True}, format="json"
+        ).status_code
+        == 403
+    )
+    assert admin.post(world.url("attendance/requests/"), body, format="json").status_code == 201
+
+
+# ---------- Banco de horas ----------
+
+
+def bank_url(world, suffix=""):
+    return world.url(f"attendance/employees/{world.employee.pk}/hour-bank/{suffix}")
+
+
+def test_banco_de_horas_lancamentos_estorno_e_saldo_dos_periodos_fechados(world):
+    from apps.attendance.models import HourBankEntry
+
+    admin, manager = world.tenant.client("company_admin"), world.tenant.client("manager")
+    start = MON - dt.timedelta(days=7)
+    # Sem saldo inicial o saldo do período fechado ainda não entra: não há data de partida.
+    world.day(MON, "08:00", "12:00", "13:00", "18:00")  # +60 min de extras
+    assert close_week(admin, world).status_code == 201
+    assert admin.get(bank_url(world)).json()["balance_minutes"] == 0
+    # Saldo inicial, depois abatimento e pagamento; regras de sinal por tipo.
+    body = {
+        "kind": "opening",
+        "date": start.isoformat(),
+        "minutes": 300,
+        "reason": "Saldo levado do sistema anterior",
+    }
+    assert admin.post(bank_url(world), body, format="json").status_code == 201
+    assert admin.post(bank_url(world), body, format="json").status_code == 400  # só um saldo inicial ativo
+    ruim = {"kind": "offset", "date": MON.isoformat(), "minutes": 120, "reason": "Folga compensada"}
+    assert admin.post(bank_url(world), ruim, format="json").status_code == 400  # abatimento é negativo
+    ok = {**ruim, "minutes": -120}
+    assert admin.post(bank_url(world), ok, format="json").status_code == 201
+    assert admin.post(bank_url(world), {**ok, "reason": "x"}, format="json").status_code == 400
+    assert admin.post(bank_url(world), {**ok, "minutes": 0}, format="json").status_code == 400
+    bank = admin.get(bank_url(world)).json()
+    snap = next(
+        e
+        for e in PeriodClosing.objects.get().snapshot["employees"]
+        if e["employee"]["id"] == world.employee.pk
+    )["totals"]["balance_minutes"]  # +60 de extras na segunda e 4 faltas na semana
+    assert bank["ledger_minutes"] == 300 - 120 and bank["accrued_closed_minutes"] == snap
+    assert bank["balance_minutes"] == 180 + snap and bank["closed_periods"][0]["balance_minutes"] == snap
+    assert "convenção coletiva" in bank["notice"]
+    # Estorno corrige o engano sem apagar: o lançamento original continua no livro.
+    offset = next(e for e in bank["entries"] if e["kind"] == "offset")
+    r = admin.post(
+        bank_url(world, f"{offset['id']}/reverse/"), {"reason": "Lançado por engano"}, format="json"
+    )
+    assert r.status_code == 201 and r.json()["ledger_minutes"] == 300
+    assert (
+        admin.post(
+            bank_url(world, f"{offset['id']}/reverse/"), {"reason": "De novo"}, format="json"
+        ).status_code
+        == 400
+    )
+    assert HourBankEntry.objects.filter(employee=world.employee).count() == 3
+    # Lançamentos são imutáveis.
+    entry = HourBankEntry.objects.first()
+    entry.minutes = 1
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        entry.save()
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        entry.delete()
+    # Gestor do escopo consulta, mas não lança nem estorna; funcionário vê o próprio e não o de outro.
+    assert manager.get(bank_url(world)).status_code == 200
+    assert manager.post(bank_url(world), ok, format="json").status_code == 403
+    mine = world.tenant.client("employee").get(world.url("me/hour-bank/"))
+    assert mine.status_code == 200 and mine.json()["employee"]["id"] == world.employee.pk
+
+
+def test_banco_de_horas_isolado_entre_empresas(world, tenant_b):
+    assert tenant_b.client("company_admin").get(bank_url(world)).status_code == 404
+    outro = world.make_employee("8", "Fora", world.schedule, unit=world.other_unit)
+    manager = world.tenant.client("manager")
+    assert manager.get(world.url(f"attendance/employees/{outro.pk}/hour-bank/")).status_code == 404
+
+
+# ---------- Troca retroativa de jornada/lotação e intervalo inválido ----------
+
+
+def test_jornada_e_lotacao_retroativas_nao_alteram_periodo_fechado(world):
+    admin = world.tenant.client("company_admin")
+    world.day(MON, "08:00", "12:00", "13:00", "17:00")
+    assert close_week(admin, world).status_code == 201
+    other = WorkSchedule.objects.create(company=world.company, name="Nova")
+    ScheduleDay.objects.create(
+        schedule=other, weekday=0, start_time=dt.time(9), end_time=dt.time(18), break_minutes=60
+    )
+    url = world.url(f"employees/{world.employee.pk}/schedules/")
+    inside = admin.post(
+        url, {"schedule": other.pk, "valid_from": (MON + dt.timedelta(days=2)).isoformat()}, format="json"
+    )
+    assert inside.status_code == 400 and "echado" in str(inside.json())
+    unit_url = world.url(f"employees/{world.employee.pk}/assignments/")
+    moved = admin.post(
+        unit_url,
+        {"unit": world.other_unit.pk, "valid_from": (MON + dt.timedelta(days=1)).isoformat()},
+        format="json",
+    )
+    assert moved.status_code == 400 and "echado" in str(moved.json())
+    # A apuração fechada continua igual (nada foi inserido).
+    assert world.employee.schedule_assignments.count() == 1 and world.employee.assignments.count() == 1
+    # Depois do fim do período fechado a troca é permitida; reabrir também libera o passado.
+    ok = admin.post(
+        url, {"schedule": other.pk, "valid_from": (MON + dt.timedelta(days=30)).isoformat()}, format="json"
+    )
+    assert ok.status_code == 201
+    closing_id = PeriodClosing.objects.get().pk
+    admin.post(
+        world.url(f"attendance/closings/{closing_id}/reopen/"), {"reason": "Corrigir jornada"}, format="json"
+    )
+    again = admin.post(
+        url, {"schedule": other.pk, "valid_from": (MON + dt.timedelta(days=40)).isoformat()}, format="json"
+    )
+    assert again.status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "brk", "ok"),
+    [
+        ("08:00", "12:00", 480, False),  # intervalo maior que a jornada
+        ("08:00", "12:00", 240, False),  # intervalo igual à jornada: zero horas previstas
+        ("08:00", "12:00", 30, True),
+        ("22:00", "02:00", 240, False),  # cruza a meia-noite: 4 h de duração
+        ("22:00", "06:00", 60, True),
+        ("22:00", "06:00", 480, False),
+    ],
+)
+def test_intervalo_precisa_caber_na_duracao_da_jornada(world, start, end, brk, ok):
+    admin = world.tenant.client("company_admin")
+    body = {
+        "name": f"J {start}-{end}-{brk}",
+        "days": [{"weekday": 0, "start_time": start, "end_time": end, "break_minutes": brk}],
+    }
+    r = admin.post(world.url("schedules/"), body, format="json")
+    assert (r.status_code == 201) is ok, r.content
+    if not ok:
+        assert "intervalo" in str(r.json()).lower()

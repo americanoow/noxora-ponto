@@ -99,7 +99,12 @@ class MemberListView(APIView):
             with transaction.atomic():
                 user, created = get_or_invite_user(v["email"], v["name"])
                 membership = Membership.objects.create(
-                    user=user, company=company, role=v["role"], name=v["name"]
+                    user=user,
+                    company=company,
+                    role=v["role"],
+                    name=v["name"],
+                    can_request_adjustments=v["can_request_adjustments"],
+                    can_decide_requests=v["can_decide_requests"],
                 )
                 audit.record(request, "member.created", company=company, target=membership, role=v["role"])
         except IntegrityError:

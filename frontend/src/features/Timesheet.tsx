@@ -38,6 +38,7 @@ import {
   Stats,
 } from "../ui/kit";
 import { EmployeePicker } from "./EmployeePicker";
+import { HourBankSection } from "./HourBank";
 
 const STATUS: Record<string, [string, "tint" | "amber" | "seal" | undefined]> = {
   ok: ["Em dia", "tint"],
@@ -58,7 +59,7 @@ export function TimesheetScreen({
   from?: string;
   to?: string;
 }) {
-  const { companyId } = useCompany();
+  const { companyId, isAdmin } = useCompany();
   const router = useRouter();
   const month = monthRange(isoDate(new Date()));
   const period = { from: from ?? month.from, to: to ?? month.to };
@@ -125,6 +126,9 @@ export function TimesheetScreen({
           onChanged={sheet.reload}
         />
       ) : null}
+      {employeeId && (
+        <HourBankSection companyId={companyId} employeeId={employeeId} canEdit={isAdmin} />
+      )}
     </Screen>
   );
 }
@@ -218,7 +222,7 @@ export function TimesheetBody({
           tone={t.deficit_minutes ? "seal" : undefined}
         />
         <Stat
-          label="Saldo de horas"
+          label="Saldo do período"
           figure={hm(t.balance_minutes)}
           tone={t.balance_minutes < 0 ? "seal" : "tint"}
         />
@@ -242,7 +246,7 @@ export function TimesheetBody({
           </span>
           <span className="times">Registros</span>
           <span className="num hide-sm">Trabalho</span>
-          <span className="num">Saldo</span>
+          <span className="num">Saldo do dia</span>
           <span className="col-status hide-sm">Situação</span>
           <span />
         </div>
@@ -455,6 +459,8 @@ export function RequestSheet({
 }) {
   const [mode, setMode] = useState<Mode>("include");
   const [time, setTime] = useState("17:00");
+  // Turno noturno: a batida esquecida pode cair no dia seguinte ao da folha.
+  const [nextDay, setNextDay] = useState(false);
   const [record, setRecord] = useState<number | "">("");
   const [kind, setKind] = useState("medical");
   const [minutes, setMinutes] = useState("");
@@ -463,16 +469,15 @@ export function RequestSheet({
   const { pending, error, run } = useAction();
   if (!day) return null;
   const originals = day.marks.filter((m) => m.record_id);
-  const offset = day.marks[0] ? offsetOf(day.marks[0]) : null;
+  const nextDate = shiftDate(day.date, 1);
+  const chosenDate = nextDay ? nextDate : day.date;
 
   const submit = () =>
     run(async () => {
       if (mode === "include") {
-        const tz = offset ?? -new Date().getTimezoneOffset();
-        const sign = tz >= 0 ? "+" : "-";
-        const abs = Math.abs(tz);
-        const iso = `${day.date}T${time}:00${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
-        await onSubmit({ kind: "include", occurred_at: iso, reason });
+        // Data e hora da UNIDADE do funcionario, sem fuso: o servidor aplica o fuso da lotacao vigente
+        // naquela data (nunca o do navegador de quem digita).
+        await onSubmit({ kind: "include", occurred_local: `${chosenDate}T${time}`, reason });
       } else if (mode === "disregard") {
         await onSubmit({ kind: "disregard", record_id: Number(record), reason });
       } else {
@@ -510,12 +515,25 @@ export function RequestSheet({
           ))}
         </div>
         {mode === "include" && (
-          <Field
-            label="Que horas você deveria ter batido?"
-            hint="A batida original não é alterada. O horário só passa a valer depois que o gestor aprovar."
-          >
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
-          </Field>
+          <>
+            <Field
+              label="Que horas você deveria ter batido?"
+              hint={`A batida original não é alterada. O horário só passa a valer depois que o gestor aprovar. Vale o horário da unidade${day.timezone ? ` (${day.timezone})` : ""}.`}
+            >
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
+            </Field>
+            <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={nextDay}
+                onChange={(e) => setNextDay(e.target.checked)}
+              />
+              Foi na madrugada do dia seguinte ({dateBR(nextDate)})
+            </label>
+            <p className="muted">
+              A batida será pedida para {dateBR(chosenDate)} às {time}.
+            </p>
+          </>
         )}
         {mode === "disregard" && (
           <Field
@@ -577,7 +595,9 @@ export function RequestSheet({
   );
 }
 
-/** Deslocamento do fuso da unidade (minutos) a partir de uma marcação: hora local − instante UTC. */
-function offsetOf(m: { at: string; local: string }): number {
-  return Math.round((Date.parse(`${m.local.replace(" ", "T")}:00Z`) - Date.parse(m.at)) / 60000);
+/** Soma dias a uma data AAAA-MM-DD sem depender do fuso do navegador. */
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }

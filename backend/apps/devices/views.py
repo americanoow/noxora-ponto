@@ -125,6 +125,8 @@ class DeviceReissueView(APIView):
         if not device.unit.is_active:
             raise ValidationError({"unit": "A unidade do dispositivo está inativa."})
         with transaction.atomic():
+            if device.status == "revoked":  # volta a ocupar uma vaga de tablet do plano
+                billing.check_limit(company, "devices")
             code = services.reissue(device)
             record = device.activation_codes.filter(used_at__isnull=True).latest("id")
             audit.record(request, "device.reissued", company=company, target=device)

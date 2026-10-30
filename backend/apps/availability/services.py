@@ -98,7 +98,9 @@ def board(*, request, company, unit_id=None, sector_id=None):
                 "last_punch_at": hint["last_at"],
                 "unit_name": hint["unit_name"],
                 "likely_present": hint["count"] % 2 == 1,
-                "text": f"Última marcação às {local:%H:%M}" + (f" em {hint['unit_name']}" if hint["unit_name"] else "") + " (indício do ponto, não confirma presença)",
+                "text": f"Última marcação às {local:%H:%M}"
+                + (f" em {hint['unit_name']}" if hint["unit_name"] else "")
+                + " (indício do ponto, não confirma presença)",
             }
         group["employees"].append(item)
     return {

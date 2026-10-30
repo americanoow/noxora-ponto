@@ -8,8 +8,20 @@ import {
 import { dateBR, dateTimeBR } from "../lib/format";
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
-import { useAction, useTask } from "../lib/task";
-import { Badge, Dot, Empty, ErrorText, Field, Group, Loading, Screen, Segmented } from "../ui/kit";
+import { usePaged } from "../lib/paged";
+import { useAction } from "../lib/task";
+import {
+  Badge,
+  Dot,
+  Empty,
+  ErrorText,
+  Field,
+  Group,
+  LoadMore,
+  Loading,
+  Screen,
+  Segmented,
+} from "../ui/kit";
 
 export const STATUS_LABEL: Record<RequestStatus, [string, "amber" | "tint" | "seal" | undefined]> =
   {
@@ -32,9 +44,12 @@ const keyOf = (r: AttendanceRequest) => `${r.type}-${r.id}`;
 export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
   const { companyId } = useCompany();
   const [status, setStatus] = useState<RequestStatus | "">("pending");
-  const list = useTask(() => listRequests(companyId, status || undefined), [companyId, status]);
+  const list = usePaged(
+    (page) => listRequests(companyId, { status: status || undefined, page }),
+    [companyId, status],
+  );
   const [selected, setSelected] = useState<string | null>(null);
-  const items = list.data ?? [];
+  const items = list.items;
   const current = items.find((r) => keyOf(r) === selected) ?? items[0] ?? null;
 
   // Ao trocar o filtro, volta para o primeiro item da nova lista.
@@ -58,7 +73,7 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
         />
       }
     >
-      {list.loading && !list.data ? (
+      {list.loading && !list.ready ? (
         <Loading />
       ) : list.error ? (
         <ErrorText message={list.error} />
@@ -109,6 +124,13 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
                 );
               })}
             </div>
+            <LoadMore
+              shown={items.length}
+              total={list.count}
+              hasMore={list.hasMore}
+              loading={list.loading}
+              onMore={list.loadMore}
+            />
           </Group>
           {current && (
             <RequestDetail

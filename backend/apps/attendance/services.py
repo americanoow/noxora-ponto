@@ -22,6 +22,8 @@ from .models import (
     ClosingStatus,
     DayJustification,
     Holiday,
+    HourBankEntry,
+    HourBankKind,
     PeriodClosing,
     PunchAdjustment,
     RequestStatus,
@@ -74,7 +76,7 @@ def create_rule_set(*, company, user, params, valid_from, note=""):
     except ValueError as exc:
         raise ValidationError({"params": str(exc)}) from None
     with transaction.atomic():
-        Company.objects.select_for_update(no_key=True).get(pk=company.pk)
+        lock_company(company)
         ensure_open(company, valid_from, field="valid_from", through_future=True)
         last = CalculationRuleSet.objects.filter(company=company).order_by("-version").first()
         if CalculationRuleSet.objects.filter(company=company, valid_from=valid_from).exists():
@@ -92,10 +94,12 @@ def create_rule_set(*, company, user, params, valid_from, note=""):
 # ---------- Fechamento ----------
 
 
-def closed_period_for(company, date):
-    return PeriodClosing.objects.filter(
-        company=company, status=ClosingStatus.CLOSED, start__lte=date, end__gte=date
-    ).first()
+def lock_company(company):
+    """Bloqueio transacional comum de empresa, na mesma ordem em toda operação (empresa e depois
+    funcionário/pedido). Fechamento, criação e decisão de pedidos, feriados e regras passam por ele:
+    quem chega depois enxerga o resultado de quem chegou antes e a verificação de período fechado
+    (`ensure_open`) nunca roda com um fechamento ainda por confirmar."""
+    return Company.objects.select_for_update(no_key=True).get(pk=company.pk)
 
 
 def ensure_open(company, date, *, field="date", through_future=False):
@@ -113,14 +117,27 @@ def ensure_open(company, date, *, field="date", through_future=False):
 # ---------- Montagem da apuração ----------
 
 
-def _employee_tz(employee, end) -> ZoneInfo:
-    assignment = (
-        Assignment.objects.select_related("unit")
-        .filter(employee=employee, valid_from__lte=end)
-        .order_by("-valid_from")
-        .first()
-    )
-    return ZoneInfo(assignment.unit.timezone if assignment else DEFAULT_TZ)
+def _tz_resolver(employee):
+    """Função `data -> fuso` pela lotação vigente em cada data (uma transferência não reescreve o passado).
+
+    Sem lotação na data, vale a mais recente iniciada antes dela; sem nenhuma anterior, a primeira.
+    """
+    rows = list(Assignment.objects.select_related("unit").filter(employee=employee).order_by("valid_from"))
+    zones: dict[str, ZoneInfo] = {}
+
+    def zone(name):
+        return zones.setdefault(name, ZoneInfo(name))
+
+    def tz_for(day):
+        covering = [r for r in rows if r.valid_from <= day and (r.valid_to is None or r.valid_to >= day)]
+        if covering:
+            row = covering[-1]
+        else:
+            before = [r for r in rows if r.valid_from <= day]
+            row = before[-1] if before else (rows[0] if rows else None)
+        return zone(row.unit.timezone if row else DEFAULT_TZ)
+
+    return tz_for
 
 
 def _unit_ids_by_date(employee, start, end):
@@ -221,11 +238,13 @@ def _apply_justifications(employee, results):
 
 def compute_employee(employee, start, end) -> dict:
     """Apuração de um funcionário no período, com regras vigentes em cada dia."""
-    tz = _employee_tz(employee, end)
+    tz_for = _tz_resolver(employee)
+    tz = tz_for(end)
     ctx = calc.EmployeeContext(
         tz=tz,
         schedule_for=_schedule_lookup(employee, start, end),
         holiday_for=_holiday_lookup(employee, start, end),
+        tz_for=tz_for,
     )
     marks = effective_marks(employee, start, end)
     results, versions = [], []
@@ -250,17 +269,56 @@ def compute_employee(employee, start, end) -> dict:
     }
 
 
+def employees_in_period(queryset, start, end):
+    """Funcionários que fazem parte da apuração do período, **independentemente do estado atual**.
+
+    Entram: os ativos; os inativados durante ou depois do início do período; os inativos sem data de
+    inativação com lotação no período; e quem tem registro de ponto, ajuste ou abono no período. Assim,
+    desativar alguém antes de fechar o mês não tira suas horas já trabalhadas do fechamento nem da folha.
+    """
+    window_start = start - dt.timedelta(days=1)
+    window_end = end + dt.timedelta(days=1)
+    in_assignment = Q(assignments__valid_from__lte=end) & (
+        Q(assignments__valid_to__isnull=True) | Q(assignments__valid_to__gte=start)
+    )
+    return queryset.filter(
+        Q(is_active=True)
+        | Q(inactivated_at__date__gte=start)
+        | (Q(inactivated_at__isnull=True) & in_assignment)
+        | Q(
+            time_records__occurred_local_date__gte=window_start,
+            time_records__occurred_local_date__lte=window_end,
+        )
+        | Q(punch_adjustments__reference_date__gte=start, punch_adjustments__reference_date__lte=end)
+        | Q(justifications__date__gte=start, justifications__date__lte=end)
+    ).distinct()
+
+
 def snapshot_hash(snapshot) -> str:
     raw = json.dumps(snapshot, sort_keys=True, cls=DjangoJSONEncoder, ensure_ascii=False).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
-def close_period(*, company, user, start, end, employees):
+def incomplete_days(snapshot) -> list[dict]:
+    """Funcionários com dias de registro incompleto (número ímpar de registros) no instantâneo."""
+    out = []
+    for item in snapshot["employees"]:
+        dates = [d["date"] for d in item["days"] if d["status"] == "inconsistent"]
+        if dates:
+            out.append({**item["employee"], "dates": dates})
+    return out
+
+
+def close_period(*, company, user, start, end, employees, accept_incomplete=False, exception_reason=""):
+    """Fecha o período. Registros incompletos exigem resolução (ajuste aprovado) **ou** uma autorização
+    explícita, justificada e auditada: `accept_incomplete=True` com `exception_reason`. A exceção fica
+    gravada no instantâneo (e, portanto, no código de verificação) e nos metadados da exportação."""
     parse_period(start, end)
     if end >= timezone.localdate():
         raise ValidationError({"end": "Só é possível fechar períodos já encerrados (fim antes de hoje)."})
+    reason = (exception_reason or "").strip() if isinstance(exception_reason, str) else ""
     with transaction.atomic():
-        Company.objects.select_for_update(no_key=True).get(pk=company.pk)
+        lock_company(company)
         overlap = PeriodClosing.objects.filter(
             company=company, status=ClosingStatus.CLOSED, start__lte=end, end__gte=start
         )
@@ -282,6 +340,31 @@ def close_period(*, company, user, start, end, employees):
                 {"detail": f"Há {pending} pedido(s) pendente(s) no período. Decida antes de fechar."}
             )
         snapshot = {"employees": [compute_employee(e, start, end) for e in employees]}
+        incomplete = incomplete_days(snapshot)
+        if incomplete:
+            total = sum(len(i["dates"]) for i in incomplete)
+            if not accept_incomplete:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Há {total} dia(s) com registro incompleto em {len(incomplete)} funcionário(s). "
+                            "Resolva com um ajuste aprovado ou autorize o fechamento com exceção, "
+                            "informando o motivo."
+                        ),
+                        "code": "incomplete_marks",
+                    }
+                )
+            if len(reason) < 10:
+                raise ValidationError(
+                    {"exception_reason": "Informe o motivo da exceção (mínimo de 10 caracteres)."}
+                )
+            snapshot["exceptions"] = {
+                "kind": "incomplete_marks",
+                "reason": reason[:500],
+                "authorized_by": {"id": user.pk, "email": user.email},
+                "authorized_at": timezone.now().isoformat(),
+                "employees": incomplete,
+            }
         return PeriodClosing.objects.create(
             company=company,
             start=start,
@@ -307,6 +390,11 @@ def reopen_period(*, closing, user, reason):
         return locked
 
 
+def _plain(days):
+    """Dias sem o campo `timezone`, acrescentado depois dos primeiros fechamentos."""
+    return [{k: v for k, v in d.items() if k != "timezone"} for d in days]
+
+
 def closing_divergence(closing, employee) -> bool:
     """Verdadeiro se a apuração atual difere do instantâneo (p.ex. marcação offline chegou depois)."""
     for item in closing.snapshot.get("employees", []):
@@ -314,7 +402,7 @@ def closing_divergence(closing, employee) -> bool:
             current = json.loads(
                 json.dumps(compute_employee(employee, closing.start, closing.end), cls=DjangoJSONEncoder)
             )
-            return current["totals"] != item["totals"] or current["days"] != item["days"]
+            return current["totals"] != item["totals"] or _plain(current["days"]) != _plain(item["days"])
     return True
 
 
@@ -327,8 +415,25 @@ def _clean_reason(value, field="reason"):
     return value.strip()[:500]
 
 
-def request_adjustment(*, company, employee, user, kind, reason, record=None, occurred_at=None):
+def local_to_aware(employee, local: dt.datetime) -> dt.datetime:
+    """Interpreta data e hora **da unidade** do funcionário (lotação vigente naquela data), sem usar o fuso
+    de quem digita. Horário inexistente ou repetido por mudança de horário de verão é recusado."""
+    if local.tzinfo is not None:
+        raise ValidationError({"occurred_local": "Informe data e hora sem fuso."})
+    tz = _tz_resolver(employee)(local.date())
+    aware = local.replace(tzinfo=tz)
+    roundtrip = aware.astimezone(dt.UTC).astimezone(tz).replace(tzinfo=None)
+    if roundtrip != local or aware.replace(fold=1).utcoffset() != aware.utcoffset():
+        raise ValidationError({"occurred_local": "Horário inexistente ou repetido na mudança de horário."})
+    return aware
+
+
+def request_adjustment(
+    *, company, employee, user, kind, reason, record=None, occurred_at=None, occurred_local=None
+):
     reason = _clean_reason(reason)
+    if kind == AdjustmentKind.INCLUDE and occurred_at is None and occurred_local is not None:
+        occurred_at = local_to_aware(employee, occurred_local)
     if kind == AdjustmentKind.DISREGARD:
         if record is None or record.employee_id != employee.pk or record.company_id != company.pk:
             raise ValidationError({"record": "Marcação inválida."})
@@ -339,11 +444,14 @@ def request_adjustment(*, company, employee, user, kind, reason, record=None, oc
             raise ValidationError({"occurred_at": "Informe data e hora da marcação a incluir."})
         if occurred_at > timezone.now():
             raise ValidationError({"occurred_at": "Não é possível incluir marcação no futuro."})
-        reference = occurred_at.astimezone(_employee_tz(employee, occurred_at.date())).date()
+        reference = occurred_at.astimezone(
+            _tz_resolver(employee)(occurred_at.astimezone(dt.UTC).date())
+        ).date()
         record = None
     else:
         raise ValidationError({"kind": "Use 'include' ou 'disregard'."})
     with transaction.atomic():
+        lock_company(company)
         Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
         ensure_open(company, reference, field="occurred_at" if record is None else "record")
         if (
@@ -376,6 +484,7 @@ def request_justification(*, company, employee, user, date, kind, reason, minute
             {"minutes": "Informe minutos entre 1 e 1440, ou deixe vazio para o dia inteiro."}
         )
     with transaction.atomic():
+        lock_company(company)
         Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
         ensure_open(company, date)
         return DayJustification.objects.create(
@@ -394,7 +503,10 @@ def decide(*, model, pk, company, membership, user, approve, note="", visible_em
     """Aprova ou recusa um pedido pendente. Quem pediu não decide o próprio pedido."""
     if membership is None or membership.role not in (Role.COMPANY_ADMIN, Role.MANAGER):
         raise PermissionDenied("Você não tem permissão para esta operação.")
+    if membership.role == Role.MANAGER and not membership.can_decide_requests:
+        raise PermissionDenied("Seu acesso permite consultar solicitações, mas não decidi-las.")
     with transaction.atomic():
+        lock_company(company)
         item = (
             model.objects.select_for_update(of=("self",))
             .select_related("employee")
@@ -433,3 +545,117 @@ def cancel(*, item, user):
         locked.decided_at = timezone.now()
         locked.save(update_fields=["status", "decided_at"])
         return locked
+
+
+# ---------- Banco de horas (livro-razão separado da apuração) ----------
+
+# Sinal exigido por tipo: abatimento e pagamento só reduzem o saldo; saldo inicial e ajuste aceitam os dois.
+_BANK_SIGN = {HourBankKind.OFFSET: -1, HourBankKind.PAYOUT: -1}
+
+
+def hour_bank(employee) -> dict:
+    """Saldo do banco de horas: movimentações lançadas + saldo dos períodos **fechados** a partir do saldo
+    inicial. O saldo do período mostrado na folha de ponto não é o banco: ele só entra aqui depois do
+    fechamento, e só se houver saldo inicial lançado (sem ele, não há data de partida)."""
+    entries = list(HourBankEntry.objects.filter(employee=employee).select_related("created_by", "reverses"))
+    opening = min(
+        (e.date for e in entries if e.kind == HourBankKind.OPENING and not hasattr(e, "reversed_by")),
+        default=None,
+    )
+    accrued, periods = 0, []
+    if opening is not None:
+        for closing in PeriodClosing.objects.filter(
+            company_id=employee.company_id, status=ClosingStatus.CLOSED, start__gte=opening
+        ).order_by("start"):
+            item = next(
+                (i for i in closing.snapshot.get("employees", []) if i["employee"]["id"] == employee.pk), None
+            )
+            if item:
+                minutes = item["totals"]["balance_minutes"]
+                accrued += minutes
+                periods.append({"start": closing.start, "end": closing.end, "balance_minutes": minutes})
+    ledger = sum(e.minutes for e in entries)
+    return {
+        "employee": {"id": employee.pk, "registration": employee.registration, "name": employee.full_name},
+        "ledger_minutes": ledger,
+        "accrued_closed_minutes": accrued,
+        "balance_minutes": ledger + accrued,
+        "opening_date": opening,
+        "closed_periods": periods,
+        "notice": (
+            "O saldo soma os lançamentos abaixo e o saldo dos períodos já fechados "
+            "a partir do saldo inicial. "
+            "Regras de compensação, prazo e pagamento dependem de acordo ou convenção coletiva "
+            "e precisam ser "
+            "conferidas com especialista; o sistema não vence nem zera saldos sozinho."
+        ),
+        "entries": [
+            {
+                "id": e.pk,
+                "kind": e.kind,
+                "kind_label": e.get_kind_display(),
+                "date": e.date,
+                "minutes": e.minutes,
+                "reason": e.reason,
+                "created_by": e.created_by.email,
+                "created_at": e.created_at,
+                "reverses": e.reverses_id,
+                "reversed": hasattr(e, "reversed_by"),
+            }
+            for e in entries
+        ],
+    }
+
+
+def add_hour_bank_entry(*, company, employee, user, kind, date, minutes, reason):
+    if kind not in HourBankKind.values or kind == HourBankKind.REVERSAL:
+        raise ValidationError({"kind": "Tipo de lançamento inválido."})
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes == 0 or abs(minutes) > 100_000:
+        raise ValidationError({"minutes": "Informe os minutos (diferentes de zero), com sinal."})
+    sign = _BANK_SIGN.get(kind)
+    if sign and minutes * sign < 0:
+        raise ValidationError({"minutes": "Abatimentos e pagamentos reduzem o saldo: use minutos negativos."})
+    reason = (reason or "").strip() if isinstance(reason, str) else ""
+    if len(reason) < 5:
+        raise ValidationError({"reason": "Informe o motivo (mínimo de 5 caracteres)."})
+    with transaction.atomic():
+        lock_company(company)
+        if (
+            HourBankEntry.objects.filter(
+                employee=employee, kind=HourBankKind.OPENING, reversed_by__isnull=True
+            ).exists()
+            and kind == HourBankKind.OPENING
+        ):
+            raise ValidationError({"kind": "Já existe um saldo inicial: estorne-o antes de lançar outro."})
+        return HourBankEntry.objects.create(
+            company=company,
+            employee=employee,
+            kind=kind,
+            date=date,
+            minutes=minutes,
+            reason=reason[:300],
+            created_by=user,
+        )
+
+
+def reverse_hour_bank_entry(*, company, entry, user, reason):
+    reason = (reason or "").strip() if isinstance(reason, str) else ""
+    if len(reason) < 5:
+        raise ValidationError({"reason": "Informe o motivo do estorno (mínimo de 5 caracteres)."})
+    with transaction.atomic():
+        lock_company(company)
+        original = HourBankEntry.objects.select_for_update(of=("self",)).get(pk=entry.pk)
+        if original.kind == HourBankKind.REVERSAL:
+            raise ValidationError({"detail": "Um estorno não pode ser estornado."})
+        if HourBankEntry.objects.filter(reverses=original).exists():
+            raise ValidationError({"detail": "Este lançamento já foi estornado."})
+        return HourBankEntry.objects.create(
+            company=company,
+            employee=original.employee,
+            kind=HourBankKind.REVERSAL,
+            date=original.date,
+            minutes=-original.minutes,
+            reason=reason[:300],
+            reverses=original,
+            created_by=user,
+        )

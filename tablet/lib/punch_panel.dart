@@ -99,9 +99,24 @@ class _PunchPanelState extends State<PunchPanel> {
       _outcome = null;
       _faceMessage = null;
     });
+    // A sequência é sorteada pelo servidor: um vídeo gravado antes não a conhece.
+    final challenge = await widget.controller.requestChallenge();
+    if (!mounted) return;
+    if (challenge == null) {
+      setState(() {
+        _busy = false;
+        _faceMessage = 'Não foi possível iniciar a verificação. Confira a conexão e tente de novo.';
+      });
+      return;
+    }
+    final delays = widget.challenge;
+    final steps = [
+      for (var i = 0; i < challenge.steps.length; i++)
+        stepFromServer(challenge.steps[i], delays[i < delays.length ? i : delays.length - 1].delay),
+    ];
     final camera = (widget.cameraFactory ?? DeviceFaceCamera.new)();
     final capture = await Navigator.of(context).push<FaceCaptureResult>(
-      MaterialPageRoute(builder: (_) => FaceCaptureView(camera: camera, steps: widget.challenge)),
+      MaterialPageRoute(builder: (_) => FaceCaptureView(camera: camera, steps: steps)),
     );
     if (!mounted) return;
     if (capture == null) {
@@ -112,7 +127,12 @@ class _PunchPanelState extends State<PunchPanel> {
       return;
     }
     setState(() => _faceMessage = 'Verificando o rosto…');
-    final face = await widget.controller.verifyFace(reg, capture.image, frames: capture.frames);
+    final face = await widget.controller.verifyFace(
+      reg,
+      capture.image,
+      frames: capture.frames,
+      challengeId: challenge.id,
+    );
     if (!mounted) return;
     switch (face) {
       case FaceVerified():
@@ -400,6 +420,7 @@ const _rejectReasons = <String, String>{
   'unsupported_identification': 'identificação não aceita sem conexão',
   'unknown_registration': 'matrícula não encontrada',
   'too_old': 'registro antigo demais',
+  'origin_mismatch': 'registro feito em outro tablet ou empresa',
 };
 
 /// Pendências da fila sem conexão: quantos registros aguardam envio, recusas que exigem uma pessoa e fila ilegível.
@@ -412,7 +433,9 @@ class QueueStatus extends StatelessWidget {
     final queue = controller.queue;
     final pending = queue.pendingCount;
     final rejected = queue.items.where((i) => i.state == QueuedState.rejected).toList();
-    if (pending == 0 && rejected.isEmpty && !queue.corrupt) return const SizedBox.shrink();
+    if (pending == 0 && rejected.isEmpty && !queue.corrupt && queue.heldCount == 0) {
+      return const SizedBox.shrink();
+    }
     final offline = controller.state == DeviceState.offline;
     return Column(mainAxisSize: MainAxisSize.min, children: [
       if (queue.corrupt)
@@ -432,6 +455,16 @@ class QueueStatus extends StatelessWidget {
           ),
           TextButton(onPressed: controller.syncPending, child: const Text('Enviar agora')),
         ]),
+      if (queue.heldCount > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            '${queue.heldCount} registro(s) feito(s) por outro tablet ou outra empresa foram retidos e NÃO serão '
+            'enviados automaticamente. Procure o administrador.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: NoxoraColors.danger, fontSize: 16),
+          ),
+        ),
       for (final item in rejected)
         Row(mainAxisSize: MainAxisSize.min, children: [
           Flexible(

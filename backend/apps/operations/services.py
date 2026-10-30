@@ -6,7 +6,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from apps.companies.models import Role
+from apps.companies.models import Company, Role
 
 from .models import Assignment, Employee, EmployeeSchedule, ScheduleDay, Sector, Unit, WorkSchedule
 
@@ -97,6 +97,14 @@ def _close_previous(last, valid_from):
         last.save(update_fields=["valid_to"])
 
 
+def _ensure_no_closed_period(company, valid_from, field):
+    """Uma lotação ou jornada que passa a valer em `valid_from` muda a apuração de todas as datas dali em
+    diante: se algum fechamento ativo alcança essa data, é preciso reabri-lo antes."""
+    from apps.attendance.services import ensure_open
+
+    ensure_open(company, valid_from, field=field, through_future=True)
+
+
 def assign_unit(employee, company, unit, sector, valid_from):
     """Muda a lotação a partir de `valid_from` sem reescrever o passado."""
     if unit.company_id != company.pk or not unit.is_active:
@@ -106,6 +114,8 @@ def assign_unit(employee, company, unit, sector, valid_from):
     ):
         raise ValidationError({"sector": "Setor inválido para a unidade."})
     with transaction.atomic():
+        Company.objects.select_for_update(no_key=True).get(pk=company.pk)  # mesma ordem do fechamento
+        _ensure_no_closed_period(company, valid_from, "valid_from")
         unit = Unit.objects.select_for_update(no_key=True).get(pk=unit.pk, company=company)
         if not unit.is_active:
             raise ValidationError({"unit": "Unidade inválida."})
@@ -125,6 +135,8 @@ def assign_schedule(employee, company, schedule, valid_from):
     if schedule.company_id != company.pk or not schedule.is_active:
         raise ValidationError({"schedule": "Jornada inválida."})
     with transaction.atomic():
+        Company.objects.select_for_update(no_key=True).get(pk=company.pk)  # mesma ordem do fechamento
+        _ensure_no_closed_period(company, valid_from, "valid_from")
         schedule = WorkSchedule.objects.select_for_update(no_key=True).get(pk=schedule.pk, company=company)
         if not schedule.is_active:
             raise ValidationError({"schedule": "Jornada inválida."})

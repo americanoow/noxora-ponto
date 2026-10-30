@@ -59,3 +59,8 @@ Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](p
 - Nova identidade (D90–D98): tokens, ponto como assinatura, barra lateral agrupada, Hoje, folha de ponto com linha do tempo e painel do dia, solicitações em lista+detalhe, fechamento guiado, portal mobile e tablet Flutter.
 - Verificações: frontend 70 testes, tipos, lint e formatação limpos; tablet 78 testes e `flutter analyze` limpos. Capturas renderizadas em `docs/design/capturas/` (web). Tablet: APK de teste gerado, sem captura de tela.
 - Pendências listadas em `decisoes-tecnicas.md` (som, crachá/QR, anexos, histórico por dia, fonte no Flutter, modo escuro).
+
+## 2026-10-30 — Revisão de segurança e consistência (19 achados)
+- Corrigidos os 12 achados da primeira lista e os 7 da segunda (D99–D113): turno noturno, fechamento (inativos, incompletos com exceção, corrida), fuso por vigência, pedidos no fuso da unidade, paginação/limites explícitos, vivacidade com desafio do servidor, banco de horas, permissões do gestor, origem das batidas do tablet, TXT de folha sem truncar, jornada/lotação retroativas, MFA com limite de tentativas e login recente, intervalo × duração, prorrogação noturna, limites do plano sob bloqueio.
+- Backend: 501 testes passando no PostgreSQL (485 + 18 pulados no SQLite), `ruff` limpo. Frontend: 74 testes, tipos, lint, formatação e build limpos. Tablet: 84 testes, `flutter analyze` limpo.
+- Pendências: ver o fim da seção Revisão de segurança e consistência em `decisoes-tecnicas.md`.

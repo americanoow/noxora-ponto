@@ -39,6 +39,8 @@ export interface DayResult {
   justified_minutes: number;
   tolerance_applied: boolean;
   status: DayStatus;
+  /** Fuso da unidade em que o dia foi apurado (a lotação vigente naquela data). */
+  timezone: string;
   issues: string[];
   steps: string[];
 }
@@ -71,6 +73,14 @@ export interface ClosingSummary {
   employees: number;
   closed_by: { id: number; email: string } | null;
   closed_at: string;
+  /** Exceção autorizada para fechar com registros incompletos, quando houve. */
+  exceptions?: {
+    kind: string;
+    reason: string;
+    authorized_by: { id: number; email: string };
+    authorized_at: string;
+    employees: { id: number; name: string; registration: string; dates: string[] }[];
+  } | null;
   reopened_by: { id: number; email: string } | null;
   reopened_at: string | null;
   reopen_reason: string;
@@ -120,7 +130,7 @@ export interface JustificationRequest extends RequestBase {
 export type AttendanceRequest = AdjustmentRequest | JustificationRequest;
 
 export type NewRequest =
-  | { type?: "adjustment"; kind: "include"; occurred_at: string; reason: string }
+  | { type?: "adjustment"; kind: "include"; occurred_local: string; reason: string }
   | { type?: "adjustment"; kind: "disregard"; record_id: number; reason: string }
   | {
       type: "justification";
@@ -185,8 +195,30 @@ export const getTimesheet = (c: number, employee: number, from: string, to: stri
   request<Timesheet>("GET", `${base(c)}/timesheet/?${q({ employee, from, to })}`);
 export const getSummary = (c: number, from: string, to: string, unit?: number, page = 1) =>
   request<Page<SummaryRow>>("GET", `${base(c)}/summary/?${q({ from, to, unit, page })}`);
-export const listRequests = (c: number, status?: RequestStatus, employee?: number) =>
-  request<AttendanceRequest[]>("GET", `${base(c)}/requests/?${q({ status, employee })}`);
+export interface RequestQuery {
+  status?: RequestStatus;
+  employee?: number;
+  /** Datas de referência dos pedidos (AAAA-MM-DD). */
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+/** Pedidos paginados: `count` é o total real; nada some em silêncio. */
+export const listRequests = (c: number, query: RequestQuery = {}) =>
+  request<Page<AttendanceRequest>>(
+    "GET",
+    `${base(c)}/requests/?${q({
+      status: query.status,
+      employee: query.employee,
+      from: query.from,
+      to: query.to,
+      page: query.page,
+      page_size: query.pageSize ?? 50,
+    })}`,
+  );
+export const countRequests = async (c: number, query: RequestQuery = {}) =>
+  (await listRequests(c, { ...query, pageSize: 1 })).count;
 export const createRequest = (c: number, employeeId: number, body: NewRequest) =>
   request<AttendanceRequest>("POST", `${base(c)}/requests/`, { employee_id: employeeId, ...body });
 export const decideRequest = (c: number, item: AttendanceRequest, approve: boolean, note = "") =>
@@ -195,15 +227,63 @@ export const decideRequest = (c: number, item: AttendanceRequest, approve: boole
     `${base(c)}/${item.type === "adjustment" ? "adjustments" : "justifications"}/${item.id}/decision/`,
     { approve, note },
   );
-export const listClosings = (c: number) => request<ClosingSummary[]>("GET", `${base(c)}/closings/`);
+export const listClosings = (c: number, page = 1) =>
+  request<Page<ClosingSummary>>("GET", `${base(c)}/closings/?${q({ page })}`);
 export const getClosing = (c: number, id: number) =>
   request<
     ClosingSummary & {
       snapshot: { employees: { employee: Timesheet["employee"]; totals: Totals }[] };
     }
   >("GET", `${base(c)}/closings/${id}/`);
-export const closePeriod = (c: number, start: string, end: string) =>
-  request<ClosingSummary>("POST", `${base(c)}/closings/`, { start, end });
+/** `exceptionReason`: autoriza fechar com registros incompletos (mínimo de 10 caracteres, fica auditado). */
+export const closePeriod = (c: number, start: string, end: string, exceptionReason?: string) =>
+  request<ClosingSummary>("POST", `${base(c)}/closings/`, {
+    start,
+    end,
+    ...(exceptionReason ? { accept_incomplete: true, exception_reason: exceptionReason } : {}),
+  });
+
+// Banco de horas: livro-razão separado da apuração (lançamentos imutáveis; erro se corrige por estorno).
+export type HourBankKind = "opening" | "offset" | "payout" | "adjustment" | "reversal";
+export interface HourBank {
+  employee: { id: number; registration: string; name: string };
+  ledger_minutes: number;
+  accrued_closed_minutes: number;
+  balance_minutes: number;
+  opening_date: string | null;
+  closed_periods: { start: string; end: string; balance_minutes: number }[];
+  notice: string;
+  entries: {
+    id: number;
+    kind: HourBankKind;
+    kind_label: string;
+    date: string;
+    minutes: number;
+    reason: string;
+    created_by: string;
+    created_at: string;
+    reverses: number | null;
+    reversed: boolean;
+  }[];
+}
+export const getHourBank = (c: number, employeeId: number) =>
+  request<HourBank>("GET", `${base(c)}/employees/${employeeId}/hour-bank/`);
+export const getMyHourBank = (c: number) =>
+  request<HourBank>("GET", `/api/companies/${c}/me/hour-bank/`);
+export const addHourBankEntry = (
+  c: number,
+  employeeId: number,
+  body: { kind: Exclude<HourBankKind, "reversal">; date: string; minutes: number; reason: string },
+) => request<HourBank>("POST", `${base(c)}/employees/${employeeId}/hour-bank/`, body);
+export const reverseHourBankEntry = (
+  c: number,
+  employeeId: number,
+  entryId: number,
+  reason: string,
+) =>
+  request<HourBank>("POST", `${base(c)}/employees/${employeeId}/hour-bank/${entryId}/reverse/`, {
+    reason,
+  });
 export const reopenPeriod = (c: number, id: number, reason: string) =>
   request<ClosingSummary>("POST", `${base(c)}/closings/${id}/reopen/`, { reason });
 export const listAcknowledgements = (c: number, id: number) =>
@@ -226,8 +306,8 @@ export const deleteHoliday = (c: number, id: number) =>
 const me = (c: number) => `/api/companies/${c}/me`;
 export const getMyTimesheet = (c: number, from: string, to: string) =>
   request<Timesheet>("GET", `${me(c)}/timesheet/?${q({ from, to })}`);
-export const listMyRequests = (c: number) =>
-  request<AttendanceRequest[]>("GET", `${me(c)}/requests/`);
+export const listMyRequests = (c: number, page = 1) =>
+  request<Page<AttendanceRequest>>("GET", `${me(c)}/requests/?${q({ page, page_size: 50 })}`);
 export const createMyRequest = (c: number, body: NewRequest) =>
   request<AttendanceRequest>("POST", `${me(c)}/requests/`, body);
 export const cancelMyRequest = (c: number, item: AttendanceRequest) =>

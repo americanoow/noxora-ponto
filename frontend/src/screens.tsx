@@ -128,6 +128,43 @@ export function MembersPanel({ companyId, myRole }: { companyId: number; myRole:
             >
               {m.is_active ? "Bloquear acesso" : "Liberar acesso"}
             </button>
+            {m.role === "manager" && (
+              <fieldset style={{ border: 0, padding: 0, margin: "4px 0 0" }}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={m.can_request_adjustments}
+                    onChange={(e) =>
+                      void run(async () => {
+                        await updateMember(companyId, m.id, {
+                          can_request_adjustments: e.target.checked,
+                        });
+                        await load();
+                      })
+                    }
+                  />{" "}
+                  Pode fazer solicitações pela equipe
+                </label>{" "}
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={m.can_decide_requests}
+                    onChange={(e) =>
+                      void run(async () => {
+                        await updateMember(companyId, m.id, {
+                          can_decide_requests: e.target.checked,
+                        });
+                        await load();
+                      })
+                    }
+                  />{" "}
+                  Pode aprovar ou recusar solicitações
+                </label>
+                {!m.can_request_adjustments && !m.can_decide_requests && (
+                  <small> Acesso só de consulta.</small>
+                )}
+              </fieldset>
+            )}
           </li>
         ))}
       </ul>

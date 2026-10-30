@@ -45,6 +45,7 @@ def test_nenhuma_rota_vaza_para_outra_empresa(tenant_a, tenant_b):
         "sector_id": 1,
         "holiday_id": 1,
         "item_id": 1,
+        "entry_id": 1,
         "kind": "adjustments",
     }
     query = f"?employee={w.employee.pk}&from={MON}&to={MON}&unit={w.unit.pk}"

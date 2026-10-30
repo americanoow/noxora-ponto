@@ -256,14 +256,15 @@ class EmployeeDetailView(APIView):
         if "access_email" in v:
             employee.access_user = _resolve_access_user(company, v["access_email"])
             changed.append("access_user")
+        activating = "is_active" in v and v["is_active"] and not employee.is_active
         if "is_active" in v and v["is_active"] != employee.is_active:
-            if v["is_active"]:
-                billing.check_limit(company, "employees")
             employee.is_active = v["is_active"]
             employee.inactivated_at = None if v["is_active"] else timezone.now()
             changed += ["is_active", "inactivated_at"]
         try:
             with transaction.atomic():
+                if activating:  # reativar também ocupa uma vaga do plano: mesma verificação sob bloqueio
+                    billing.check_limit(company, "employees")
                 if changed:
                     employee.save(update_fields=changed)
                 audit.record(

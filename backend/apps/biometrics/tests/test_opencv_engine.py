@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.biometrics import engines, engines_opencv
@@ -81,6 +82,10 @@ def engine():
         "borrado": {"faces": [face_row()], "vec": pessoa, "sharp": 1.0},
         "fraco": {"faces": [face_row(score=0.5)], "vec": pessoa},
     }
+    for i in range(1, 4):  # quadros distintos do desafio: esquerda = yaw +, direita = yaw -
+        e.script[f"esq{i}"] = {"faces": [face_row(yaw=0.25 + i * 0.01)], "vec": proxima}
+        e.script[f"dir{i}"] = {"faces": [face_row(yaw=-0.25 - i * 0.01)], "vec": proxima}
+        e.script[f"cen{i}"] = {"faces": [face_row(yaw=0.01 * i)], "vec": proxima}
     return e
 
 
@@ -103,18 +108,57 @@ def test_cadastro_com_pessoas_diferentes_e_recusado(engine):
         engine.enroll([img("frente"), img("outra")])
 
 
-def test_desafio_de_movimento(engine):
+def frames_for(steps):
+    return tuple(
+        img(f"{'esq' if s == 'left' else 'dir' if s == 'right' else 'cen'}{i}")
+        for i, s in enumerate(steps[1:], 1)
+    )
+
+
+def test_desafio_de_movimento_segue_a_sequencia_pedida(engine):
     template = engine.enroll([img("frente")]).template
-    passou = engine.verify(template, img("frente2"), (img("virado"),))
+    steps = ("center", "left", "right", "left")
+    passou = engine.verify(template, img("frente2"), frames_for(steps), steps)
     assert passou.matched and passou.liveness == "passed"
+    # Sequência trocada: quem gravou "esquerda, direita, esquerda" não passa se pedirem outra ordem.
+    outra = ("center", "right", "left", "right")
+    assert engine.verify(template, img("frente2"), frames_for(steps), outra).liveness == "failed"
+    # Sem a sequência pedida pelo servidor não há prova de vivacidade.
+    assert engine.verify(template, img("frente2"), frames_for(steps)).liveness == "failed"
+    # Quantidade de quadros diferente da pedida.
+    assert engine.verify(template, img("frente2"), frames_for(steps)[:2], steps).liveness == "failed"
     # Foto parada: a pose não muda.
-    assert engine.verify(template, img("frente2"), (img("frente"),)).liveness == "failed"
-    # Mesmo arquivo repetido.
-    assert engine.verify(template, img("frente2"), (img("frente2"),)).liveness == "failed"
+    assert (
+        engine.verify(template, img("frente2"), (img("frente"),) * 1, ("center", "left")).liveness == "failed"
+    )
+    # Mesmo arquivo repetido em todos os passos.
+    assert (
+        engine.verify(template, img("frente2"), (img("esq1"), img("esq1"), img("esq1")), steps).liveness
+        == "failed"
+    )
     # Troca de pessoa no meio do desafio.
-    assert engine.verify(template, img("frente2"), (img("outra_virada"),)).liveness == "failed"
+    assert (
+        engine.verify(
+            template, img("frente2"), (img("outra_virada"), img("dir2"), img("esq3")), steps
+        ).liveness
+        == "failed"
+    )
     # Quadro sem rosto.
-    assert engine.verify(template, img("frente2"), (img("nenhum"),)).liveness == "failed"
+    assert (
+        engine.verify(template, img("frente2"), (img("nenhum"), img("dir2"), img("esq3")), steps).liveness
+        == "failed"
+    )
+    # O primeiro passo precisa ser "de frente".
+    assert (
+        engine.verify(template, img("frente2"), frames_for(steps), ("left", *steps[1:])).liveness == "failed"
+    )
+
+
+def test_sentido_espelhado_e_configuravel(engine, settings):
+    template = engine.enroll([img("frente")]).template
+    steps = ("center", "left", "right", "left")
+    settings.BIOMETRIC_YAW_LEFT_SIGN = -1  # imagem espelhada: a mesma captura já não é "esquerda"
+    assert engine.verify(template, img("frente2"), frames_for(steps), steps).liveness == "failed"
 
 
 def test_template_de_outro_motor_e_recusado(engine):
@@ -177,12 +221,21 @@ def opencv_world(tenant_a, settings, engine):
     engines_module.get_engine = original
 
 
-def _verify_and_punch(client, b64, frames):
-    r = client.post(
-        "/api/device/face/verify/",
-        {"registration": "1", "image": b64(img("frente2")), "frames": [b64(img(f)) for f in frames]},
-        format="json",
-    )
+def _challenge(client):
+    r = client.post("/api/device/face/challenge/", {}, format="json")
+    assert r.status_code == 201
+    return r.json()
+
+
+def _verify_and_punch(client, b64, frames=None, *, challenge=None, send_challenge=True):
+    """`frames=None`: segue o desafio emitido; lista: envia exatamente esses quadros."""
+    challenge = challenge or (_challenge(client) if frames is None or send_challenge else None)
+    if frames is None:
+        frames = [f"{'esq' if s == 'left' else 'dir'}{i}" for i, s in enumerate(challenge["steps"][1:], 1)]
+    payload = {"registration": "1", "image": b64(img("frente2")), "frames": [b64(img(f)) for f in frames]}
+    if send_challenge and challenge:
+        payload["challenge_id"] = challenge["challenge_id"]
+    r = client.post("/api/device/face/verify/", payload, format="json")
     body = r.json()
     punch = None
     if body.get("outcome") == "success":
@@ -204,11 +257,11 @@ def _verify_and_punch(client, b64, frames):
 
 def test_politica_certificada_recusa_desafio_basico(opencv_world):
     _, client, b64 = opencv_world
-    body, punch = _verify_and_punch(client, b64, ["virado"])
+    body, punch = _verify_and_punch(client, b64)
     assert body["outcome"] == "success" and body["liveness"] == "passed"
     assert body["liveness_accepted"] is False
     assert punch.status_code == 400 and not TimeRecord.objects.exists()
-    assert VerificationAttempt.objects.get().liveness_method == "motion_challenge_v1"
+    assert VerificationAttempt.objects.get().liveness_method == "motion_challenge_v2"
 
 
 def test_politica_basica_aceita_desafio_e_auditoria(opencv_world):
@@ -220,12 +273,59 @@ def test_politica_basica_aceita_desafio_e_auditoria(opencv_world):
         format="json",
     )
     assert r.status_code == 200 and r.json()["face_liveness_policy"] == "basic_challenge"
-    body, punch = _verify_and_punch(client, b64, ["virado"])
+    body, punch = _verify_and_punch(client, b64)
     assert "liveness_accepted" not in body and punch.status_code == 201
     assert TimeRecord.objects.get().identification_method == "face"
     # Sem quadros não há prova de vivacidade: nem a política básica aceita.
-    body, punch = _verify_and_punch(client, b64, [])
+    body, punch = _verify_and_punch(client, b64, [], send_challenge=False)
     assert body["liveness"] == "not_performed" and punch.status_code == 400
+
+
+def test_desafio_e_imprevisivel_de_uso_unico_e_do_proprio_tablet(opencv_world):
+    tenant, client, b64 = opencv_world
+    admin = tenant.client("company_admin")
+    admin.patch(
+        f"/api/companies/{tenant.company.pk}/identification/",
+        {"face_liveness_policy": "basic_challenge"},
+        format="json",
+    )
+    sequences = {tuple(_challenge(client)["steps"]) for _ in range(25)}
+    assert len(sequences) > 1  # a sequência varia entre desafios
+    assert all(s[0] == "center" and {"left", "right"} <= set(s) and len(s) == 4 for s in sequences)
+    # Uso único: repetir o MESMO envio com o mesmo desafio reprova na vivacidade.
+    challenge = _challenge(client)
+    first, _ = _verify_and_punch(client, b64, challenge=challenge)
+    assert first["liveness"] == "passed"
+    replay, punch = _verify_and_punch(client, b64, challenge=challenge)
+    assert replay["liveness"] == "failed" and punch is None
+    # Sequência diferente da pedida: reprova (mesmo com rosto certo).
+    other = _challenge(client)
+    wrong = ["dir1" if s == "left" else "esq1" for s in other["steps"][1:]]
+    wrong = [f"{n[:3]}{i}" for i, n in enumerate(wrong, 1)]
+    body, _ = _verify_and_punch(client, b64, wrong, challenge=other)
+    assert body["liveness"] == "failed"
+    # Desafio vencido ou inexistente: reprova.
+    from apps.biometrics.models import LivenessChallenge
+
+    old = _challenge(client)
+    LivenessChallenge.objects.filter(pk=old["challenge_id"]).update(
+        expires_at=timezone.now() - datetime.timedelta(seconds=1)
+    )
+    assert _verify_and_punch(client, b64, challenge=old)[0]["liveness"] == "failed"
+    ghost = {"challenge_id": 999999, "steps": ["center", "left", "right", "left"]}
+    assert _verify_and_punch(client, b64, challenge=ghost)[0]["liveness"] == "failed"
+    # Desafio emitido para outro tablet não vale.
+    other_device = Device.objects.create(
+        company=tenant.company, unit=Unit.objects.filter(company=tenant.company).first(), name="Outro"
+    )
+    foreign = LivenessChallenge.objects.create(
+        company=tenant.company,
+        device=other_device,
+        steps=["center", "left", "right", "left"],
+        expires_at=timezone.now() + datetime.timedelta(seconds=30),
+    )
+    stolen = {"challenge_id": foreign.pk, "steps": foreign.steps}
+    assert _verify_and_punch(client, b64, challenge=stolen)[0]["liveness"] == "failed"
 
 
 def test_gestor_nao_altera_politica_de_vivacidade(opencv_world):
@@ -242,7 +342,7 @@ def test_quadros_demais_sao_recusados(opencv_world):
     _, client, b64 = opencv_world
     r = client.post(
         "/api/device/face/verify/",
-        {"registration": "1", "image": b64(img("frente2")), "frames": [b64(img("virado"))] * 5},
+        {"registration": "1", "image": b64(img("frente2")), "frames": [b64(img("esq1"))] * 5},
         format="json",
     )
     assert r.status_code == 400

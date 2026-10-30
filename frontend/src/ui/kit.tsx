@@ -192,6 +192,38 @@ export function ErrorText({ message }: { message: string | null | undefined }) {
   return message ? <p role="alert">{message}</p> : null;
 }
 
+/** Rodapé de listas paginadas: diz quantos itens aparecem do total real e oferece "Mostrar mais". */
+export function LoadMore({
+  shown,
+  total,
+  hasMore,
+  loading,
+  onMore,
+}: {
+  shown: number;
+  total: number;
+  hasMore: boolean;
+  loading: boolean;
+  onMore: () => void;
+}) {
+  if (!total) return null;
+  return (
+    <p
+      className="muted"
+      style={{ display: "flex", gap: 12, alignItems: "center", margin: "8px 0" }}
+    >
+      <span>
+        Mostrando {shown} de {total}.
+      </span>
+      {hasMore && (
+        <button className="plain" disabled={loading} onClick={onMore}>
+          {loading ? "Carregando…" : "Mostrar mais"}
+        </button>
+      )}
+    </p>
+  );
+}
+
 export function Field({
   label,
   children,

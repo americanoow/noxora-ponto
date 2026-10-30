@@ -20,6 +20,7 @@ const admin = {
 function day(partial: Partial<DayResult>): DayResult {
   return {
     date: "2026-10-19",
+    timezone: "America/Sao_Paulo",
     holiday: "",
     planned: {
       start: "2026-10-19T11:00:00+00:00",
@@ -182,9 +183,39 @@ describe("Espelho de ponto", () => {
     expect(sent).toEqual({
       employee_id: 4,
       kind: "include",
-      occurred_at: "2026-10-19T17:30:00-03:00",
+      occurred_local: "2026-10-19T17:30",
       reason: "Esqueci a saída",
     });
+  });
+
+  it("turno noturno: permite pedir a batida na madrugada do dia seguinte, sem fuso do navegador", async () => {
+    window.location.hash = "#/timesheet?employeeId=4&from=2026-10-19&to=2026-10-19";
+    routes["GET /api/companies/7/attendance/timesheet/"] = () => ({ body: sheet });
+    routes["GET /api/companies/7/employees/"] = () => ({
+      body: { count: 0, next: null, previous: null, results: [] },
+    });
+    routes["POST /api/companies/7/attendance/requests/"] = () => ({ status: 201, body: {} });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /seg 19\/10/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pedir ajuste/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/Que horas você deveria ter batido/), {
+      target: { value: "07:00" },
+    });
+    fireEvent.click(within(dialog).getByLabelText(/madrugada do dia seguinte/));
+    expect(within(dialog).getByText(/20\/10\/2026 às 07:00/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/Explique o motivo/), {
+      target: { value: "Esqueci a saída" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar solicitação" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.endsWith("/attendance/requests/"))).toBe(true),
+    );
+    const sent = JSON.parse(
+      String(calls.find((c) => c.url.endsWith("/attendance/requests/"))!.init!.body),
+    );
+    expect(sent.occurred_local).toBe("2026-10-20T07:00");
+    expect(sent.occurred_at).toBeUndefined();
   });
 });
 
@@ -208,7 +239,9 @@ describe("Solicitações", () => {
       minutes: null,
       document_ref: "",
     };
-    routes["GET /api/companies/7/attendance/requests/"] = () => ({ body: [pending] });
+    routes["GET /api/companies/7/attendance/requests/"] = () => ({
+      body: { count: 1, next: null, previous: null, results: [pending] },
+    });
     routes["POST /api/companies/7/attendance/justifications/9/decision/"] = (init) => {
       const body = JSON.parse(String(init!.body));
       return body.approve || body.note
@@ -241,5 +274,134 @@ describe("Login com segundo fator", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
     expect(await screen.findByRole("navigation", { name: "Menu principal" })).toBeInTheDocument();
     expect(calls.some((c) => c.url === "/api/auth/mfa/verify/")).toBe(true);
+  });
+});
+
+const page = <T,>(results: T[], count = results.length) => ({
+  body: { count, next: null, previous: null, results },
+});
+
+describe("Fechamento com exceção", () => {
+  it("só pede o motivo depois que o servidor recusa por registro incompleto e envia a exceção", async () => {
+    window.location.hash = "#/closings";
+    routes["GET /api/companies/7/attendance/closings/"] = () => page([]);
+    routes["GET /api/companies/7/attendance/requests/"] = () => page([], 0);
+    routes["GET /api/companies/7/devices/"] = () => ({ body: [] });
+    routes["GET /api/companies/7/attendance/summary/"] = () => page([]);
+    let attempt = 0;
+    routes["POST /api/companies/7/attendance/closings/"] = () => {
+      attempt += 1;
+      return attempt === 1
+        ? {
+            status: 400,
+            body: { detail: "Há 1 dia(s) com registro incompleto.", code: "incomplete_marks" },
+          }
+        : { status: 201, body: { id: 5 } };
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fechar o mês" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar" }));
+    fireEvent.click(await screen.findByLabelText(/Revisei as pendências/));
+    expect(screen.queryByLabelText(/Motivo da exceção/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fechar período" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/registro incompleto/);
+    const reason = await screen.findByLabelText(/Motivo da exceção/);
+    const button = screen.getByRole("button", { name: "Fechar com exceção" });
+    expect(button).toBeDisabled();
+    fireEvent.change(reason, { target: { value: "Funcionário em férias coletivas" } });
+    fireEvent.click(button);
+    await waitFor(() => expect(attempt).toBe(2));
+    const posts = calls.filter((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(posts[1].init!.body))).toMatchObject({
+      accept_incomplete: true,
+      exception_reason: "Funcionário em férias coletivas",
+    });
+    expect(JSON.parse(String(posts[0].init!.body)).accept_incomplete).toBeUndefined();
+  });
+});
+
+describe("Banco de horas", () => {
+  const bank = {
+    employee: { id: 4, registration: "1003", name: "Diego" },
+    ledger_minutes: 120,
+    accrued_closed_minutes: 30,
+    balance_minutes: 150,
+    opening_date: "2026-09-01",
+    closed_periods: [],
+    notice: "Regras de compensação dependem de acordo ou convenção coletiva.",
+    entries: [
+      {
+        id: 1,
+        kind: "opening",
+        kind_label: "Saldo inicial",
+        date: "2026-09-01",
+        minutes: 120,
+        reason: "Saldo migrado",
+        created_by: "adm@a.test",
+        created_at: "2026-09-01T10:00:00Z",
+        reverses: null,
+        reversed: false,
+      },
+    ],
+  };
+
+  it("mostra o banco separado do saldo do período e lança abatimento com sinal negativo", async () => {
+    window.location.hash = "#/timesheet?employeeId=4&from=2026-10-19&to=2026-10-19";
+    routes["GET /api/companies/7/attendance/timesheet/"] = () => ({ body: sheet });
+    routes["GET /api/companies/7/employees/"] = () => page([], 0);
+    routes["GET /api/companies/7/attendance/employees/4/hour-bank/"] = () => ({ body: bank });
+    routes["POST /api/companies/7/attendance/employees/4/hour-bank/"] = () => ({
+      status: 201,
+      body: bank,
+    });
+    render(<App />);
+    expect(await screen.findByText("Saldo do período")).toBeInTheDocument();
+    expect(await screen.findByText("Saldo do banco")).toBeInTheDocument();
+    expect(screen.getByText("+02:30")).toBeInTheDocument();
+    expect(screen.getByText(/convenção coletiva/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Novo lançamento" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/^Tipo/), { target: { value: "offset" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Horas/), { target: { value: "2" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Motivo/), {
+      target: { value: "Folga compensada" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lançar" }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.url.endsWith("/employees/4/hour-bank/") && c.init?.method === "POST"),
+      ).toBe(true),
+    );
+    const sent = JSON.parse(
+      String(
+        calls.find((c) => c.url.endsWith("/employees/4/hour-bank/") && c.init?.method === "POST")!
+          .init!.body,
+      ),
+    );
+    expect(sent).toMatchObject({ kind: "offset", minutes: -120, reason: "Folga compensada" });
+  });
+});
+
+describe("Conta: operações sensíveis", () => {
+  it("pede a senha de novo quando o servidor exige login recente e repete a ação", async () => {
+    window.location.hash = "#/account";
+    let starts = 0;
+    routes["POST /api/auth/mfa/"] = () => {
+      starts += 1;
+      return starts === 1
+        ? { status: 403, body: { detail: "confirme", code: "reauth_required" } }
+        : { body: { secret: "ABCDEFGHIJKLMNOP", otpauth_uri: "otpauth://totp/x" } };
+    };
+    routes["POST /api/auth/reauth/"] = () => ({ status: 204, body: {} });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Começar a configurar" }));
+    fireEvent.change(await screen.findByLabelText("Senha"), {
+      target: { value: "senha-longa-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar senha" }));
+    expect(await screen.findByText(/Chave para digitar no aplicativo/)).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/api/auth/reauth/")).toBe(true);
+    expect(starts).toBe(2);
   });
 });

@@ -230,6 +230,22 @@ class IdentificationModeView(BiometricView):
 # ---------- API do tablet ----------
 
 
+class FaceChallengeView(DeviceView):
+    """Emite o desafio de movimento (sequência imprevisível, uso único, prazo curto) para este tablet."""
+
+    def post(self, request):
+        challenge = services.issue_challenge(request.device)
+        return Response(
+            {
+                "challenge_id": challenge.pk,
+                "steps": challenge.steps,
+                "expires_at": challenge.expires_at,
+            },
+            status=201,
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 class FaceVerifyView(DeviceView):
     parser_classes = [BoundedJSONParser]
 
@@ -247,7 +263,13 @@ class FaceVerifyView(DeviceView):
         employee = ops_services.employee_for_device(request.device, registration)
         if employee is None:
             raise Http404
-        attempt = services.verify_face(device=request.device, employee=employee, image=image, frames=frames)
+        attempt = services.verify_face(
+            device=request.device,
+            employee=employee,
+            image=image,
+            frames=frames,
+            challenge_id=request.data.get("challenge_id"),
+        )
         body = {"outcome": attempt.outcome, "liveness": attempt.liveness}
         if (
             attempt.outcome == Outcome.SUCCESS

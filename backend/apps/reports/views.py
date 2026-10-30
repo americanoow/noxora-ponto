@@ -24,6 +24,10 @@ from apps.timeclock.serializers import record_dict
 from . import exports
 from .models import TimesheetAcknowledgement
 
+# Arquivos são gerados por inteiro ou recusados com uma mensagem: nunca truncados em silêncio.
+SUMMARY_EXPORT_LIMIT = 2000
+RECORDS_EXPORT_LIMIT = 50000
+
 RECENT_RECEIPTS_HOURS = 48  # Portaria 671, art. 80: extração pelo trabalhador das últimas 48 h
 
 
@@ -96,7 +100,7 @@ class MyClosingsView(APIView):
             for a in TimesheetAcknowledgement.objects.filter(employee=employee)
         }
         out = []
-        for c in PeriodClosing.objects.filter(company=company).order_by("-start")[:36]:
+        for c in PeriodClosing.objects.filter(company=company).order_by("-start", "-id"):
             if not any(e["employee"]["id"] == employee.pk for e in c.snapshot.get("employees", [])):
                 continue
             out.append(
@@ -245,7 +249,7 @@ class SummaryExportView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
         start, end = _period(request)
-        employees = ops_services.visible_employees(request, company).filter(is_active=True)
+        employees = att.employees_in_period(ops_services.visible_employees(request, company), start, end)
         if unit := request.query_params.get("unit"):
             employees = employees.filter(assignments__unit_id=_int_param(unit, "unit")).distinct()
         header = [
@@ -265,8 +269,17 @@ class SummaryExportView(APIView):
             "dias_inconsistentes",
             "saldo_min",
         ]
+        total = employees.count()
+        if total > SUMMARY_EXPORT_LIMIT:
+            raise ValidationError(
+                {
+                    "detail": f"O resumo teria {total} funcionários "
+                    f"(limite de {SUMMARY_EXPORT_LIMIT} por arquivo). "
+                    "Filtre por unidade para gerar arquivos completos."
+                }
+            )
         rows = []
-        for e in employees.order_by("full_name", "id")[:2000]:
+        for e in employees.order_by("full_name", "id"):
             t = att.compute_employee(e, start, end)["totals"]
             by_rate = dict(t["overtime_by_rate"])
             rows.append(
@@ -331,8 +344,17 @@ class TimeRecordsExportView(APIView):
             "sinalizacoes",
             "hash_sha256",
         ]
+        total = qs.count()
+        if total > RECORDS_EXPORT_LIMIT:
+            raise ValidationError(
+                {
+                    "detail": f"O período tem {total} registros "
+                    f"(limite de {RECORDS_EXPORT_LIMIT} por arquivo). "
+                    "Reduza o período ou filtre por unidade para gerar arquivos completos."
+                }
+            )
         rows = []
-        for r in qs.order_by("unit_id", "nsr")[:50000]:
+        for r in qs.order_by("unit_id", "nsr"):
             offset = dt.timezone(dt.timedelta(minutes=r.occurred_offset_minutes))
             rows.append(
                 [

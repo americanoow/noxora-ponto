@@ -107,3 +107,20 @@ def test_ciencia_do_espelho_fechado(world):
 def test_csv_neutraliza_formulas():
     assert safe_cell("=HYPERLINK(1)") == "'=HYPERLINK(1)" and safe_cell("-1") == "'-1" and safe_cell(5) == "5"
     assert csv_bytes(["a"], [["@x"]]).decode("utf-8-sig") == "a\r\n'@x\r\n"
+
+
+def test_exportacoes_grandes_sao_recusadas_e_nunca_truncadas(world, monkeypatch):
+    from apps.reports import views as report_views
+
+    world.day(MON, "08:00", "12:00", "13:00", "18:00")
+    q = {"from": MON.isoformat(), "to": MON.isoformat()}
+    admin = world.tenant.client("company_admin")
+    monkeypatch.setattr(report_views, "RECORDS_EXPORT_LIMIT", 2)
+    r = admin.get(world.url("reports/time-records.csv"), q)
+    assert r.status_code == 400 and "4 registros" in r.json()["detail"]
+    monkeypatch.setattr(report_views, "SUMMARY_EXPORT_LIMIT", 0)
+    r = admin.get(world.url("reports/summary.csv"), q)
+    assert r.status_code == 400 and "funcionários" in r.json()["detail"]
+    # Dentro do limite o arquivo sai completo.
+    monkeypatch.setattr(report_views, "RECORDS_EXPORT_LIMIT", 50000)
+    assert admin.get(world.url("reports/time-records.csv"), q).status_code == 200

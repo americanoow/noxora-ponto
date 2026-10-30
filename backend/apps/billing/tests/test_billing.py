@@ -149,3 +149,54 @@ def test_plataforma(tenant_a, platform_admin):
         == 400
     )
     assert tenant_a.client("company_admin").get("/api/platform/subscriptions/").status_code == 403
+
+
+def test_limite_do_plano_e_verificado_sob_bloqueio_da_empresa(tenant_a):
+    """`check_limit` toma o bloqueio da empresa antes de contar (FOR NO KEY UPDATE em PostgreSQL)."""
+    from django.db import connection, transaction
+    from django.test.utils import CaptureQueriesContext
+
+    start(tenant_a)
+    with CaptureQueriesContext(connection) as ctx, transaction.atomic():
+        services.check_limit(tenant_a.company, "employees")
+    sql = [q["sql"] for q in ctx.captured_queries]
+    if connection.vendor == "postgresql":
+        lock = next(i for i, q in enumerate(sql) if "companies_company" in q and "FOR NO KEY UPDATE" in q)
+        count = next(i for i, q in enumerate(sql) if "operations_employee" in q and "COUNT" in q)
+        assert lock < count
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_cadastros_simultaneos_nao_passam_do_limite_do_plano(tenant_a):
+    import threading
+
+    from django.db import connection
+
+    if connection.vendor != "postgresql":
+        pytest.skip("Concorrência real exige PostgreSQL")
+    # Com `transaction=True` as tabelas são esvaziadas: o plano de teste é criado aqui.
+    Plan.objects.create(
+        code="um", name="Um", base_price_cents=0, price_per_employee_cents=0, max_employees=1, max_devices=1
+    )
+    start(tenant_a, code="um")
+    results, barrier = [], threading.Barrier(2)
+
+    def add(registration):
+        from django.db import transaction
+
+        try:
+            barrier.wait(5)
+            with transaction.atomic():
+                services.check_limit(tenant_a.company, "employees")
+                Employee.objects.create(company=tenant_a.company, registration=registration, full_name="X")
+            results.append("ok")
+        except Exception as exc:  # noqa: BLE001
+            results.append(type(exc).__name__)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=add, args=(r,)) for r in ("1", "2")]
+    [t.start() for t in threads]
+    [t.join(15) for t in threads]
+    assert sorted(results) == ["ValidationError", "ok"]
+    assert Employee.objects.filter(company=tenant_a.company).count() == 1

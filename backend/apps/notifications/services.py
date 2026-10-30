@@ -94,9 +94,3 @@ def process(*, limit: int = 50) -> dict:
                     counts["sent"] += 1
             item.save()
     return counts
-
-
-def stats() -> dict:
-    from django.db.models import Count
-
-    return dict(OutboundEmail.objects.values_list("status").annotate(n=Count("id")))

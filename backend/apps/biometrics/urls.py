@@ -23,5 +23,6 @@ urlpatterns = [
 ]
 
 device_urlpatterns = [
+    path("face/challenge/", views.FaceChallengeView.as_view(), name="device-face-challenge"),
     path("face/verify/", views.FaceVerifyView.as_view(), name="device-face-verify"),
 ]

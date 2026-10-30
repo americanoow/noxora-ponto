@@ -9,6 +9,7 @@ import {
 import {
   changePlan,
   confirmMfa,
+  reauthenticate,
   createPayrollProfile,
   disableMfa,
   downloads,
@@ -22,6 +23,7 @@ import { getIdentificationMode, setIdentificationPolicy } from "../biometricsApi
 import { dateBR, dateTimeBR, isoDate, money, monthRange } from "../lib/format";
 import { useObservable } from "../lib/observable";
 import { useCompany, useSession } from "../lib/session";
+import { usePaged } from "../lib/paged";
 import { useAction, useTask } from "../lib/task";
 import { listUnits } from "../operationsApi";
 import { EmployerTab } from "../TimeclockTab";
@@ -32,11 +34,13 @@ import {
   ErrorText,
   Field,
   Group,
+  LoadMore,
   Loading,
   Row,
   Screen,
   Sheet,
 } from "../ui/kit";
+import { ApiError } from "../http";
 import { PeriodPicker } from "./Timesheet";
 
 // ---------- Regras e feriados ----------
@@ -306,8 +310,11 @@ export function ReportsScreen() {
   const month = monthRange(isoDate(new Date()));
   const [period, setPeriod] = useState(month);
   const units = useTask(() => listUnits(companyId), [companyId]);
-  const files = useTask(
-    async () => (isAdmin ? listGeneratedFiles(companyId) : []),
+  const files = usePaged(
+    async (page) =>
+      isAdmin
+        ? listGeneratedFiles(companyId, page)
+        : { count: 0, next: null, previous: null, results: [] },
     [companyId, isAdmin],
   );
   const profiles = useTask(
@@ -396,7 +403,7 @@ export function ReportsScreen() {
             )}
           </Group>
           <Group title="Arquivos gerados">
-            {files.data?.length ? (
+            {files.items.length ? (
               <table>
                 <thead>
                   <tr>
@@ -408,7 +415,7 @@ export function ReportsScreen() {
                   </tr>
                 </thead>
                 <tbody>
-                  {files.data.map((f) => (
+                  {files.items.map((f) => (
                     <tr key={f.id}>
                       <td>{f.kind === "afd" ? "Fiscalização (AFD)" : "Folha de pagamento"}</td>
                       <td>
@@ -436,6 +443,13 @@ export function ReportsScreen() {
             ) : (
               <Empty title="Nenhum arquivo gerado ainda" />
             )}
+            <LoadMore
+              shown={files.items.length}
+              total={files.count}
+              hasMore={files.hasMore}
+              loading={files.loading}
+              onMore={files.loadMore}
+            />
           </Group>
           {profiles.data && (
             <ProfileSheet
@@ -750,6 +764,21 @@ export function AccountScreen() {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const { pending, error, run } = useAction();
+  // Operacoes sensiveis exigem login recente: se o servidor pedir, a senha e confirmada e a acao repetida.
+  const [retry, setRetry] = useState<(() => Promise<void>) | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const guarded = (action: () => Promise<void>) =>
+    run(async () => {
+      try {
+        await action();
+      } catch (e) {
+        if (e instanceof ApiError && e.body.code === "reauth_required") {
+          setRetry(() => action);
+          return;
+        }
+        throw e;
+      }
+    });
   return (
     <Screen title="Minha conta" subtitle={me.email}>
       <Group
@@ -757,7 +786,39 @@ export function AccountScreen() {
         padded
         footer="Além da senha, você digita um código de 6 números que aparece no seu celular, em um aplicativo como o Google Authenticator ou o Microsoft Authenticator. Recomendado para quem administra a empresa."
       >
-        {codes ? (
+        {retry ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                await reauthenticate(confirmPassword);
+                setConfirmPassword("");
+                const again = retry;
+                setRetry(null);
+                await guarded(again);
+              });
+            }}
+          >
+            <p>Por segurança, confirme sua senha para continuar.</p>
+            <Field label="Senha">
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+            <div className="actions">
+              <button type="button" onClick={() => setRetry(null)}>
+                Cancelar
+              </button>
+              <button type="submit" className="primary" disabled={pending}>
+                Confirmar senha
+              </button>
+            </div>
+          </form>
+        ) : codes ? (
           <>
             <p>
               Guarde estes códigos de emergência em um lugar seguro (anote em papel). Se você perder
@@ -780,7 +841,7 @@ export function AccountScreen() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              void run(async () => {
+              void guarded(async () => {
                 await disableMfa(password, code);
                 setCode("");
                 setPassword("");
@@ -814,7 +875,7 @@ export function AccountScreen() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              void run(async () => {
+              void guarded(async () => {
                 setCodes((await confirmMfa(code)).recovery_codes);
                 setSetup(null);
                 setCode("");
@@ -853,7 +914,7 @@ export function AccountScreen() {
           <button
             className="primary"
             disabled={pending}
-            onClick={() => void run(async () => setSetup(await startMfa()))}
+            onClick={() => void guarded(async () => setSetup(await startMfa()))}
           >
             Começar a configurar
           </button>

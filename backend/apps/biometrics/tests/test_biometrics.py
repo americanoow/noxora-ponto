@@ -504,7 +504,7 @@ def test_modo_facial_exige_vivacidade_aprovada(world):
         name = "simulator"
         is_simulator = False
 
-        def verify(self, template, probe, frames=()):
+        def verify(self, template, probe, frames=(), steps=None):
             return engines.VerifyResult(matched=True, score=0.9, liveness="not_performed")
 
     with mock.patch.object(services.engines, "get_engine", return_value=SemVivacidade()):

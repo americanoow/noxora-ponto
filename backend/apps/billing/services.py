@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from apps.companies.models import Company
 from apps.devices.models import Device
 from apps.operations.models import Employee
 
@@ -30,6 +31,9 @@ def check_limit(company, resource: str, adding: int = 1):
 
     Sem assinatura (instalação sem cobrança configurada) não há limite. Nunca afeta marcações.
     """
+    # Verificação e inclusão acontecem sob o mesmo bloqueio da empresa (mesmo do fechamento): dois cadastros
+    # simultâneos não enxergam a mesma vaga livre. Exige transação aberta (quem chama já a abre).
+    Company.objects.select_for_update(no_key=True).get(pk=company.pk)
     sub = subscription_for(company)
     if sub is None:
         return
@@ -76,9 +80,11 @@ def start_subscription(*, company, plan, trial_days=None):
         raise ValidationError({"detail": "A empresa já possui assinatura."}) from None
 
 
+@transaction.atomic
 def change_plan(*, subscription, plan):
     if not plan.is_active:
         raise ValidationError({"plan": "Plano indisponível."})
+    Company.objects.select_for_update(no_key=True).get(pk=subscription.company_id)
     current = usage(subscription.company)
     if plan.max_employees is not None and current["active_employees"] > plan.max_employees:
         raise ValidationError({"plan": "A empresa tem mais funcionários ativos do que o plano permite."})

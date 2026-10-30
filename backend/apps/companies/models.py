@@ -62,6 +62,10 @@ class Membership(models.Model):
     role = models.CharField(max_length=20, choices=Role.choices)
     name = models.CharField(max_length=150, blank=True, default="")
     is_active = models.BooleanField(default=True)
+    # Permissões do gestor, separadas do papel: consultar (sempre, dentro do escopo), solicitar ajustes e
+    # abonos em nome de funcionários e decidir (aprovar/recusar) solicitações. Administrador ignora ambas.
+    can_request_adjustments = models.BooleanField(default=True)
+    can_decide_requests = models.BooleanField(default=True)
     scope_units = models.ManyToManyField("operations.Unit", blank=True, related_name="+")
     scope_sectors = models.ManyToManyField("operations.Sector", blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)

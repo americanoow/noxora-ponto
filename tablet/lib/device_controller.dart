@@ -19,6 +19,8 @@ class DeviceScope {
     required this.name,
     required this.company,
     required this.unit,
+    this.deviceId,
+    this.companyId,
     this.identificationMode = 'registration',
     this.offlinePolicy = 'disabled',
     this.faceLivenessPolicy = 'certified',
@@ -26,6 +28,10 @@ class DeviceScope {
   final String name;
   final String company;
   final String unit;
+
+  /// Identidade do tablet no servidor (tablet e empresa). Cada registro guardado nasce vinculado a ela.
+  final int? deviceId;
+  final int? companyId;
 
   /// 'registration' (só matrícula) ou 'face' (verificação facial ou exceção autorizada).
   final String identificationMode;
@@ -43,6 +49,10 @@ class DeviceScope {
         name: '${json['name']}',
         company: '${(json['company'] as Map<String, dynamic>)['name']}',
         unit: '${(json['unit'] as Map<String, dynamic>)['name']}',
+        deviceId: json['device_id'] is int ? json['device_id'] as int : null,
+        companyId: (json['company'] as Map<String, dynamic>)['id'] is int
+            ? (json['company'] as Map<String, dynamic>)['id'] as int
+            : null,
         identificationMode: '${json['identification_mode'] ?? 'registration'}',
         offlinePolicy: '${json['offline_policy'] ?? 'disabled'}',
         faceLivenessPolicy: '${json['face_liveness_policy'] ?? 'certified'}',
@@ -51,7 +61,8 @@ class DeviceScope {
   /// Mesmo formato do servidor (usado para guardar o escopo e operar após reinício sem conexão).
   Map<String, dynamic> toJson() => {
         'name': name,
-        'company': {'name': company},
+        if (deviceId != null) 'device_id': deviceId,
+        'company': {if (companyId != null) 'id': companyId, 'name': company},
         'unit': {'name': unit},
         'identification_mode': identificationMode,
         'offline_policy': offlinePolicy,
@@ -104,6 +115,13 @@ class PunchQueued extends PunchOutcome {
 }
 
 /// Resultado da verificação facial 1:1 feita pelo servidor.
+/// Desafio de movimento emitido pelo servidor: `steps` são `center`, `left` ou `right`.
+class FaceChallenge {
+  const FaceChallenge(this.id, this.steps);
+  final int id;
+  final List<String> steps;
+}
+
 sealed class FaceOutcome {
   const FaceOutcome();
 }
@@ -190,6 +208,10 @@ class DeviceController extends ChangeNotifier {
   /// Carrega a fila e o escopo guardado (para operar após reinício mesmo sem conexão) e verifica o acesso.
   Future<void> init() async {
     await queue.load();
+    // Tentativas que ficaram sem resposta antes de fechar/reiniciar: reaproveitam o mesmo identificador.
+    for (final e in queue.inflight.entries) {
+      _pendingPunches.putIfAbsent(e.key, () => e.value);
+    }
     final cached = queue.cachedScope;
     if (cached != null && scope == null) {
       try {
@@ -226,10 +248,14 @@ class DeviceController extends ChangeNotifier {
         final token = body['token'] as String;
         if (token.isEmpty) throw const FormatException('Credencial vazia.');
         await store.write(StoredCredential(token: token, issuedAt: _now()));
+        // Registros feitos sob OUTRA identidade (outro tablet ou outra empresa) ficam retidos: nunca são
+        // enviados automaticamente com a credencial nova, para não caírem em quem tem a mesma matrícula.
+        await queue.holdForeign(nextScope.deviceId, nextScope.companyId);
+        _pendingPunches.removeWhere((reg, _) => !queue.inflight.containsKey(reg));
         scope = nextScope;
         await queue.saveScope(nextScope.toJson());
         _set(DeviceState.active);
-        await syncPending(); // marcações guardadas antes de uma reativação seguem para o servidor
+        await syncPending(); // marcações da MESMA identidade seguem para o servidor
       } else if (response.statusCode == 429) {
         _set(DeviceState.unactivated, 'Muitas tentativas. Aguarde um minuto.');
       } else {
@@ -266,6 +292,7 @@ class DeviceController extends ChangeNotifier {
         _set(DeviceState.active);
         if (_now().difference(credential.issuedAt) > rotateAfter) await _rotate(credential);
         await syncPending();
+        await reconcileInflight();
       } else if (response.statusCode == 401) {
         // Revogado ou expirado: a credencial local não serve mais. A FILA É PRESERVADA.
         scope = null;
@@ -404,13 +431,19 @@ class DeviceController extends ChangeNotifier {
             ? const PunchUnconfirmed('Tentativa anterior sem confirmação. Procure o administrador.')
             : const PunchRejected('Tablet não ativado.');
       }
+      final isNewAttempt = !_pendingPunches.containsKey(reg);
       payload = _pendingPunches.putIfAbsent(reg, () => {
         'registration': reg,
         'client_event_id': _newEventId(),
         'declared_kind': declaredKind,
         'device_reported_at': _now().toUtc().toIso8601String(),
+        if (scope?.deviceId != null) 'origin_device_id': scope!.deviceId,
+        if (scope?.companyId != null) 'origin_company_id': scope!.companyId,
         if (identification != null) 'identification': identification,
       });
+      // Persiste o identificador ANTES do primeiro envio; se o servidor gravar e a resposta se perder,
+      // reiniciar não cria outro evento. (Se o aparelho não conseguir gravar, segue só em memória.)
+      if (isNewAttempt) await queue.saveInflight(reg, payload);
       // Renova a identificação (código de exceção ou token facial) sem trocar o evento: se o envio
       // anterior chegou a ser gravado, o servidor devolve a marcação original antes de validar nada.
       if (identification != null) payload['identification'] = identification;
@@ -431,12 +464,12 @@ class DeviceController extends ChangeNotifier {
           hash: '${receipt['hash_sha256']}',
           duplicate: body['duplicate'] == true,
         );
-        _pendingPunches.remove(reg);
+        await _closeAttempt(reg);
         return outcome;
       }
       if (response.statusCode == 401) {
         // A recusa atual não prova que uma tentativa anterior não foi gravada.
-        if (!wasUnconfirmed) _pendingPunches.remove(reg);
+        if (!wasUnconfirmed) await _closeAttempt(reg);
         scope = null;
         await queue.saveScope(null);
         _set(DeviceState.revoked, _revokedMessage());
@@ -450,7 +483,7 @@ class DeviceController extends ChangeNotifier {
         // O servidor consulta o evento existente ANTES de validar matrícula ou identificação
         // (contrato coberto por teste no backend). Logo, 400/404 prova que este evento não foi
         // gravado: a tentativa se encerra e a próxima usará um evento novo.
-        _pendingPunches.remove(reg);
+        await _closeAttempt(reg);
         return PunchRejected(response.statusCode == 404
             ? 'Matrícula não encontrada nesta unidade. Marcação não registrada.'
             : 'Dados ou identificação recusados. Marcação não registrada.');
@@ -465,18 +498,57 @@ class DeviceController extends ChangeNotifier {
           registration: reg,
           declaredKind: (pending['declared_kind'] as String?) ?? '',
           deviceReportedAt: reported,
+          originDeviceId: scope?.deviceId,
+          originCompanyId: scope?.companyId,
         );
         if (queued == null) {
           return const PunchUnconfirmed(
             'Não foi possível guardar a marcação neste tablet (fila cheia ou armazenamento indisponível). Procure o administrador.',
           );
         }
-        _pendingPunches.remove(reg); // a fila assumiu o evento; o reenvio usa o mesmo identificador
+        await _closeAttempt(reg); // a fila assumiu o evento; o reenvio usa o mesmo identificador
         return PunchQueued(eventId: queued.eventId, deviceTime: reported.toLocal());
       }
       return const PunchUnconfirmed('Sem confirmação do servidor. Tente novamente: não haverá duplicidade.');
     } finally {
       _punching = false;
+    }
+  }
+
+  Future<void> _closeAttempt(String registration) async {
+    _pendingPunches.remove(registration);
+    await queue.clearInflight(registration);
+  }
+
+  /// Resolve tentativas sem resposta deixadas por um fechamento ou reinício. O servidor consulta o evento
+  /// pelo identificador ANTES de validar matrícula ou identificação: 200/201 devolve a marcação que ele já
+  /// gravou (sem duplicar); 400/404 prova que o evento não existe e a tentativa é descartada. Falha de rede
+  /// ou 5xx mantém a tentativa para a próxima vez.
+  Future<void> reconcileInflight() async {
+    if (_punching || _disposed) return;
+    final credential = await store.read();
+    if (credential == null) return;
+    for (final entry in Map<String, Map<String, dynamic>>.from(_pendingPunches).entries) {
+      if (_punching || _disposed) return;
+      final persisted = queue.inflight[entry.key];
+      if (persisted == null) continue; // só tentativas persistidas (as de memória seguem o fluxo normal)
+      try {
+        final response = await _client
+            .post(
+              Uri.parse('$_baseUrl/api/device/punches/'),
+              headers: _headers(credential.token),
+              body: jsonEncode(persisted),
+            )
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200 ||
+            response.statusCode == 201 ||
+            response.statusCode == 400 ||
+            response.statusCode == 404) {
+          await _closeAttempt(entry.key);
+        }
+      } catch (_) {
+        // Sem resposta: mantém a tentativa.
+      }
     }
   }
 
@@ -488,9 +560,38 @@ class DeviceController extends ChangeNotifier {
         (identification is Map<String, dynamic> && identification['method'] == 'registration');
   }
 
+  /// Pede ao servidor a sequência imprevisível do desafio de movimento (uso único, prazo curto).
+  /// Sem ela não há prova de vivacidade; devolve `null` se não foi possível obter.
+  Future<FaceChallenge?> requestChallenge() async {
+    try {
+      final credential = await store.read();
+      if (credential == null) return null;
+      final response = await _client
+          .post(
+            Uri.parse('$_baseUrl/api/device/face/challenge/'),
+            headers: _headers(credential.token),
+            body: '{}',
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 201) return null;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final id = body['challenge_id'];
+      final steps = body['steps'];
+      if (id is! int || steps is! List || steps.isEmpty) return null;
+      return FaceChallenge(id, [for (final s in steps) '$s']);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Envia a captura ao servidor para verificação 1:1. As imagens não são guardadas no aparelho.
   /// [frames]: quadros do desafio de movimento (prova de presença básica).
-  Future<FaceOutcome> verifyFace(String registration, Uint8List image, {List<Uint8List> frames = const []}) async {
+  Future<FaceOutcome> verifyFace(
+    String registration,
+    Uint8List image, {
+    List<Uint8List> frames = const [],
+    int? challengeId,
+  }) async {
     final reg = registration.trim();
     if (reg.isEmpty) return const FaceDenied('invalid', 'Informe a matrícula.');
     try {
@@ -504,6 +605,7 @@ class DeviceController extends ChangeNotifier {
               'registration': reg,
               'image': base64Encode(image),
               if (frames.isNotEmpty) 'frames': [for (final f in frames) base64Encode(f)],
+              if (challengeId != null) 'challenge_id': challengeId,
             }),
           )
           .timeout(const Duration(seconds: 20));

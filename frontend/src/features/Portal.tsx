@@ -19,6 +19,7 @@ import {
 import { dateBR, dateTimeBR, hm, isoDate, monthRange } from "../lib/format";
 import { useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
+import { usePaged } from "../lib/paged";
 import { useAction, useTask } from "../lib/task";
 import { KIND_LABELS, formatLocalTime } from "../timeclockApi";
 import {
@@ -29,6 +30,7 @@ import {
   ErrorText,
   Field,
   Group,
+  LoadMore,
   Loading,
   Row,
   Screen,
@@ -37,6 +39,7 @@ import {
 import { Icon } from "../ui/icons";
 import { StatusPicker } from "./Availability";
 import { STATUS_LABEL, describeRequest } from "./Requests";
+import { HourBankSection } from "./HourBank";
 import { PeriodPicker, TimesheetBody } from "./Timesheet";
 
 export function MyDayScreen() {
@@ -204,6 +207,7 @@ export function MyTimesheetScreen() {
           onChanged={sheet.reload}
         />
       ) : null}
+      <HourBankSection companyId={companyId} canEdit={false} mine />
     </Screen>
   );
 }
@@ -211,7 +215,7 @@ export function MyTimesheetScreen() {
 export function MyRequestsScreen() {
   const { companyId } = useCompany();
   const router = useRouter();
-  const list = useTask(() => listMyRequests(companyId), [companyId]);
+  const list = usePaged((page) => listMyRequests(companyId, page), [companyId]);
   const { error, run } = useAction();
   return (
     <Screen
@@ -225,10 +229,10 @@ export function MyRequestsScreen() {
     >
       <ErrorText message={error} />
       <Group>
-        {list.loading && !list.data ? (
+        {list.loading && !list.ready ? (
           <Loading />
-        ) : list.data?.length ? (
-          list.data.map((r: AttendanceRequest) => {
+        ) : list.items.length ? (
+          list.items.map((r: AttendanceRequest) => {
             const [label, tone] = STATUS_LABEL[r.status];
             return (
               <Row
@@ -260,6 +264,13 @@ export function MyRequestsScreen() {
           <Empty title="Você ainda não fez nenhuma solicitação" />
         )}
       </Group>
+      <LoadMore
+        shown={list.items.length}
+        total={list.count}
+        hasMore={list.hasMore}
+        loading={list.loading}
+        onMore={list.loadMore}
+      />
     </Screen>
   );
 }

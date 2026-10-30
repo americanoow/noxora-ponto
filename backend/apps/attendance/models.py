@@ -189,3 +189,45 @@ class PeriodClosing(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(end__gte=F("start")), name="closing_range"),
         ]
+
+
+class HourBankKind(models.TextChoices):
+    OPENING = "opening", "Saldo inicial"
+    OFFSET = "offset", "Abatimento (folga ou compensação)"
+    PAYOUT = "payout", "Pagamento em folha"
+    ADJUSTMENT = "adjustment", "Ajuste"
+    REVERSAL = "reversal", "Estorno"
+
+
+class HourBankEntry(models.Model):
+    """Movimentação do banco de horas, separada da apuração: saldo inicial, abatimento, pagamento, ajuste.
+
+    Livro-razão **imutável**: nada é editado nem apagado; um engano é corrigido por **estorno**, que aponta
+    para o lançamento original. `minutes` tem sinal (crédito positivo, débito negativo)."""
+
+    company = models.ForeignKey("companies.Company", on_delete=models.PROTECT, related_name="+")
+    employee = models.ForeignKey("operations.Employee", on_delete=models.PROTECT, related_name="hour_bank")
+    kind = models.CharField(max_length=12, choices=HourBankKind.choices)
+    date = models.DateField()  # data a que o lançamento se refere
+    minutes = models.IntegerField()
+    reason = models.CharField(max_length=300)
+    reverses = models.OneToOneField(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversed_by"
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        constraints = [
+            models.CheckConstraint(condition=~models.Q(minutes=0), name="hourbank_minutes_nonzero")
+        ]
+        indexes = [models.Index(fields=["employee", "date"])]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ImmutableError("Lançamentos do banco de horas não são editados: faça um estorno.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableError("Lançamentos do banco de horas não são apagados: faça um estorno.")

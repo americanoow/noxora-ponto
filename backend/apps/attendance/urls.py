@@ -25,6 +25,17 @@ urlpatterns = [
         views.ClosingReopenView.as_view(),
         name="attendance-closing-reopen",
     ),
+    path(
+        "attendance/employees/<int:employee_id>/hour-bank/",
+        views.HourBankView.as_view(),
+        name="attendance-hour-bank",
+    ),
+    path(
+        "attendance/employees/<int:employee_id>/hour-bank/<int:entry_id>/reverse/",
+        views.HourBankReverseView.as_view(),
+        name="attendance-hour-bank-reverse",
+    ),
+    path("me/hour-bank/", views.MyHourBankView.as_view(), name="me-hour-bank"),
     path("me/timesheet/", views.MyTimesheetView.as_view(), name="me-timesheet"),
     path("me/requests/", views.MyRequestsView.as_view(), name="me-requests"),
     path(

@@ -106,6 +106,22 @@ class VerificationAttempt(models.Model):
         indexes = [models.Index(fields=["employee", "-created_at"])]
 
 
+class LivenessChallenge(models.Model):
+    """Desafio de movimento emitido pelo servidor para UM tablet: sequência imprevisível e uso único.
+
+    Sem ele não há prova de vivacidade: um vídeo gravado antes não conhece a sequência pedida agora."""
+
+    company = models.ForeignKey("companies.Company", on_delete=models.PROTECT, related_name="+")
+    device = models.ForeignKey("devices.Device", on_delete=models.PROTECT, related_name="+")
+    steps = models.JSONField()  # ["center", "left", "right", ...]
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["device", "-created_at"])]
+
+
 class ExceptionAuthorization(models.Model):
     """Autorização de marcação por exceção (sem face), dada por pessoa autorizada. Curta e de uso único."""
 
