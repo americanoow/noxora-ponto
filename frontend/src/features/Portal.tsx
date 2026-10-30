@@ -39,6 +39,7 @@ import {
 import { Icon } from "../ui/icons";
 import { StatusPicker } from "./Availability";
 import { STATUS_LABEL, describeRequest } from "./Requests";
+import { useModules } from "../lib/modules";
 import { HourBankSection } from "./HourBank";
 import { PeriodPicker, TimesheetBody } from "./Timesheet";
 
@@ -47,10 +48,12 @@ export function MyDayScreen() {
   const router = useRouter();
   const punches = useTask(() => listMyPunches(companyId), [companyId]);
   // Sem registro a API responde vazio: normaliza para null.
+  const modules = useModules();
   const availability = useTask(async () => {
+    if (!modules.availability) return null;
     const current = await getMyAvailability(companyId);
     return current?.status ? current : null;
-  }, [companyId]);
+  }, [companyId, modules.availability]);
   const { error, run } = useAction();
   const today = isoDate(new Date());
   const all = [...(punches.data?.results ?? [])].sort((a, b) =>
@@ -110,8 +113,8 @@ export function MyDayScreen() {
         <button onClick={() => router.select({ screen: "my-timesheet" })}>
           <Icon name="plus" size={22} /> Pedir ajuste
         </button>
-        <button onClick={() => router.select({ screen: "my-closings" })}>
-          <Icon name="lock" size={22} /> Meses fechados
+        <button onClick={() => router.select({ screen: "my-requests" })}>
+          <Icon name="inbox" size={22} /> Minhas solicitações
         </button>
       </div>
 
@@ -147,29 +150,31 @@ export function MyDayScreen() {
         )}
       </Group>
 
-      <Group
-        title="Como estou agora"
-        padded
-        footer="Serve para avisar a equipe. Isto não registra o seu ponto."
-      >
-        <p>
-          Agora:{" "}
-          <b>
-            {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "nada informado"}
-          </b>
-          {availability.data && ` (desde ${dateTimeBR(availability.data.set_at)})`}
-        </p>
-        <StatusPicker
-          value={(availability.data?.status ?? "available") as AvailabilityStatus}
-          onChange={(s) =>
-            void run(async () => {
-              await setMyAvailability(companyId, s);
-              availability.reload();
-            })
-          }
-        />
-        <ErrorText message={error} />
-      </Group>
+      {modules.availability && (
+        <Group
+          title="Como estou agora"
+          padded
+          footer="Serve para avisar a equipe. Isto não registra o seu ponto."
+        >
+          <p>
+            Agora:{" "}
+            <b>
+              {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "nada informado"}
+            </b>
+            {availability.data && ` (desde ${dateTimeBR(availability.data.set_at)})`}
+          </p>
+          <StatusPicker
+            value={(availability.data?.status ?? "available") as AvailabilityStatus}
+            onChange={(s) =>
+              void run(async () => {
+                await setMyAvailability(companyId, s);
+                availability.reload();
+              })
+            }
+          />
+          <ErrorText message={error} />
+        </Group>
+      )}
     </Screen>
   );
 }
@@ -208,6 +213,7 @@ export function MyTimesheetScreen() {
         />
       ) : null}
       <HourBankSection companyId={companyId} canEdit={false} mine />
+      <MyClosedMonths />
     </Screen>
   );
 }
@@ -275,18 +281,19 @@ export function MyRequestsScreen() {
   );
 }
 
-export function MyClosingsScreen() {
+/** Meses fechados dentro de "Minha folha de ponto": consulta, documento e ciência no mesmo lugar. */
+function MyClosedMonths() {
   const { companyId } = useCompany();
   const list = useTask(() => listMyClosings(companyId), [companyId]);
   const [acking, setAcking] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const { pending, error, run } = useAction();
   return (
-    <Screen
-      title="Meses fechados"
-      subtitle="Consulte cada período fechado. Você pode registrar ciência, sem que isso substitua um pedido de ajuste."
-    >
-      <Group>
+    <>
+      <Group
+        title="Meses fechados"
+        footer="Você pode registrar ciência de cada período fechado, sem que isso substitua um pedido de ajuste."
+      >
         {list.loading && !list.data ? (
           <Loading />
         ) : list.data?.length ? (
@@ -347,6 +354,6 @@ export function MyClosingsScreen() {
           </button>
         </div>
       </Sheet>
-    </Screen>
+    </>
   );
 }

@@ -89,23 +89,75 @@ describe("App", () => {
     );
   });
 
-  it("abre em Hoje, sem tela de início duplicada, com a navegação em grupos", async () => {
+  it("abre em Hoje com seis entradas no menu e telas parecidas viram abas", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: /^Hoje/ })).toBeInTheDocument();
-    for (const grupo of ["Dia a dia", "Jornada", "Equipe", "Configurações"])
-      expect(nav().getByRole("button", { name: grupo })).toBeInTheDocument();
-    expect(nav().queryByRole("button", { name: "Início" })).not.toBeInTheDocument();
-    fireEvent.click(await menuItem("Folhas de ponto"));
+    const top = within(screen.getByLabelText("Menu principal"));
+    for (const entrada of [
+      "Hoje",
+      "Ponto",
+      "Solicitações",
+      "Equipe",
+      "Fechamento",
+      "Configurações",
+    ])
+      expect(top.getByRole("button", { name: entrada })).toBeInTheDocument();
+    // Antigos caminhos soltos não ocupam mais o menu principal.
+    for (const solto of [
+      "Folhas de ponto",
+      "Registros de ponto",
+      "Relatórios e arquivos",
+      "Situação da equipe",
+      "Meses fechados",
+    ])
+      expect(top.queryByRole("button", { name: solto })).not.toBeInTheDocument();
+    fireEvent.click(top.getByRole("button", { name: "Ponto" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: /^Folha de ponto/ }),
     ).toBeInTheDocument();
+    const tabs = within(screen.getByRole("group", { name: "Partes desta seção" }));
+    expect(tabs.getByRole("button", { name: "Folha de ponto" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(tabs.getByRole("button", { name: "Registros originais" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /^Registros de ponto/ }),
+    ).toBeInTheDocument();
+    expect(top.getByRole("button", { name: "Ponto" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("a situação da equipe só aparece quando a empresa ativa o módulo", async () => {
+    routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: /^Hoje/ });
+    fireEvent.click(
+      within(screen.getByLabelText("Menu principal")).getByRole("button", { name: "Equipe" }),
+    );
+    await screen.findByRole("heading", { level: 1, name: /^Funcionários/ });
+    expect(screen.queryByRole("button", { name: "Situação da equipe" })).not.toBeInTheDocument();
+  });
+
+  it("com o módulo ligado, a equipe ganha a aba de situação", async () => {
+    routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
+    routes["GET /api/companies/7/availability/settings/"] = () => ({
+      body: { enabled: true, stale_after_minutes: 120, show_punch_hint: true },
+    });
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: /^Hoje/ });
+    fireEvent.click(
+      within(screen.getByLabelText("Menu principal")).getByRole("button", { name: "Equipe" }),
+    );
+    expect(await screen.findByRole("button", { name: "Situação da equipe" })).toBeInTheDocument();
   });
 
   it("funcionário vê só o próprio ponto e não carrega acessos", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("employee") });
     render(<App />);
     expect(await menuItem("Minha folha de ponto")).toBeInTheDocument();
+    expect(await menuItem("Hoje")).toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Meses fechados" })).not.toBeInTheDocument();
     expect(nav().queryByRole("button", { name: "Acessos" })).not.toBeInTheDocument();
     expect(nav().queryByRole("button", { name: "Solicitações" })).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("/members/"))).toBe(false);

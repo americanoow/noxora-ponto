@@ -405,3 +405,37 @@ describe("Conta: operações sensíveis", () => {
     expect(starts).toBe(2);
   });
 });
+
+describe("Portal do funcionário", () => {
+  it("Minha folha reúne os meses fechados e registra a ciência no mesmo lugar", async () => {
+    window.location.hash = "#/my-timesheet";
+    routes["GET /api/auth/me/"] = () => ({
+      body: {
+        ...admin,
+        memberships: [{ id: 1, company_id: 7, company_name: "Empresa A", role: "employee" }],
+      },
+    });
+    routes["GET /api/companies/7/me/timesheet/"] = () => ({ body: sheet });
+    routes["GET /api/companies/7/me/hour-bank/"] = () => ({ status: 404, body: {} });
+    routes["GET /api/companies/7/me/closings/"] = () => ({
+      body: [
+        { id: 3, start: "2026-09-01", end: "2026-09-30", status: "closed", acknowledged_at: null },
+      ],
+    });
+    routes["POST /api/companies/7/me/closings/3/acknowledge/"] = () => ({ body: {} });
+    render(<App />);
+    expect(await screen.findByText("Meses fechados")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Registrar ciência" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Registrar ciência" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.endsWith("/me/closings/3/acknowledge/"))).toBe(true),
+    );
+    // Não existe mais uma tela separada de meses fechados no menu.
+    expect(
+      within(screen.getByLabelText("Menu principal")).queryByRole("button", {
+        name: "Meses fechados",
+      }),
+    ).not.toBeInTheDocument();
+  });
+});

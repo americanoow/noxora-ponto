@@ -64,3 +64,7 @@ Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](p
 - Corrigidos os 12 achados da primeira lista e os 7 da segunda (D99–D113): turno noturno, fechamento (inativos, incompletos com exceção, corrida), fuso por vigência, pedidos no fuso da unidade, paginação/limites explícitos, vivacidade com desafio do servidor, banco de horas, permissões do gestor, origem das batidas do tablet, TXT de folha sem truncar, jornada/lotação retroativas, MFA com limite de tentativas e login recente, intervalo × duração, prorrogação noturna, limites do plano sob bloqueio.
 - Backend: 501 testes passando no PostgreSQL (485 + 18 pulados no SQLite), `ruff` limpo. Frontend: 74 testes, tipos, lint, formatação e build limpos. Tablet: 84 testes, `flutter analyze` limpo.
 - Pendências: ver o fim da seção Revisão de segurança e consistência em `decisoes-tecnicas.md`.
+
+## 2026-10-30 — Menu simplificado
+- Menu do gestor com seis entradas e abas dentro de cada uma; Meses fechados dentro de Minha folha; situação da equipe como módulo opcional; detalhes técnicos recolhidos (D114–D117).
+- Backend: 503 testes no PostgreSQL. Frontend: 77 testes, tipos, lint e build limpos.

@@ -233,11 +233,7 @@ export function TimesheetBody({
         />
       </Stats>
 
-      <Group
-        title="Dias"
-        aside={`Regras de cálculo: ${sheet.rule_versions.map((v) => `versão ${v.version}`).join(", ") || "padrão"}`}
-        footer={<Legend night={hasNight} />}
-      >
+      <Group title="Dias" footer={<Legend night={hasNight} />}>
         <div className="table-head" aria-hidden="true">
           <span>Dia</span>
           <span>
@@ -422,11 +418,18 @@ function DayPanel({
             ))}
           </ul>
         )}
-        <p style={{ color: "var(--ink-2)", fontSize: "var(--text-sm)" }}>
-          Regras de cálculo {rule ? `versão ${rule.version}` : "padrão do sistema"}
-          {day.tolerance_applied ? ", com tolerância aplicada" : ""}. Fuso da unidade:{" "}
-          {sheet.timezone}. Versão do cálculo: {sheet.engine_version}.
-        </p>
+        {day.tolerance_applied && (
+          <p style={{ color: "var(--ink-2)", fontSize: "var(--text-sm)" }}>
+            A tolerância de minutos foi aplicada neste dia.
+          </p>
+        )}
+        <details className="tech">
+          <summary>Detalhes técnicos</summary>
+          <p>
+            Regras de cálculo {rule ? `versão ${rule.version}` : "padrão do sistema"}. Fuso da
+            unidade: {day.timezone || sheet.timezone}. Versão do cálculo: {sheet.engine_version}.
+          </p>
+        </details>
       </div>
 
       <div className="actions" style={{ justifyContent: "flex-start" }}>

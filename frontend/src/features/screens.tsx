@@ -11,7 +11,7 @@ import { AccountScreen, BillingScreen, CompanyScreen, ReportsScreen, RulesScreen
 import { AvailabilityScreen } from "./Availability";
 import { ClosingDetailScreen, ClosingsScreen } from "./Closings";
 import { PlatformScreen } from "./Platform";
-import { MyClosingsScreen, MyDayScreen, MyRequestsScreen, MyTimesheetScreen } from "./Portal";
+import { MyDayScreen, MyRequestsScreen, MyTimesheetScreen } from "./Portal";
 import { RequestsScreen } from "./Requests";
 import { TimesheetScreen } from "./Timesheet";
 import { TodayScreen } from "./Today";
@@ -95,8 +95,6 @@ export function ScreenView({
       return <MyTimesheetScreen />;
     case "my-requests":
       return <MyRequestsScreen />;
-    case "my-closings":
-      return <MyClosingsScreen />;
     case "platform":
       return <PlatformScreen />;
     default:

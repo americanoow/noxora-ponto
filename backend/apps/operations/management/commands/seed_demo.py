@@ -71,6 +71,9 @@ class Command(BaseCommand):
                 employee, company, unit, unit_sectors[i % len(unit_sectors)] if unit_sectors else None, start
             )
             services.assign_schedule(employee, company, schedule, start)
+        from apps.availability.models import AvailabilitySettings
+
+        AvailabilitySettings.objects.update_or_create(company=company, defaults={"enabled": True})
         self._history(company, units, manager_user=manager)
         self.stdout.write(
             self.style.SUCCESS(

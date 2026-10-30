@@ -41,5 +41,7 @@ class AvailabilitySettings(models.Model):
     company = models.OneToOneField(
         "companies.Company", primary_key=True, on_delete=models.PROTECT, related_name="+"
     )
+    # Módulo opcional, desligado por padrão. Desligado, nada é exibido nem gravado (o histórico fica).
+    enabled = models.BooleanField(default=False)
     stale_after_minutes = models.PositiveIntegerField(default=120)
     show_punch_hint = models.BooleanField(default=True)  # mostrar "entrou às 08:02" (só leitura do ponto)

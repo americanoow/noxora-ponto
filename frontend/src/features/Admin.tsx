@@ -15,6 +15,7 @@ import {
   downloads,
   getBilling,
   getPayrollProfiles,
+  setAvailabilityEnabled,
   listGeneratedFiles,
   setCancel,
   startMfa,
@@ -41,6 +42,7 @@ import {
   Sheet,
 } from "../ui/kit";
 import { ApiError } from "../http";
+import { useModules } from "../lib/modules";
 import { PeriodPicker } from "./Timesheet";
 
 // ---------- Regras e feriados ----------
@@ -108,16 +110,19 @@ export function RulesScreen() {
             ))}
           </Group>
           {rules.data && rules.data.versions.length > 1 && (
-            <Group title="Regras anteriores">
-              {rules.data.versions.map((v) => (
-                <Row
-                  key={v.id}
-                  title={`Versão ${v.version}`}
-                  subtitle={v.note}
-                  value={`desde ${dateBR(v.valid_from)}`}
-                />
-              ))}
-            </Group>
+            <details className="tech">
+              <summary>Histórico de versões das regras</summary>
+              <Group>
+                {rules.data.versions.map((v) => (
+                  <Row
+                    key={v.id}
+                    title={`Versão ${v.version}`}
+                    subtitle={v.note}
+                    value={`desde ${dateBR(v.valid_from)}`}
+                  />
+                ))}
+              </Group>
+            </details>
           )}
         </>
       )}
@@ -538,6 +543,8 @@ interface Policy {
 
 export function CompanyScreen() {
   const { companyId } = useCompany();
+  const modules = useModules();
+  const moduleAction = useAction();
   const policy = useTask(
     () => getIdentificationMode(companyId) as unknown as Promise<Policy>,
     [companyId],
@@ -606,6 +613,27 @@ export function CompanyScreen() {
           </div>
         )}
         <ErrorText message={error ?? policy.error} />
+      </Group>
+      <Group
+        title="Situação da equipe (opcional)"
+        padded
+        footer="Mostra quem está disponível, em pausa ou fora, informado à mão pela equipe ou pelo gestor. Exige atualização constante e não registra o ponto de ninguém. Desligado, nada disso aparece; o que já foi informado fica guardado."
+      >
+        <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={modules.availability}
+            disabled={moduleAction.pending}
+            onChange={(e) =>
+              void moduleAction.run(async () => {
+                await setAvailabilityEnabled(companyId, e.target.checked);
+                modules.reload();
+              })
+            }
+          />
+          Usar a situação da equipe
+        </label>
+        <ErrorText message={moduleAction.error} />
       </Group>
       <Group title="Dados da empresa que aparecem no comprovante" padded>
         <div className="legacy">

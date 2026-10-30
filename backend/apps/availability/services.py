@@ -16,6 +16,21 @@ def settings_for(company) -> AvailabilitySettings:
     return obj or AvailabilitySettings(company=company)
 
 
+def require_enabled(company) -> AvailabilitySettings:
+    """Recusa (403, code=module_disabled) quando a empresa não ativou a situação da equipe."""
+    from rest_framework.exceptions import PermissionDenied
+
+    conf = settings_for(company)
+    if not conf.enabled:
+        error = PermissionDenied("A situação da equipe está desativada nesta empresa.")
+        error.detail = {
+            "detail": "A situação da equipe está desativada nesta empresa.",
+            "code": "module_disabled",
+        }
+        raise error
+    return conf
+
+
 def freshness(update, now, stale_after) -> str:
     """confirmed (recente), stale (sem confirmação há muito tempo), expired (venceu) ou unknown."""
     if update is None:
@@ -44,7 +59,8 @@ def board(*, request, company, unit_id=None, sector_id=None):
     employees = list(employees.order_by("full_name", "id")[:1000])
     ids = [e.pk for e in employees]
 
-    latest = {u.employee_id: u for u in _latest(ids)}
+    # Módulo desligado: o painel continua mostrando o indício de ponto, mas ignora estados informados.
+    latest = {u.employee_id: u for u in _latest(ids)} if conf.enabled else {}
 
     hints = {}
     if conf.show_punch_hint and ids:
@@ -105,6 +121,7 @@ def board(*, request, company, unit_id=None, sector_id=None):
         group["employees"].append(item)
     return {
         "generated_at": now,
+        "availability_enabled": conf.enabled,
         "stale_after_minutes": conf.stale_after_minutes,
         "notice": "Disponibilidade é informação operacional e não altera nem substitui o registro de ponto.",
         "groups": sorted(

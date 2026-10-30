@@ -240,3 +240,17 @@ Duas listas de achados de revisão foram tratadas (19 itens). Tudo abaixo é **i
 - Banco de horas: regras de compensação/prazo/quitação dependem de acordo ou convenção coletiva; validar com especialista.
 - Prorrogação noturna e parâmetros técnicos (`journey_max_open_hours`) a conferir com a política da empresa.
 - O layout de folha continua genérico; o AEJ não foi implementado.
+
+## Simplificação do menu (2026-10-30)
+Avaliação de um feedback externo sobre a estrutura do app (15 entradas de menu para o administrador). Foi uma análise de estrutura e fluxo, **sem dados de uso reais**; as decisões abaixo são de apresentação e não removem proteções (comprovantes, registros originais, histórico, controle de acesso, modo offline).
+
+| # | Decisão | Justificativa | Consequência |
+|---|---------|---------------|--------------|
+| D114 | **Menu do gestor com seis entradas**: Hoje, Ponto, Solicitações, Equipe, Fechamento e Configurações (a única com lista). Telas parecidas viraram **abas** na mesma entrada: Ponto (folha de ponto, registros originais, relatórios e arquivos), Equipe (funcionários e, se ativada, situação da equipe), Jornada em Configurações (unidades e setores, horários, regras e feriados) e Empresa e plano (dados da empresa, plano e pagamentos). Acessos e Tablets continuam em Configurações. | Dispersão de caminhos para a rotina de conferir, resolver e fechar. | Os destinos e URLs das telas continuam os mesmos; a exportação de cada dado segue ligada à própria tela (folha, fechamento). |
+| D115 | **Funcionário**: Hoje, Minha folha de ponto e Solicitações. **Meses fechados** passou para dentro de Minha folha (consulta, documento e ciência no mesmo lugar). | Duas telas para o mesmo assunto. | A tela `my-closings` deixou de existir. |
+| D116 | **Situação da equipe é módulo opcional, desligado por padrão** (`AvailabilitySettings.enabled`, ligado pelo administrador em Empresa e plano). Desligado: sem aba, sem KPI de situações desatualizadas, sem "Como estou agora" no portal, e o servidor recusa gravação, histórico e consulta própria (403 `module_disabled`). O painel de **presença estimada pelo ponto** continua, sem estados informados. O que já foi informado fica guardado. | Exige atualização manual constante e amplia a manutenção; não é necessário para controlar jornada. A decisão de manter o módulo é comercial. | Empresas existentes passam a ter o módulo desligado até o administrador ligá-lo (a empresa demo do ambiente de desenvolvimento foi ligada). |
+| D117 | **Detalhes técnicos recolhidos**: versão das regras, versão do cálculo e fuso saem do cabeçalho da folha e do painel do dia para "Detalhes técnicos"; o histórico de versões das regras fica recolhido. O relógio da página Hoje perde os segundos e o destaque. | Primeiro plano para pendências e ações; o detalhe continua acessível para auditoria. | O relógio do **tablet** não mudou: no terminal de ponto a hora exibida é parte da conferência do funcionário. |
+
+### Não adotado do feedback
+- Remover a situação da equipe: mantida como módulo opcional (D116) por fazer parte da visão do produto (disponibilidade separada do ponto legal).
+- Unificar Acessos com Funcionários: o cadastro de funcionário já aceita e-mail de acesso; Acessos segue como área própria para administradores e gestores sem cadastro de funcionário.

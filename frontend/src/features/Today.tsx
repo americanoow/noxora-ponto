@@ -11,19 +11,19 @@ import { Badge, Dot, Empty, ErrorText, Group, Kpi, Loading, Row, Screen } from "
 function useClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
+    const t = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(t);
   }, []);
   return now;
 }
 
-/** Relógio isolado: só ele renderiza a cada segundo. */
+/** Relógio discreto (hora e minuto): a página é de pendências e ações, não de cronometragem. */
 function LiveClock() {
   const now = useClock();
   return (
     <div>
       <div className="clock" aria-label="Hora atual">
-        {now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        {now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
       </div>
       <div style={{ color: "var(--ink-2)", marginTop: 6 }}>
         {now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
@@ -42,7 +42,15 @@ const TONE: Record<string, "tint" | "amber" | "seal" | undefined> = {
   unknown: undefined,
 };
 
-function TeamCard({ g, onOpen }: { g: BoardGroup; onOpen: () => void }) {
+function TeamCard({
+  g,
+  onOpen,
+  showStatus,
+}: {
+  g: BoardGroup;
+  onOpen?: () => void;
+  showStatus: boolean;
+}) {
   const total = g.employees.length;
   const present = g.employees.filter((e) => e.punch_hint?.likely_present).length;
   const pct = total ? Math.round((present / total) * 100) : 0;
@@ -53,9 +61,11 @@ function TeamCard({ g, onOpen }: { g: BoardGroup; onOpen: () => void }) {
       <header>
         <h3>{g.sector?.name ?? "Sem setor"}</h3>
         <small>{g.unit?.name ?? "Sem unidade"}</small>
-        <button className="plain" style={{ marginLeft: "auto" }} onClick={onOpen}>
-          Abrir <Icon name="chevronRight" size={14} />
-        </button>
+        {onOpen && (
+          <button className="plain" style={{ marginLeft: "auto" }} onClick={onOpen}>
+            Abrir <Icon name="chevronRight" size={14} />
+          </button>
+        )}
       </header>
       <div className="rows">
         <div>
@@ -69,19 +79,23 @@ function TeamCard({ g, onOpen }: { g: BoardGroup; onOpen: () => void }) {
             <span style={{ width: `${pct}%` }} />
           </span>
         </div>
-        <div>
-          <span className="k">
-            <Dot state="hollow" /> Situação informada
-          </span>
-          {reported.length === 0 && <span style={{ color: "var(--ink-2)" }}>ninguém informou</span>}
-          {reported.map(([k, n]) => (
-            <Badge key={k} tone={TONE[k]}>
-              {n} {AVAILABILITY_LABELS[k as keyof typeof AVAILABILITY_LABELS].toLowerCase()}
-            </Badge>
-          ))}
-          {unknown > 0 && <Badge>{unknown} sem informação</Badge>}
-          {g.stale > 0 && <Badge tone="amber">{g.stale} desatualizada(s)</Badge>}
-        </div>
+        {showStatus && (
+          <div>
+            <span className="k">
+              <Dot state="hollow" /> Situação informada
+            </span>
+            {reported.length === 0 && (
+              <span style={{ color: "var(--ink-2)" }}>ninguém informou</span>
+            )}
+            {reported.map(([k, n]) => (
+              <Badge key={k} tone={TONE[k]}>
+                {n} {AVAILABILITY_LABELS[k as keyof typeof AVAILABILITY_LABELS].toLowerCase()}
+              </Badge>
+            ))}
+            {unknown > 0 && <Badge>{unknown} sem informação</Badge>}
+            {g.stale > 0 && <Badge tone="amber">{g.stale} desatualizada(s)</Badge>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -93,6 +107,8 @@ export function TodayScreen() {
   const today = isoDate(new Date());
   const yesterday = addDays(today, -1);
   const board = useTask(() => getBoard(companyId), [companyId]);
+  // Situação informada à mão é um módulo opcional; o indício de presença vem sempre do ponto.
+  const showStatus = board.data?.availability_enabled === true;
   const pending = useTask(
     () => listRequests(companyId, { status: "pending", pageSize: 5 }),
     [companyId],
@@ -167,13 +183,15 @@ export function TodayScreen() {
           tone={attention.length ? "seal" : undefined}
           onClick={() => attentionRef.current?.scrollIntoView({ behavior: "smooth" })}
         />
-        <Kpi
-          label="Situações desatualizadas"
-          figure={board.data ? stale : "—"}
-          hint="Disponibilidade informada há muito tempo."
-          tone={stale ? "amber" : undefined}
-          onClick={() => router.select({ screen: "availability" })}
-        />
+        {showStatus && (
+          <Kpi
+            label="Situações desatualizadas"
+            figure={board.data ? stale : "—"}
+            hint="Disponibilidade informada há muito tempo."
+            tone={stale ? "amber" : undefined}
+            onClick={() => router.select({ screen: "availability" })}
+          />
+        )}
       </div>
 
       <div className="two-col">
@@ -253,8 +271,13 @@ export function TodayScreen() {
           title="Equipe por setor"
           footer={
             <>
-              <Dot state="on" /> vem dos registros de ponto (estimativa das últimas 16 horas).{" "}
-              <Dot state="hollow" /> é o que a equipe ou o gestor informou, com data e hora.
+              <Dot state="on" /> vem dos registros de ponto (estimativa das últimas 16 horas).
+              {showStatus && (
+                <>
+                  {" "}
+                  <Dot state="hollow" /> é o que a equipe ou o gestor informou, com data e hora.
+                </>
+              )}
             </>
           }
         >
@@ -267,7 +290,8 @@ export function TodayScreen() {
               <TeamCard
                 key={`${g.unit?.id}-${g.sector?.id}`}
                 g={g}
-                onOpen={() => router.select({ screen: "availability" })}
+                showStatus={showStatus}
+                onOpen={showStatus ? () => router.select({ screen: "availability" }) : undefined}
               />
             ))
           ) : (

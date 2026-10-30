@@ -4,7 +4,7 @@ import uuid
 import pytest
 from django.utils import timezone
 
-from apps.availability.models import AvailabilityUpdate
+from apps.availability.models import AvailabilitySettings, AvailabilityUpdate
 from apps.devices import services as device_services
 from apps.devices.models import Device
 from apps.operations import services as ops
@@ -31,6 +31,8 @@ def world(tenant_a):
     device = Device.objects.create(company=company, unit=unit, name="Tablet")
     code, _ = device_services.new_activation_code(device)
     device, _ = device_services.activate(code)
+    # Módulo opcional e desligado por padrão: os cenários abaixo partem dele ligado.
+    AvailabilitySettings.objects.create(company=company, enabled=True)
     return tenant_a, unit, caixa, maria, joao, device
 
 
@@ -127,3 +129,52 @@ def test_funcionario_informa_o_proprio_estado(world):
             ).status_code
             == 400
         )
+
+
+def test_modulo_desligado_recusa_escrita_e_historico_mas_o_painel_mostra_so_o_ponto(world):
+    tenant, unit, caixa, maria, joao, device = world
+    admin = tenant.client("company_admin")
+    AvailabilityUpdate.objects.create(
+        company=tenant.company,
+        employee=maria,
+        status="busy",
+        source="manager",
+        set_by=tenant.users["manager"],
+    )
+    assert admin.get(url(tenant)).json()["availability_enabled"] is True
+    assert admin.patch(url(tenant, "settings/"), {"enabled": False}, format="json").json()["enabled"] is False
+    me = f"/api/companies/{tenant.company.pk}/me/availability/"
+    for call in (
+        admin.post(url(tenant), {"employee_id": maria.pk, "status": "busy"}, format="json"),
+        admin.get(url(tenant, f"employees/{maria.pk}/")),
+        tenant.client("employee").get(me),
+        tenant.client("employee").post(me, {"status": "busy"}, format="json"),
+    ):
+        assert call.status_code == 403 and call.json()["code"] == "module_disabled"
+    # O painel segue servindo o indício de ponto, mas sem os estados informados.
+    board = admin.get(url(tenant)).json()
+    assert board["availability_enabled"] is False
+    people = [e for g in board["groups"] for e in g["employees"]]
+    assert people and all(e["status"] == "unknown" for e in people)
+    # Qualquer membro sabe se o módulo está ligado; só o administrador muda.
+    assert tenant.client("employee").get(url(tenant, "settings/")).json()["enabled"] is False
+    assert (
+        tenant.client("manager").patch(url(tenant, "settings/"), {"enabled": True}, format="json").status_code
+        == 403
+    )
+    assert admin.patch(url(tenant, "settings/"), {"enabled": "sim"}, format="json").status_code == 400
+    assert AvailabilityUpdate.objects.filter(employee=maria).count() == 1  # histórico preservado
+    assert admin.patch(url(tenant, "settings/"), {"enabled": True}, format="json").json()["enabled"] is True
+    assert [
+        e["status"]
+        for g in admin.get(url(tenant)).json()["groups"]
+        for e in g["employees"]
+        if e["employee"]["id"] == maria.pk
+    ] == ["busy"]
+
+
+def test_empresa_nova_nasce_sem_o_modulo(tenant_b):
+    admin = tenant_b.client("company_admin")
+    base = f"/api/companies/{tenant_b.company.pk}/availability/"
+    assert admin.get(base + "settings/").json()["enabled"] is False
+    assert admin.get(base).json()["availability_enabled"] is False

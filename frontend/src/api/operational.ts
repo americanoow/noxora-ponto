@@ -39,6 +39,8 @@ export interface BoardGroup {
 }
 export interface Board {
   generated_at: string;
+  /** Falso: o painel mostra só o indício de ponto, sem estados informados. */
+  availability_enabled: boolean;
   stale_after_minutes: number;
   notice: string;
   groups: BoardGroup[];
@@ -60,6 +62,15 @@ export const setAvailability = (
     note,
     expires_minutes: expires ?? null,
   });
+export interface AvailabilitySettings {
+  enabled: boolean;
+  stale_after_minutes: number;
+  show_punch_hint: boolean;
+}
+export const getAvailabilitySettings = (c: number) =>
+  request<AvailabilitySettings>("GET", `${c_(c)}/availability/settings/`);
+export const setAvailabilityEnabled = (c: number, enabled: boolean) =>
+  request<AvailabilitySettings>("PATCH", `${c_(c)}/availability/settings/`, { enabled });
 export const setMyAvailability = (c: number, status: AvailabilityStatus, note = "") =>
   request<unknown>("POST", `${c_(c)}/me/availability/`, { status, note });
 export const getMyAvailability = (c: number) =>

@@ -24,7 +24,6 @@ export type Destination =
   | { screen: "my-day" }
   | { screen: "my-timesheet" }
   | { screen: "my-requests" }
-  | { screen: "my-closings" }
   | { screen: "platform" };
 
 export type ScreenName = Destination["screen"];

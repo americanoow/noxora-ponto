@@ -49,6 +49,14 @@ def update_dict(u):
     }
 
 
+def _settings_dict(conf):
+    return {
+        "enabled": conf.enabled,
+        "stale_after_minutes": conf.stale_after_minutes,
+        "show_punch_hint": conf.show_punch_hint,
+    }
+
+
 class BoardView(APIView):
     def get(self, request, company_id):
         company = reader_company(request, company_id)
@@ -64,6 +72,7 @@ class BoardView(APIView):
 
     def post(self, request, company_id):
         company = reader_company(request, company_id)
+        services.require_enabled(company)
         employee_id = request.data.get("employee_id")
         employee = (
             ops_services.visible_employees(request, company).filter(pk=employee_id, is_active=True).first()
@@ -90,6 +99,7 @@ class BoardView(APIView):
 class HistoryView(APIView):
     def get(self, request, company_id, employee_id):
         company = reader_company(request, company_id)
+        services.require_enabled(company)
         if not ops_services.visible_employees(request, company).filter(pk=employee_id).exists():
             raise Http404
         rows = AvailabilityUpdate.objects.filter(company=company, employee_id=employee_id)[:100]
@@ -98,24 +108,30 @@ class HistoryView(APIView):
 
 class SettingsView(APIView):
     def get(self, request, company_id):
-        conf = services.settings_for(reader_company(request, company_id))
-        return Response(
-            {"stale_after_minutes": conf.stale_after_minutes, "show_punch_hint": conf.show_punch_hint}
-        )
+        # Qualquer membro pode saber se o módulo está ligado (a interface esconde o que não existe).
+        company = resolve_company(request, company_id)
+        if request.membership is None:
+            raise PermissionDenied("Você não tem permissão para esta operação.")
+        return Response(_settings_dict(services.settings_for(company)))
 
     def patch(self, request, company_id):
         company = admin_company(request, company_id)
         conf, _ = AvailabilitySettings.objects.get_or_create(company=company)
         stale = request.data.get("stale_after_minutes", conf.stale_after_minutes)
         hint = request.data.get("show_punch_hint", conf.show_punch_hint)
+        enabled = request.data.get("enabled", conf.enabled)
+        if not isinstance(enabled, bool):
+            raise ValidationError({"enabled": "Use verdadeiro ou falso."})
         if isinstance(stale, bool) or not isinstance(stale, int) or not 5 <= stale <= 1440:
             raise ValidationError({"stale_after_minutes": "Entre 5 e 1440 minutos."})
         if not isinstance(hint, bool):
             raise ValidationError({"show_punch_hint": "Use verdadeiro ou falso."})
-        conf.stale_after_minutes, conf.show_punch_hint = stale, hint
+        conf.stale_after_minutes, conf.show_punch_hint, conf.enabled = stale, hint, enabled
         conf.save()
-        audit.record(request, "availability.settings_changed", company=company, stale=stale, hint=hint)
-        return Response({"stale_after_minutes": stale, "show_punch_hint": hint})
+        audit.record(
+            request, "availability.settings_changed", company=company, stale=stale, hint=hint, enabled=enabled
+        )
+        return Response(_settings_dict(conf))
 
 
 class MyAvailabilityView(APIView):
@@ -123,6 +139,7 @@ class MyAvailabilityView(APIView):
         company = resolve_company(request, company_id)
         if request.membership is None:
             raise PermissionDenied("Você não tem permissão para esta operação.")
+        services.require_enabled(company)
         employee = own_employee(request, company)
         u = AvailabilityUpdate.objects.filter(employee=employee).first()
         return Response(update_dict(u) if u else None)
@@ -131,6 +148,7 @@ class MyAvailabilityView(APIView):
         company = resolve_company(request, company_id)
         if request.membership is None:
             raise PermissionDenied("Você não tem permissão para esta operação.")
+        services.require_enabled(company)
         employee = own_employee(request, company)
         status, note, expires = _validated(request.data)
         u = services.set_status(
