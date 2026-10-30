@@ -50,10 +50,11 @@ def board(*, request, company, unit_id=None, sector_id=None):
     if conf.show_punch_hint and ids:
         since = now - dt.timedelta(hours=16)
         rows = TimeRecord.objects.filter(employee_id__in=ids, occurred_at__gte=since).order_by("occurred_at")
-        for r in rows.values("employee_id", "occurred_at", "unit__timezone"):
+        for r in rows.values("employee_id", "occurred_at", "unit__timezone", "unit__name"):
             h = hints.setdefault(r["employee_id"], {"count": 0, "last_at": None, "tz": r["unit__timezone"]})
             h["count"] += 1
             h["last_at"] = r["occurred_at"]
+            h["unit_name"] = r["unit__name"]
 
     from apps.operations.models import Sector, Unit
 
@@ -95,8 +96,9 @@ def board(*, request, company, unit_id=None, sector_id=None):
             local = hint["last_at"].astimezone(ZoneInfo(hint["tz"]))
             item["punch_hint"] = {
                 "last_punch_at": hint["last_at"],
+                "unit_name": hint["unit_name"],
                 "likely_present": hint["count"] % 2 == 1,
-                "text": f"Última marcação às {local:%H:%M} (indício do ponto, não confirma presença)",
+                "text": f"Última marcação às {local:%H:%M}" + (f" em {hint['unit_name']}" if hint["unit_name"] else "") + " (indício do ponto, não confirma presença)",
             }
         group["employees"].append(item)
     return {

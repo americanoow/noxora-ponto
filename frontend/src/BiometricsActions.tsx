@@ -55,7 +55,7 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
     setError(null);
     try {
       if (files.length > 5 || Array.from(files).some((f) => f.size > 1_000_000)) {
-        setError("Envie até 5 imagens de no máximo 1 MB cada.");
+        setError("Envie de 1 a 5 fotos, cada uma com no máximo 1 MB.");
         return;
       }
       const images = await Promise.all(Array.from(files).map(fileToBase64));
@@ -67,7 +67,7 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
 
   const requestException = () => {
     const reason = window.prompt(
-      `Motivo da exceção para ${employeeName} (mínimo de 5 caracteres):`,
+      `Por que ${employeeName} precisa bater o ponto sem reconhecimento facial? (explique em pelo menos 5 letras)`,
     );
     if (!reason?.trim()) return;
     setError(null);
@@ -83,7 +83,7 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
   return (
     <span>
       <button onClick={toggle} aria-expanded={open}>
-        Identificação
+        Identificação no tablet
       </button>
       {open && (
         <div role="group" aria-label={`Identificação de ${employeeName}`}>
@@ -91,21 +91,20 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
           {canEdit && status && (
             <div>
               <p>
-                Consentimento:{" "}
-                {status.consent
-                  ? `registrado (política ${status.consent.policy_version})`
-                  : "não registrado"}
+                Autorização para usar o rosto:{" "}
+                {status.consent ? "registrada" : "ainda não registrada"}
                 {" — "}
-                Cadastro facial:{" "}
-                {status.template ? `ativo (${status.template.engine})` : "não cadastrado"}
+                Rosto cadastrado: {status.template ? "sim" : "não"}
               </p>
               {status.engine?.simulator && (
                 <p role="note">
-                  Motor SIMULADO (apenas desenvolvimento): não comprova identificação nem
-                  antifraude.
+                  Reconhecimento facial de TESTE: não use com funcionários reais, pois não garante
+                  quem é a pessoa.
                 </p>
               )}
-              {!status.engine && <p role="note">Motor biométrico não configurado.</p>}
+              {!status.engine && (
+                <p role="note">O reconhecimento facial ainda não foi configurado no sistema.</p>
+              )}
               {!status.consent ? (
                 <form
                   onSubmit={(e) => {
@@ -114,22 +113,22 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
                   }}
                 >
                   <input
-                    aria-label="Versão da política"
+                    aria-label="Versão do termo de autorização"
                     value={policy}
                     onChange={(e) => setPolicy(e.target.value)}
                     required
                   />
                   <input
-                    aria-label="Referência do termo assinado"
+                    aria-label="Número ou nome do termo assinado (opcional)"
                     value={evidence}
                     onChange={(e) => setEvidence(e.target.value)}
                   />
-                  <button type="submit">Registrar consentimento</button>
+                  <button type="submit">Registrar autorização</button>
                 </form>
               ) : (
                 <>
                   <label>
-                    Fotos para o cadastro (1 a 5; não são armazenadas)
+                    Fotos do rosto para o cadastro (de 1 a 5; as fotos não ficam guardadas)
                     <input
                       type="file"
                       accept="image/jpeg,image/png"
@@ -142,24 +141,27 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
                   </label>
                   {status.template && (
                     <button onClick={() => act(() => deleteTemplate(companyId, employeeId))}>
-                      Excluir cadastro facial
+                      Apagar o rosto cadastrado
                     </button>
                   )}
                   <button onClick={() => act(() => revokeConsent(companyId, employeeId))}>
-                    Revogar consentimento (exclui o cadastro)
+                    Retirar a autorização (apaga o rosto cadastrado)
                   </button>
                 </>
               )}
             </div>
           )}
           <div>
-            <button onClick={requestException}>Autorizar marcação por exceção</button>
+            <button onClick={requestException}>
+              Liberar bater o ponto sem reconhecimento facial
+            </button>
             {grant && (
               <p role="status">
-                Código de exceção de {employeeName}:{" "}
-                <code aria-label="Código de exceção">{grant.code}</code>. Válido por poucos minutos
-                e uso único; informe ao funcionário, que o digita no tablet. Não será exibido
-                novamente. <button onClick={() => setGrant(null)}>Ocultar</button>
+                Código liberado para {employeeName}:{" "}
+                <code aria-label="Código liberado">{grant.code}</code>. Vale por poucos minutos e só
+                pode ser usado uma vez. Passe o código ao funcionário para ele digitar no tablet.
+                Ele não será mostrado de novo.{" "}
+                <button onClick={() => setGrant(null)}>Ocultar</button>
               </p>
             )}
           </div>
@@ -198,36 +200,37 @@ export function IdentificationModePanel({
 
   return (
     <section>
-      <h4>Identificação do trabalhador no tablet</h4>
+      <h4>Como o funcionário se identifica no tablet</h4>
       <select
-        aria-label="Modo de identificação"
+        aria-label="Como o funcionário se identifica"
         value={policy.mode}
         disabled={!canEdit}
         onChange={(e) => change({ mode: e.target.value as IdentificationMode })}
       >
-        <option value="registration">Somente matrícula (não é identificação forte)</option>
-        <option value="face">Verificação facial com vivacidade (ou exceção autorizada)</option>
+        <option value="registration">Só digitando a matrícula (menos seguro)</option>
+        <option value="face">Reconhecimento facial (ou código liberado pelo gestor)</option>
       </select>
       {policy.mode === "face" && (
         <p>
-          No modo facial só vale verificação facial aprovada ou exceção autorizada. Sem um motor
-          biométrico real configurado, os tablets não conseguirão registrar ponto.
+          Com reconhecimento facial, só vale o rosto reconhecido ou um código liberado pelo gestor.
+          Se o reconhecimento facial não estiver configurado no sistema, os tablets não conseguirão
+          registrar o ponto.
         </p>
       )}
-      <h4>Marcação com o tablet sem conexão</h4>
+      <h4>Bater o ponto com o tablet sem internet</h4>
       <select
-        aria-label="Política de marcação offline"
+        aria-label="Bater o ponto sem internet"
         value={policy.offline_policy}
         disabled={!canEdit}
         onChange={(e) => change({ offline_policy: e.target.value as OfflinePolicy })}
       >
-        <option value="disabled">Desativada (sem conexão, o tablet não registra)</option>
-        <option value="registration_only">Por matrícula, com revisão posterior</option>
+        <option value="disabled">Não permitir (sem internet, o tablet não registra)</option>
+        <option value="registration_only">Permitir pela matrícula e revisar depois</option>
       </select>
       <p>
-        O reconhecimento facial não funciona offline. Se ativada, a marcação offline usa apenas a
-        matrícula (não é identificação forte), fica sinalizada para revisão e só recebe NSR e
-        comprovante quando o tablet reconectar.
+        O reconhecimento facial não funciona sem internet. Se você permitir, a batida sem internet
+        usa só a matrícula (menos seguro), fica marcada para revisão e só recebe o número de
+        registro e o comprovante quando o tablet voltar a ter internet.
       </p>
     </section>
   );

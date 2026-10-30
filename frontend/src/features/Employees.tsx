@@ -81,8 +81,8 @@ export function EmployeesScreen() {
               value={tab}
               onChange={setTab}
               options={[
-                ["list", "Cadastro"],
-                ["import", "Importar planilha"],
+                ["list", "Lista"],
+                ["import", "Cadastrar vários de uma vez"],
               ]}
             />
           )}
@@ -97,7 +97,7 @@ export function EmployeesScreen() {
       {tab === "import" ? (
         <Group
           padded
-          footer="Somente inclusão. Primeiro confira a prévia; nada é gravado se houver erro em qualquer linha."
+          footer="Serve só para cadastrar pessoas novas. Primeiro veja a prévia: se alguma linha tiver erro, nada é cadastrado."
         >
           <div className="legacy">
             <ImportTab companyId={companyId} />
@@ -109,7 +109,7 @@ export function EmployeesScreen() {
             <input
               type="search"
               aria-label="Buscar"
-              placeholder="Nome ou matrícula"
+              placeholder="Digite o nome ou a matrícula"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -166,7 +166,7 @@ export function EmployeesScreen() {
                 <Row
                   key={e.id}
                   title={e.full_name}
-                  subtitle={`Matrícula ${e.registration}${e.unit ? `, ${e.unit.name}${e.sector ? ` / ${e.sector.name}` : ""}` : ", sem lotação"}`}
+                  subtitle={`Matrícula ${e.registration}${e.unit ? `, ${e.unit.name}${e.sector ? ` / ${e.sector.name}` : ""}` : ", sem unidade definida"}`}
                   accessory={!e.is_active && <Badge>Inativo</Badge>}
                   onClick={() => router.push({ screen: "employee", id: e.id })}
                 />
@@ -175,7 +175,9 @@ export function EmployeesScreen() {
               <Empty
                 title={query ? "Nenhum funcionário encontrado" : "Nenhum funcionário cadastrado"}
               >
-                {isAdmin && !query && <p>Cadastre um a um ou importe uma planilha CSV.</p>}
+                {isAdmin && !query && (
+                  <p>Cadastre uma pessoa de cada vez ou várias de uma vez, com uma planilha.</p>
+                )}
               </Empty>
             )}
           </Group>
@@ -234,7 +236,10 @@ function CreateSheet({
               maxLength={200}
             />
           </Field>
-          <Field label="CPF (opcional)" hint="Exigido no comprovante e no AFD.">
+          <Field
+            label="CPF (opcional)"
+            hint="Aparece no comprovante de ponto e nos arquivos da fiscalização."
+          >
             <input
               value={form.cpf}
               onChange={(e) => setForm({ ...form, cpf: e.target.value })}
@@ -291,7 +296,7 @@ export function EmployeeDetailScreen({ id }: { id: number }) {
       toolbar={
         <>
           <button onClick={() => router.push({ screen: "timesheet", employeeId: e.id })}>
-            <Icon name="sheet" size={16} /> Espelho
+            <Icon name="sheet" size={16} /> Folha de ponto
           </button>
           {isAdmin && <button onClick={() => setSheet("edit")}>Editar</button>}
           {isAdmin && (
@@ -315,18 +320,21 @@ export function EmployeeDetailScreen({ id }: { id: number }) {
         <Row title="Situação" value={e.is_active ? "Ativo" : "Inativo"} />
         <Row title="CPF" value={e.cpf || "Não informado"} />
         <Row title="Admissão" value={dateBR(e.admission_date)} />
-        <Row title="Acesso ao portal" value={e.access_email || "Sem acesso"} />
+        <Row
+          title="E-mail para acessar o sistema"
+          value={e.access_email || "Ainda não tem acesso"}
+        />
       </Group>
       <Group
-        title="Lotação"
+        title="Unidade e setor"
         aside={
           isAdmin && (
             <button className="plain" onClick={() => setSheet("assignment")}>
-              Alterar lotação
+              Mudar de unidade ou setor
             </button>
           )
         }
-        footer="Cada mudança vale a partir de uma data e não reescreve o histórico."
+        footer="Cada mudança vale a partir de uma data. O que já passou não é alterado."
       >
         {assignments.data?.length ? (
           assignments.data.map((a) => (
@@ -337,15 +345,15 @@ export function EmployeeDetailScreen({ id }: { id: number }) {
             />
           ))
         ) : (
-          <Empty title="Sem lotação" />
+          <Empty title="Sem unidade definida" />
         )}
       </Group>
       <Group
-        title="Jornada"
+        title="Horário de trabalho"
         aside={
           isAdmin && (
             <button className="plain" onClick={() => setSheet("schedule")}>
-              Atribuir jornada
+              Definir horário de trabalho
             </button>
           )
         }
@@ -359,15 +367,18 @@ export function EmployeeDetailScreen({ id }: { id: number }) {
             />
           ))
         ) : (
-          <Empty title="Sem jornada atribuída">
-            <p>Sem jornada, os dias contam como folga e todo o trabalho como extra.</p>
+          <Empty title="Nenhum horário de trabalho definido">
+            <p>
+              Sem horário de trabalho, todos os dias contam como folga e todas as horas trabalhadas
+              como extras.
+            </p>
           </Empty>
         )}
       </Group>
       <Group
         title="Identificação no tablet"
         padded
-        footer="Consentimento, cadastro facial e código de exceção para marcar sem reconhecimento."
+        footer="Autorização para usar o rosto, cadastro do rosto e código para bater o ponto quando o reconhecimento não funcionar."
       >
         <div className="legacy">
           <BiometricsActions
@@ -428,7 +439,7 @@ function AssignmentSheet({
   const [from, setFrom] = useState(isoDate(new Date()));
   const { pending, error, run } = useAction();
   return (
-    <Sheet title="Alterar lotação" open={open} onClose={onClose}>
+    <Sheet title="Mudar de unidade ou setor" open={open} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -483,7 +494,7 @@ function AssignmentSheet({
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Salvar lotação
+            Salvar
           </button>
         </div>
       </form>
@@ -508,7 +519,7 @@ function ScheduleSheet({
   const [from, setFrom] = useState(isoDate(new Date()));
   const { pending, error, run } = useAction();
   return (
-    <Sheet title="Atribuir jornada" open={open} onClose={onClose}>
+    <Sheet title="Definir horário de trabalho" open={open} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -522,7 +533,7 @@ function ScheduleSheet({
         }}
       >
         <div className="form-grid">
-          <Field label="Jornada">
+          <Field label="Horário de trabalho">
             <select value={schedule} onChange={(e) => setSchedule(e.target.value)} required>
               <option value="">Escolha…</option>
               {list.data
@@ -541,7 +552,7 @@ function ScheduleSheet({
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Atribuir
+            Salvar
           </button>
         </div>
       </form>
@@ -593,7 +604,7 @@ function EditSheet({
               required
             />
           </Field>
-          <Field label="Novo CPF" hint="Deixe vazio para manter o atual.">
+          <Field label="Novo CPF" hint="Deixe em branco para manter o atual.">
             <input
               value={form.cpf}
               onChange={(e) => setForm({ ...form, cpf: e.target.value })}
@@ -608,8 +619,8 @@ function EditSheet({
             />
           </Field>
           <Field
-            label="E-mail de acesso ao portal"
-            hint="Precisa ter acesso à empresa (convite em Acessos)."
+            label="E-mail para acessar o sistema"
+            hint="Essa pessoa precisa ter sido convidada em “Quem usa o sistema”."
           >
             <input
               type="email"

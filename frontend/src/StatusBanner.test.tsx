@@ -19,7 +19,7 @@ describe("StatusBanner", () => {
     );
     render(<StatusBanner />);
     expect(screen.getByRole("status")).toHaveTextContent("Verificando");
-    expect(await screen.findByText(/API disponível/)).toBeInTheDocument();
+    expect(await screen.findByText(/funcionando normalmente/)).toBeInTheDocument();
   });
 
   it("mostra falha quando o banco está indisponível", async () => {
@@ -32,7 +32,7 @@ describe("StatusBanner", () => {
       ),
     );
     render(<StatusBanner />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("banco está indisponível");
+    expect(await screen.findByRole("alert")).toHaveTextContent("não consegue acessar os dados");
   });
 
   it("mostra falha quando a API não responde", async () => {
@@ -41,6 +41,8 @@ describe("StatusBanner", () => {
       vi.fn(() => Promise.reject(new TypeError("rede"))),
     );
     render(<StatusBanner />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível contatar");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Não conseguimos falar com o sistema",
+    );
   });
 });

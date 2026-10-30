@@ -29,7 +29,8 @@ export function App() {
     body = (
       <main className="auth">
         <div className="auth-panel">
-          <p role="alert">Não foi possível contatar a API.</p>
+          <p role="alert">Não conseguimos abrir o sistema agora.</p>
+          <p>Verifique sua internet e atualize a página (tecla F5).</p>
           <StatusBanner />
         </div>
       </main>

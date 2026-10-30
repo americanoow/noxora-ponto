@@ -47,8 +47,8 @@ describe("DevicesTab", () => {
   it("lista tablets com situação, conectividade e versão", async () => {
     render(<DevicesTab companyId={7} canEdit />);
     expect(await screen.findByText(/Tablet Recepção/)).toBeInTheDocument();
-    expect(screen.getByText(/Online/)).toBeInTheDocument();
-    expect(screen.getByText(/versão 1\.2\.0/)).toBeInTheDocument();
+    expect(screen.getByText(/Conectado/)).toBeInTheDocument();
+    expect(screen.getByText(/versão do aplicativo 1\.2\.0/)).toBeInTheDocument();
   });
 
   it("mostra o código de ativação uma vez e permite ocultá-lo", async () => {
@@ -64,7 +64,7 @@ describe("DevicesTab", () => {
     await screen.findByText(/Tablet Recepção/);
     fireEvent.change(screen.getByLabelText("Nome do tablet"), { target: { value: "Novo" } });
     fireEvent.change(screen.getByLabelText("Unidade do tablet"), { target: { value: "1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e gerar código" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e gerar código de ativação" }));
     expect(await screen.findByLabelText("Código de ativação")).toHaveTextContent("ABCDE-FGHJK");
     fireEvent.click(screen.getByRole("button", { name: "Ocultar" }));
     expect(screen.queryByText("ABCDE-FGHJK")).not.toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("DevicesTab", () => {
     render(<DevicesTab companyId={7} canEdit={false} />);
     await screen.findByText(/Tablet Recepção/);
     expect(screen.queryByText("Novo tablet")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Revogar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bloquear tablet" })).not.toBeInTheDocument();
     expect(calls.some((c) => c.key.includes("/units/"))).toBe(false);
   });
 
@@ -88,7 +88,7 @@ describe("DevicesTab", () => {
       },
     });
     const view = render(<DevicesTab companyId={7} canEdit />);
-    fireEvent.click(await screen.findByRole("button", { name: "Renovar (novo código)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar novo código de ativação" }));
     expect(await screen.findByLabelText("Código de ativação")).toHaveTextContent("ABCDE-FGHJK");
     expect(localWrite).not.toHaveBeenCalled();
     view.rerender(<DevicesTab companyId={7} canEdit={false} />);
@@ -105,7 +105,7 @@ describe("DevicesTab", () => {
       body: device({ status: "revoked" }),
     });
     render(<DevicesTab companyId={7} canEdit />);
-    fireEvent.click(await screen.findByRole("button", { name: "Revogar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Bloquear tablet" }));
     await waitFor(() =>
       expect(calls.some((c) => c.key === "POST /api/companies/7/devices/1/revoke/")).toBe(true),
     );

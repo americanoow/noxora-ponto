@@ -14,17 +14,23 @@ import { PlatformScreen } from "./Platform";
 import { MyClosingsScreen, MyDayScreen, MyRequestsScreen, MyTimesheetScreen } from "./Portal";
 import { RequestsScreen } from "./Requests";
 import { TimesheetScreen } from "./Timesheet";
+import { HomeScreen } from "./Home";
 import { TodayScreen } from "./Today";
+import type { NavGroup } from "../Shell";
 
 /** Mapa de destinos para telas (como `.navigationDestination(for:)`). */
 export function ScreenView({
   destination,
   refreshPending,
+  groups,
 }: {
   destination: Destination;
   refreshPending: () => void;
+  groups: NavGroup[];
 }) {
   switch (destination.screen) {
+    case "home":
+      return <HomeScreen groups={groups} />;
     case "today":
       return <TodayScreen />;
     case "timesheet":
@@ -46,15 +52,15 @@ export function ScreenView({
     case "records":
       return (
         <Legacy
-          title="Marcações"
-          subtitle="Registro de ponto original. Somente leitura."
+          title="Registros de ponto"
+          subtitle="Todas as batidas feitas nos tablets. Só para consulta: elas não podem ser alteradas nem apagadas."
           render={(c) => <RecordsTab companyId={c} />}
         />
       );
     case "devices":
       return (
         <Legacy
-          title="Tablets"
+          title="Tablets de ponto"
           render={(c, admin) => <DevicesTab companyId={c} canEdit={admin} />}
         />
       );
@@ -72,8 +78,8 @@ export function ScreenView({
     case "schedules":
       return (
         <Legacy
-          title="Jornadas"
-          subtitle="Jornadas atribuídas não mudam: para alterar, crie outra e atribua com nova vigência."
+          title="Horários de trabalho"
+          subtitle="Um horário já usado não pode ser editado. Para mudar, crie um novo e defina a data a partir da qual ele vale."
           render={(c, admin) => <SchedulesTab companyId={c} canEdit={admin} />}
         />
       );
@@ -127,7 +133,10 @@ function Legacy({
 function MembersScreenView() {
   const { companyId, role } = useCompany();
   return (
-    <Screen title="Acessos" subtitle="Quem entra no painel e com qual papel.">
+    <Screen
+      title="Quem usa o sistema"
+      subtitle="Convide pessoas e escolha o que cada uma pode fazer."
+    >
       <Group padded>
         <div className="legacy">
           <MembersPanel companyId={companyId} myRole={role} />

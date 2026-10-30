@@ -23,7 +23,12 @@ export interface BoardEmployee {
   updated_at: string | null;
   updated_by_source: string | null;
   expires_at: string | null;
-  punch_hint: { last_punch_at: string; likely_present: boolean; text: string } | null;
+  punch_hint: {
+    last_punch_at: string;
+    unit_name?: string | null;
+    likely_present: boolean;
+    text: string;
+  } | null;
 }
 export interface BoardGroup {
   unit: { id: number; name: string } | null;

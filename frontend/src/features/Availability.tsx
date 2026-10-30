@@ -27,8 +27,8 @@ export function AvailabilityScreen() {
   const [editing, setEditing] = useState<BoardEmployee | null>(null);
   return (
     <Screen
-      title="Disponibilidade"
-      subtitle="Informação operacional por unidade e setor. Não altera nem substitui o registro de ponto."
+      title="Situação da equipe"
+      subtitle="Mostra quem está disponível, em pausa ou fora, por unidade e setor. Isto não registra o ponto de ninguém."
       toolbar={<button onClick={board.reload}>Atualizar</button>}
     >
       {board.loading && !board.data ? (
@@ -40,7 +40,13 @@ export function AvailabilityScreen() {
           <Group
             key={`${g.unit?.id}-${g.sector?.id}`}
             title={`${g.unit?.name ?? "Sem unidade"}${g.sector ? `, ${g.sector.name}` : ""}`}
-            aside={g.stale ? `${g.stale} desatualizado(s)` : undefined}
+            aside={[
+              `${g.employees.filter((e) => e.punch_hint?.likely_present).length} trabalhando`,
+              `${g.employees.filter((e) => !e.punch_hint?.likely_present).length} sem bater o ponto`,
+              g.stale ? `${g.stale} sem atualização` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           >
             {g.employees.map((e) => (
               <Row
@@ -49,7 +55,7 @@ export function AvailabilityScreen() {
                 subtitle={
                   [
                     e.note,
-                    e.updated_at ? `atualizado ${dateTimeBR(e.updated_at)}` : "",
+                    e.updated_at ? `atualizado em ${dateTimeBR(e.updated_at)}` : "",
                     e.punch_hint?.text ?? "",
                   ]
                     .filter(Boolean)
@@ -57,8 +63,11 @@ export function AvailabilityScreen() {
                 }
                 accessory={
                   <span className="toolbar">
-                    {e.freshness === "stale" && <Badge>Desatualizado</Badge>}
-                    {e.freshness === "expired" && <Badge>Vencido</Badge>}
+                    <Badge tone={e.punch_hint?.likely_present ? "tint" : "seal"}>
+                      {e.punch_hint?.likely_present ? "Trabalhando" : "Sem bater o ponto"}
+                    </Badge>
+                    {e.freshness === "stale" && <Badge>Sem atualização</Badge>}
+                    {e.freshness === "expired" && <Badge>Prazo acabou</Badge>}
                     <Badge tone={TONE[e.status]}>{AVAILABILITY_LABELS[e.status]}</Badge>
                   </span>
                 }
@@ -69,7 +78,7 @@ export function AvailabilityScreen() {
         ))
       ) : (
         <Group>
-          <Empty title="Nenhum funcionário lotado no seu escopo" />
+          <Empty title="Nenhum funcionário nas equipes sob a sua responsabilidade" />
         </Group>
       )}
       <StatusSheet
@@ -92,7 +101,7 @@ export function StatusPicker({
   onChange: (s: AvailabilityStatus) => void;
 }) {
   return (
-    <div className="toolbar" role="radiogroup" aria-label="Situação">
+    <div className="toolbar" role="radiogroup" aria-label="Situação do funcionário">
       {(Object.keys(AVAILABILITY_LABELS) as (AvailabilityStatus | "unknown")[])
         .filter((k): k is AvailabilityStatus => k !== "unknown")
         .map((k) => (
@@ -147,10 +156,10 @@ function StatusSheet({
       >
         <StatusPicker value={status} onChange={setStatus} />
         <div className="form-grid">
-          <Field label="Observação">
+          <Field label="Recado (opcional)">
             <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} />
           </Field>
-          <Field label="Vence em (minutos)">
+          <Field label="Voltar ao normal depois de quantos minutos? (opcional)">
             <input
               type="number"
               min={1}
@@ -163,7 +172,7 @@ function StatusSheet({
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Salvar situação
+            Salvar
           </button>
         </div>
       </form>

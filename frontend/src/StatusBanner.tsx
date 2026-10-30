@@ -14,12 +14,8 @@ export function StatusBanner() {
 
   return (
     <div>
-      {status.kind === "loading" && <p role="status">Verificando a API…</p>}
-      {status.kind === "ok" && (
-        <p role="status">
-          API disponível (saúde: {status.health}, banco: {status.database}).
-        </p>
-      )}
+      {status.kind === "loading" && <p role="status">Verificando se o sistema está no ar…</p>}
+      {status.kind === "ok" && <p role="status">O sistema está funcionando normalmente.</p>}
       {status.kind === "error" && <p role="alert">{status.message}</p>}
     </div>
   );

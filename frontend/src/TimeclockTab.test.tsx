@@ -58,10 +58,10 @@ describe("RecordsTab", () => {
       body: { count: 1, next: null, previous: null, results: [record()] },
     });
     render(<RecordsTab companyId={7} />);
-    expect(await screen.findByText(/NSR 42/)).toBeInTheDocument();
+    expect(await screen.findByText(/Registro nº 42/)).toBeInTheDocument();
     expect(screen.getByText(/21\/10\/2026 23:30:15/)).toBeInTheDocument();
     expect(screen.getByText(/Entrada/)).toBeInTheDocument();
-    expect(screen.getByText(/não podem ser editados nem apagados/)).toBeInTheDocument();
+    expect(screen.getByText(/não podem ser editadas nem apagadas/)).toBeInTheDocument();
     for (const name of [/editar/i, /apagar/i, /excluir/i, /alterar/i]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
@@ -74,7 +74,7 @@ describe("RecordsTab", () => {
       body: { count: 1, next: null, previous: null, results: [record({ offline: true })] },
     });
     const { unmount } = render(<RecordsTab companyId={7} />);
-    expect(await screen.findByText(/registrada offline/)).toBeInTheDocument();
+    expect(await screen.findByText(/feita sem internet/)).toBeInTheDocument();
     unmount();
     routes["GET /api/companies/7/time-records/"] = () => ({ status: 403 });
     render(<RecordsTab companyId={7} />);
@@ -96,10 +96,10 @@ describe("EmployerTab", () => {
       },
     });
     render(<EmployerTab companyId={7} canEdit />);
-    fireEvent.change(await screen.findByLabelText("Razão social ou nome"), {
+    fireEvent.change(await screen.findByLabelText("Nome da empresa (razão social)"), {
       target: { value: "Empresa A Ltda" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar dados do empregador" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar dados da empresa" }));
     expect(await screen.findByText("Dados salvos.")).toBeInTheDocument();
     const patch = calls.find((c) => c.key.startsWith("PATCH"))!;
     expect(JSON.parse(patch.init!.body as string).legal_name).toBe("Empresa A Ltda");
@@ -108,7 +108,7 @@ describe("EmployerTab", () => {
   it("gestor só consulta e erro de validação é exibido", async () => {
     routes["GET /api/companies/7/employer/"] = () => ({ body: employer });
     const { unmount } = render(<EmployerTab companyId={7} canEdit={false} />);
-    expect(await screen.findByLabelText("Razão social ou nome")).toBeDisabled();
+    expect(await screen.findByLabelText("Nome da empresa (razão social)")).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Salvar/ })).not.toBeInTheDocument();
     unmount();
     routes["PATCH /api/companies/7/employer/"] = () => ({
@@ -116,7 +116,7 @@ describe("EmployerTab", () => {
       body: { tax_id: ["CNPJ inválido."] },
     });
     render(<EmployerTab companyId={7} canEdit />);
-    fireEvent.click(await screen.findByRole("button", { name: "Salvar dados do empregador" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Salvar dados da empresa" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("CNPJ inválido.");
   });
 });
@@ -137,10 +137,10 @@ describe("RecordsTab: marcações offline", () => {
       },
     });
     render(<RecordsTab companyId={7} />);
-    expect(await screen.findByText(/registrada offline/)).toBeInTheDocument();
+    expect(await screen.findByText(/feita sem internet/)).toBeInTheDocument();
     const note = screen.getByRole("note");
-    expect(note).toHaveTextContent("relógio do tablet com desvio acima de 30 s");
-    expect(note).toHaveTextContent("funcionário inativo na sincronização");
+    expect(note).toHaveTextContent("relógio do tablet estava errado por mais de 30 segundos");
+    expect(note).toHaveTextContent("funcionário estava inativo quando a batida chegou");
     expect(note).toHaveTextContent("codigo_novo"); // sinalização desconhecida aparece sem rótulo
   });
 
@@ -157,7 +157,7 @@ describe("RecordsTab: marcações offline", () => {
       },
     });
     render(<RecordsTab companyId={7} />);
-    await screen.findAllByText(/NSR 42/);
+    await screen.findAllByText(/Registro nº 42/);
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
@@ -166,9 +166,9 @@ describe("RecordsTab: marcações offline", () => {
       body: { count: 0, next: null, previous: null, results: [] },
     });
     render(<RecordsTab companyId={7} />);
-    fireEvent.change(await screen.findByLabelText("Origem"), { target: { value: "true" } });
+    fireEvent.change(await screen.findByLabelText("Como foi feita"), { target: { value: "true" } });
     await waitFor(() => expect(calls.some((c) => c.key.includes("offline=true"))).toBe(true));
-    fireEvent.change(screen.getByLabelText("Origem"), { target: { value: "false" } });
+    fireEvent.change(screen.getByLabelText("Como foi feita"), { target: { value: "false" } });
     await waitFor(() => expect(calls.some((c) => c.key.includes("offline=false"))).toBe(true));
   });
 });

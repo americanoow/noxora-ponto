@@ -3,9 +3,9 @@ import { ApiError, request, resetCsrf } from "./http";
 export type Role = "company_admin" | "manager" | "employee";
 
 export const ROLE_LABELS: Record<Role, string> = {
-  company_admin: "Administrador da empresa",
-  manager: "Gestor",
-  employee: "Funcionário",
+  company_admin: "Administrador (acessa tudo)",
+  manager: "Gestor (cuida de uma equipe)",
+  employee: "Funcionário (vê só o próprio ponto)",
 };
 
 export interface Me {
@@ -95,17 +95,24 @@ export const createCompany = (name: string, adminEmail: string) =>
 
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 429) return "Muitas tentativas. Aguarde alguns minutos.";
+    if (error.status === 429)
+      return "Você tentou muitas vezes seguidas. Aguarde alguns minutos e tente de novo.";
+    if (error.status === 401) return "Sua sessão acabou. Entre de novo para continuar.";
+    if (error.status === 404) return "Não encontramos o que você procurou. Pode ter sido removido.";
+    if (error.status >= 500)
+      return "O sistema está com problemas no momento. Tente de novo em instantes.";
     if (error.status === 403) {
       // 403 também ocorre por falha de CSRF (token/origem): não confundir com falta de permissão.
       if (typeof error.body.detail === "string" && error.body.detail.startsWith("CSRF")) {
-        return "Falha de segurança da requisição (CSRF). Recarregue a página e tente de novo.";
+        return "Por segurança, esta página precisa ser recarregada. Atualize a página (tecla F5) e tente de novo.";
       }
-      return "Você não tem permissão para esta operação.";
+      return "Você não tem permissão para fazer isto. Fale com o administrador da sua empresa.";
     }
     if (typeof error.body.detail === "string") return error.body.detail;
     const first = Object.values(error.body).flat()[0];
     if (typeof first === "string") return first;
   }
-  return "Não foi possível concluir a operação.";
+  if (error instanceof TypeError)
+    return "Não conseguimos falar com o sistema. Verifique sua internet e tente de novo.";
+  return "Não foi possível concluir. Tente de novo; se continuar, fale com o suporte.";
 }

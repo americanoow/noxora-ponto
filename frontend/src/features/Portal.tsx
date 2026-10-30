@@ -48,10 +48,13 @@ export function MyDayScreen() {
   }, [companyId]);
   const { error, run } = useAction();
   return (
-    <Screen title="Meu ponto" subtitle="Marcações das últimas 48 horas e comprovantes.">
+    <Screen
+      title="Meu ponto"
+      subtitle="Suas batidas de ponto das últimas 48 horas e os comprovantes."
+    >
       <Group
-        title="Marcações recentes"
-        footer="O comprovante oficial assinado (ICP-Brasil) ainda não está disponível; o PDF é informativo."
+        title="Batidas recentes"
+        footer="O comprovante é um PDF informativo. O comprovante oficial com assinatura digital ainda não está disponível."
       >
         {punches.loading && !punches.data ? (
           <Loading />
@@ -62,24 +65,24 @@ export function MyDayScreen() {
             <Row
               key={r.id}
               title={formatLocalTime(r.occurred_at, r.occurred_offset_minutes)}
-              subtitle={`${r.unit.name}, NSR ${r.nsr}${r.offline ? ", registrada sem conexão" : ""}`}
+              subtitle={`${r.unit.name}. Registro nº ${r.nsr}${r.offline ? ". Batida feita sem internet e enviada depois" : ""}`}
               accessory={
                 <Download href={downloads.myReceipt(companyId, r.id)}>Comprovante</Download>
               }
             />
           ))
         ) : (
-          <Empty title="Nenhuma marcação nas últimas 48 horas" />
+          <Empty title="Nenhuma batida nas últimas 48 horas" />
         )}
       </Group>
       <Group
-        title="Minha disponibilidade"
+        title="Como estou agora"
         padded
-        footer="Informação para a equipe. Não registra ponto."
+        footer="Serve para avisar a equipe. Isto não registra o seu ponto."
       >
         <p>
           Agora:{" "}
-          {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "sem informação"}
+          {availability.data ? AVAILABILITY_LABELS[availability.data.status] : "nada informado"}
           {availability.data && ` (desde ${dateTimeBR(availability.data.set_at)})`}
         </p>
         <StatusPicker
@@ -95,11 +98,11 @@ export function MyDayScreen() {
       </Group>
       <Group>
         <Row
-          title="Ver meu espelho do mês"
+          title="Ver minha folha de ponto do mês"
           onClick={() => router.select({ screen: "my-timesheet" })}
         />
         <Row
-          title="Pedir ajuste ou abono"
+          title="Pedir correção ou justificar ausência"
           onClick={() => router.select({ screen: "my-requests" })}
         />
       </Group>
@@ -116,7 +119,7 @@ export function MyTimesheetScreen() {
   );
   return (
     <Screen
-      title="Meu espelho"
+      title="Minha folha de ponto"
       toolbar={
         <>
           <PeriodPicker
@@ -151,10 +154,10 @@ export function MyRequestsScreen() {
   return (
     <Screen
       title="Meus pedidos"
-      subtitle="Para pedir, abra o dia no seu espelho e toque em Pedir ajuste ou abono."
+      subtitle="Para fazer um pedido, abra o dia na sua folha de ponto e toque em “Pedir correção ou justificar ausência”."
       toolbar={
         <button className="primary" onClick={() => router.select({ screen: "my-timesheet" })}>
-          Abrir meu espelho
+          Abrir minha folha de ponto
         </button>
       }
     >
@@ -192,7 +195,7 @@ export function MyRequestsScreen() {
             );
           })
         ) : (
-          <Empty title="Você não tem pedidos" />
+          <Empty title="Você ainda não fez nenhum pedido" />
         )}
       </Group>
     </Screen>
@@ -207,8 +210,8 @@ export function MyClosingsScreen() {
   const { pending, error, run } = useAction();
   return (
     <Screen
-      title="Períodos fechados"
-      subtitle="Confira o espelho de cada período e registre que tomou ciência."
+      title="Meses fechados"
+      subtitle="Confira suas horas de cada período fechado e confirme que está tudo certo."
     >
       <Group>
         {list.loading && !list.data ? (
@@ -220,30 +223,34 @@ export function MyClosingsScreen() {
               title={`${dateBR(c.start)} a ${dateBR(c.end)}`}
               subtitle={
                 c.acknowledged_at
-                  ? `Ciência registrada em ${dateTimeBR(c.acknowledged_at)}`
+                  ? `Você confirmou em ${dateTimeBR(c.acknowledged_at)}`
                   : c.status === "reopened"
-                    ? "Reaberto pela empresa"
+                    ? "A empresa reabriu este período"
                     : undefined
               }
               accessory={
                 <span className="toolbar">
                   <Download href={downloads.myTimesheet(companyId, c.start, c.end)}>
-                    Espelho
+                    Folha de ponto
                   </Download>
                   {!c.acknowledged_at && c.status === "closed" && (
-                    <button onClick={() => setAcking(c.id)}>Dar ciência</button>
+                    <button onClick={() => setAcking(c.id)}>Está correto</button>
                   )}
                 </span>
               }
             />
           ))
         ) : (
-          <Empty title="Nenhum período fechado ainda" />
+          <Empty title="Nenhum mês fechado ainda" />
         )}
       </Group>
-      <Sheet title="Dar ciência do espelho" open={acking !== null} onClose={() => setAcking(null)}>
-        <p>Ao confirmar, fica registrado que você conferiu o espelho deste período fechado.</p>
-        <Field label="Comentário (opcional)">
+      <Sheet
+        title="Confirmar minha folha de ponto"
+        open={acking !== null}
+        onClose={() => setAcking(null)}
+      >
+        <p>Ao confirmar, fica registrado que você conferiu suas horas deste período.</p>
+        <Field label="Quer deixar um comentário? (opcional)">
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={500} />
         </Field>
         <ErrorText message={error} />
@@ -260,7 +267,7 @@ export function MyClosingsScreen() {
               })
             }
           >
-            Confirmar ciência
+            Confirmar que está correto
           </button>
         </div>
       </Sheet>

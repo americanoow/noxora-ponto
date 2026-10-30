@@ -133,9 +133,9 @@ export type NewRequest =
 
 export const JUSTIFICATION_KINDS: [string, string][] = [
   ["medical", "Atestado médico"],
-  ["justified_absence", "Falta justificada"],
+  ["justified_absence", "Falta com justificativa"],
   ["external_work", "Trabalho externo"],
-  ["compensation", "Compensação"],
+  ["compensation", "Compensação de horas"],
   ["other", "Outro"],
 ];
 

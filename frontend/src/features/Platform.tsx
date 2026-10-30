@@ -19,7 +19,7 @@ export function PlatformScreen() {
   return (
     <Screen
       title="Plataforma"
-      subtitle="Equipe Noxora: empresas e assinaturas. Sem acesso aos dados internos das empresas."
+      subtitle="Área da equipe Noxora: empresas clientes e assinaturas. Não mostra os dados de ponto das empresas."
       toolbar={
         <button
           disabled={pending}
@@ -27,13 +27,13 @@ export function PlatformScreen() {
             void run(async () => {
               const r = await runBilling();
               setResult(
-                `${r.invoices_issued} fatura(s) emitida(s), ${r.subscriptions_suspended} assinatura(s) suspensa(s).`,
+                `${r.invoices_issued} fatura(s) criada(s), ${r.subscriptions_suspended} assinatura(s) suspensa(s).`,
               );
               rows.reload();
             })
           }
         >
-          Rodar cobrança agora
+          Gerar as cobranças agora
         </button>
       }
     >
@@ -53,7 +53,7 @@ export function PlatformScreen() {
                 <th>Empresa</th>
                 <th>Plano</th>
                 <th>Situação</th>
-                <th>Uso</th>
+                <th>Em uso</th>
                 <th>Faturas abertas</th>
               </tr>
             </thead>
@@ -98,7 +98,7 @@ export function PlatformScreen() {
                             })
                           }
                         >
-                          Iniciar teste
+                          Começar período de teste
                         </button>
                       </span>
                     )}

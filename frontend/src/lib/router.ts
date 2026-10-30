@@ -3,6 +3,7 @@ import { Observable } from "./observable";
 
 /** Destinos tipados (como `enum Destination: Hashable` + `NavigationStack`). */
 export type Destination =
+  | { screen: "home" }
   | { screen: "today" }
   | { screen: "timesheet"; employeeId?: number; from?: string; to?: string }
   | { screen: "requests" }

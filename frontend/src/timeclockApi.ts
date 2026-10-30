@@ -60,19 +60,19 @@ export function formatLocalTime(iso: string, offsetMinutes: number): string {
 
 /** Sinalizações de revisão gravadas na sincronização de marcações offline (ver apps/timeclock/services.py). */
 export const SYNC_FLAG_LABELS: Record<string, string> = {
-  clock_unverified: "relógio do tablet sem medição de desvio",
-  clock_skew_large: "relógio do tablet com desvio acima de 30 s",
-  clock_offset_stale: "desvio de relógio medido há muito tempo",
-  time_in_future: "horário no futuro, limitado ao recebimento",
+  clock_unverified: "não foi possível conferir se o relógio do tablet estava certo",
+  clock_skew_large: "relógio do tablet estava errado por mais de 30 segundos",
+  clock_offset_stale: "o relógio do tablet não era conferido havia muito tempo",
+  time_in_future: "horário no futuro; foi usado o horário em que o sistema recebeu",
   before_device_activation: "horário anterior à ativação do tablet",
-  employee_inactive: "funcionário inativo na sincronização",
-  not_assigned_to_unit: "funcionário sem lotação nesta unidade na data",
+  employee_inactive: "funcionário estava inativo quando a batida chegou",
+  not_assigned_to_unit: "funcionário não trabalhava nesta unidade na data",
 };
 
 export const KIND_LABELS: Record<string, string> = {
   "": "—",
   entry: "Entrada",
-  break_start: "Início de intervalo",
-  break_end: "Fim de intervalo",
+  break_start: "Saída para o intervalo",
+  break_end: "Volta do intervalo",
   exit: "Saída",
 };

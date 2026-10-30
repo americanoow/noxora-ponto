@@ -25,12 +25,22 @@ export async function fetchApiStatus(signal?: AbortSignal): Promise<ApiStatus> {
   try {
     const health = await getJson("/api/health/", signal);
     if (!health.ok || !hasOk(health.body, "status"))
-      return { kind: "error", message: "A API não respondeu corretamente." };
+      return {
+        kind: "error",
+        message: "O sistema não respondeu como esperado. Tente de novo em instantes.",
+      };
     const ready = await getJson("/api/ready/", signal);
     if (!ready.ok)
-      return { kind: "error", message: "A API está no ar, mas o banco está indisponível." };
+      return {
+        kind: "error",
+        message:
+          "O sistema está no ar, mas não consegue acessar os dados agora. Tente de novo em instantes.",
+      };
     if (!hasOk(ready.body, "status") || !hasOk(ready.body, "database"))
-      return { kind: "error", message: "A API não respondeu corretamente." };
+      return {
+        kind: "error",
+        message: "O sistema não respondeu como esperado. Tente de novo em instantes.",
+      };
     return {
       kind: "ok",
       health: "ok",
@@ -38,6 +48,9 @@ export async function fetchApiStatus(signal?: AbortSignal): Promise<ApiStatus> {
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    return { kind: "error", message: "Não foi possível contatar a API." };
+    return {
+      kind: "error",
+      message: "Não conseguimos falar com o sistema. Verifique sua internet.",
+    };
   }
 }

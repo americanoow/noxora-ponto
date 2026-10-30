@@ -57,7 +57,7 @@ export function TodayScreen() {
       </div>
       <Stats>
         <Stat
-          label="Com entrada provável"
+          label="Trabalhando agora (pelo ponto)"
           figure={board.data ? `${present} de ${people.length}` : "—"}
           tone="tint"
         />
@@ -67,7 +67,7 @@ export function TodayScreen() {
           tone={pending.data?.length ? "amber" : undefined}
         />
         <Stat
-          label="Disponibilidade desatualizada"
+          label="Situações sem atualização"
           figure={board.data ? stale : "—"}
           tone={stale ? "amber" : undefined}
         />
@@ -95,18 +95,18 @@ export function TodayScreen() {
                 key={`${r.type}-${r.id}`}
                 title={r.employee.name}
                 subtitle={`${r.kind_label}: ${r.reason}`}
-                accessory={<Badge tone="amber">Pendente</Badge>}
+                accessory={<Badge tone="amber">Aguardando</Badge>}
                 onClick={() => router.select({ screen: "requests" })}
               />
             ))
         ) : (
-          <Empty title="Nenhum pedido pendente" />
+          <Empty title="Nenhum pedido aguardando resposta" />
         )}
       </Group>
 
       <Group
-        title="Últimos 7 dias: quem precisa de atenção"
-        footer="Faltas e dias com marcações sem par. Toque para abrir o espelho."
+        title="Últimos 7 dias: quem precisa da sua atenção"
+        footer="Faltas e dias em que falta uma batida (por exemplo, entrou e não registrou a saída). Toque para abrir a folha de ponto."
       >
         {week.loading && !week.data ? (
           <Loading />
@@ -118,12 +118,12 @@ export function TodayScreen() {
               key={r.employee.id}
               title={r.employee.name}
               subtitle={`Matrícula ${r.employee.registration}`}
-              value={`saldo ${hm(r.totals.balance_minutes)}`}
+              value={`saldo de horas ${hm(r.totals.balance_minutes)}`}
               accessory={
                 <span className="toolbar">
                   {r.totals.absences > 0 && <Badge tone="seal">{r.totals.absences} falta(s)</Badge>}
                   {r.totals.inconsistent_days > 0 && (
-                    <Badge tone="amber">{r.totals.inconsistent_days} inconsistente(s)</Badge>
+                    <Badge tone="amber">{r.totals.inconsistent_days} dia(s) para revisar</Badge>
                   )}
                 </span>
               }
@@ -142,7 +142,7 @@ export function TodayScreen() {
         )}
       </Group>
 
-      <Group title="Equipes agora" footer={board.data?.notice}>
+      <Group title="Como estão as equipes agora" footer={board.data?.notice}>
         {board.loading && !board.data ? (
           <Loading />
         ) : board.error ? (
@@ -172,7 +172,7 @@ export function TodayScreen() {
             />
           ))
         ) : (
-          <Empty title="Nenhuma equipe no seu escopo" />
+          <Empty title="Nenhuma equipe sob a sua responsabilidade" />
         )}
       </Group>
     </Screen>

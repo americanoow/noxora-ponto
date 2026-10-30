@@ -160,14 +160,14 @@ describe("Espelho de ponto", () => {
     routes["POST /api/companies/7/attendance/requests/"] = () => ({ status: 201, body: {} });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: /seg 19\/10/ }));
-    expect(screen.getByText("Como calculamos")).toBeInTheDocument();
+    expect(screen.getByText("Como chegamos a esses números")).toBeInTheDocument();
     expect(screen.getByText(/Número ímpar/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Pedir ajuste ou abono/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pedir correção ou justificar ausência/ }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText(/Horário esquecido/), {
+    fireEvent.change(within(dialog).getByLabelText(/Que horas você deveria ter batido/), {
       target: { value: "17:30" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Justificativa"), {
+    fireEvent.change(within(dialog).getByLabelText(/Explique o motivo/), {
       target: { value: "Esqueci a saída" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Enviar pedido" }));
@@ -214,7 +214,7 @@ describe("Pedidos", () => {
         : { status: 400, body: { note: ["Informe o motivo da recusa."] } };
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Decidir" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Responder" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Recusar" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
@@ -234,11 +234,11 @@ describe("Login com segundo fator", () => {
     fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "adm@a.test" } });
     fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "senha-longa-123" } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
-    fireEvent.change(await screen.findByLabelText(/Código do aplicativo/), {
+    fireEvent.change(await screen.findByLabelText(/Código de 6 dígitos/), {
       target: { value: "123456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
-    expect(await screen.findByRole("navigation", { name: "Jornada" })).toBeInTheDocument();
+    expect(await screen.findByRole("navigation", { name: "Menu principal" })).toBeInTheDocument();
     expect(calls.some((c) => c.url === "/api/auth/mfa/verify/")).toBe(true);
   });
 });

@@ -54,7 +54,12 @@ export function LoginScreen() {
 
   return (
     <AuthLayout>
-      <h1>{forgot ? "Recuperar acesso" : "Entrar"}</h1>
+      <h1>{forgot ? "Esqueci minha senha" : "Entrar"}</h1>
+      <p style={{ color: "var(--ink-2)", marginTop: 0 }}>
+        {forgot
+          ? "Digite seu e-mail. Enviaremos um link para você criar uma nova senha."
+          : "Use o e-mail e a senha do seu cadastro."}
+      </p>
       <form onSubmit={submit}>
         <label className="field">
           E-mail
@@ -79,9 +84,14 @@ export function LoginScreen() {
           </label>
         )}
         <ErrorText message={error} />
-        {sent && <p role="status">Se o e-mail estiver cadastrado, enviaremos as instruções.</p>}
+        {sent && (
+          <p role="status">
+            Pronto! Se este e-mail estiver cadastrado, você receberá em instantes as instruções.
+            Olhe também a caixa de spam.
+          </p>
+        )}
         <button type="submit" disabled={pending}>
-          {forgot ? "Enviar instruções" : "Entrar"}
+          {forgot ? "Enviar link por e-mail" : "Entrar"}
         </button>
         <button
           type="button"
@@ -91,7 +101,7 @@ export function LoginScreen() {
             setSent(false);
           }}
         >
-          {forgot ? "Voltar ao login" : "Esqueci minha senha"}
+          {forgot ? "Voltar para a tela de entrada" : "Esqueci minha senha"}
         </button>
       </form>
     </AuthLayout>
@@ -104,7 +114,10 @@ export function MfaScreen() {
   const [code, setCode] = useState("");
   return (
     <AuthLayout>
-      <h1>Verificação em duas etapas</h1>
+      <h1>Confirme que é você</h1>
+      <p style={{ color: "var(--ink-2)", marginTop: 0 }}>
+        Abra o aplicativo de códigos no seu celular e digite o número de 6 dígitos que aparece lá.
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -112,7 +125,7 @@ export function MfaScreen() {
         }}
       >
         <label className="field">
-          Código do aplicativo autenticador ou de recuperação
+          Código de 6 dígitos (ou código de emergência)
           <input
             inputMode="text"
             autoComplete="one-time-code"
@@ -127,7 +140,7 @@ export function MfaScreen() {
           Confirmar
         </button>
         <button type="button" className="plain" onClick={session.cancelMfa}>
-          Usar outra conta
+          Entrar com outra conta
         </button>
       </form>
     </AuthLayout>

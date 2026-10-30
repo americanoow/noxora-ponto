@@ -54,12 +54,12 @@ describe("Operations", () => {
       body: { total: 1, valid: 1, committed: 0, errors: [] },
     });
     render(<Operations companyId={7} canEdit />);
-    fireEvent.click(screen.getByRole("button", { name: "Importação" }));
-    const submit = screen.getByRole("button", { name: "Importar" });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar vários" }));
+    const submit = screen.getByRole("button", { name: "Cadastrar todos" });
     expect(submit).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver prévia" }));
     await waitFor(() => expect(submit).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Conteúdo CSV"), {
+    fireEvent.change(screen.getByLabelText("Dados da planilha"), {
       target: { value: "matricula,nome\n1,Ana" },
     });
     expect(submit).toBeDisabled();
@@ -124,7 +124,7 @@ describe("Operations", () => {
     render(<Operations companyId={7} canEdit={false} />);
     expect(await screen.findByText(/Ana/)).toBeInTheDocument();
     expect(screen.queryByText("Novo funcionário")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Importação" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cadastrar vários" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Inativar" })).not.toBeInTheDocument();
   });
 
@@ -156,8 +156,8 @@ describe("Operations", () => {
       },
     });
     render(<Operations companyId={7} canEdit />);
-    fireEvent.click(screen.getByRole("button", { name: "Importação" }));
-    fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar vários" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver prévia" }));
     expect(await screen.findByText(/Linha 3 \(cpf\): CPF inválido\./)).toBeInTheDocument();
     const post = calls.find((c) => c.key.startsWith("POST"))!;
     expect(JSON.parse(post.init!.body as string).commit).toBe(false);

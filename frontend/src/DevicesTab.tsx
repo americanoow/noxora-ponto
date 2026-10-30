@@ -14,14 +14,14 @@ import {
 import { type Unit, listUnits } from "./operationsApi";
 
 const STATUS: Record<DeviceStatus, string> = {
-  pending: "Aguardando ativação",
+  pending: "Falta ativar no tablet",
   active: "Ativo",
-  revoked: "Revogado",
+  revoked: "Bloqueado",
 };
 const CONNECTIVITY: Record<Connectivity, string> = {
-  online: "Online",
-  stale: "Sem comunicação recente",
-  offline: "Offline",
+  online: "Conectado",
+  stale: "Sem sinal há algum tempo",
+  offline: "Sem internet",
   never: "Nunca se conectou",
 };
 
@@ -71,12 +71,12 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
       {issued && (
         <div role="status">
           <p>
-            Código de ativação de <strong>{issued.name}</strong>:{" "}
+            Código para ativar o tablet <strong>{issued.name}</strong>:{" "}
             <code aria-label="Código de ativação">{issued.activation_code}</code>
           </p>
           <p>
-            Digite no tablet em até 15 minutos. Ele não será exibido novamente.{" "}
-            <button onClick={() => setIssued(null)}>Ocultar</button>
+            Digite este código no tablet em até 15 minutos. Ele não será mostrado de novo, então
+            anote agora. <button onClick={() => setIssued(null)}>Ocultar</button>
           </p>
         </div>
       )}
@@ -85,13 +85,16 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
           <li key={d.id}>
             <strong>{d.name}</strong> — {d.unit_name} — {STATUS[d.status]}
             {d.status === "active" && ` — ${CONNECTIVITY[d.connectivity]}`}
-            {d.app_version && ` — versão ${d.app_version}`}
-            {d.last_seen_at && ` — visto em ${new Date(d.last_seen_at).toLocaleString("pt-BR")}`}
-            {d.collect_location && " — coleta de localização ligada"}
+            {d.app_version && ` — versão do aplicativo ${d.app_version}`}
+            {d.last_seen_at &&
+              ` — última conexão em ${new Date(d.last_seen_at).toLocaleString("pt-BR")}`}
+            {d.collect_location && " — registra o local das batidas"}
             {canEdit && (
               <>
                 {d.status !== "revoked" && (
-                  <button onClick={() => act(() => revokeDevice(companyId, d.id))}>Revogar</button>
+                  <button onClick={() => act(() => revokeDevice(companyId, d.id))}>
+                    Bloquear tablet
+                  </button>
                 )}
                 <button
                   onClick={() =>
@@ -101,27 +104,31 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
                     )
                   }
                 >
-                  {d.status === "pending" ? "Gerar novo código" : "Renovar (novo código)"}
+                  {d.status === "pending" ? "Gerar novo código" : "Gerar novo código de ativação"}
                 </button>
                 <button
                   onClick={() => {
                     if (d.collect_location) {
                       act(() => updateDeviceLocation(companyId, d.id, false, ""));
                     } else {
-                      const reason = window.prompt("Justificativa para coletar a localização:");
+                      const reason = window.prompt(
+                        "Por que é preciso registrar o local das batidas? (explique em poucas palavras)",
+                      );
                       if (reason?.trim())
                         act(() => updateDeviceLocation(companyId, d.id, true, reason.trim()));
                     }
                   }}
                 >
-                  {d.collect_location ? "Desligar localização" : "Ligar localização"}
+                  {d.collect_location
+                    ? "Parar de registrar o local"
+                    : "Registrar o local das batidas"}
                 </button>
               </>
             )}
           </li>
         ))}
       </ul>
-      {devices?.length === 0 && <p>Nenhum dispositivo cadastrado.</p>}
+      {devices?.length === 0 && <p>Nenhum tablet cadastrado ainda.</p>}
       {canEdit && (
         <form
           onSubmit={(e) => {
@@ -157,7 +164,7 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
                 </option>
               ))}
           </select>
-          <button type="submit">Cadastrar e gerar código</button>
+          <button type="submit">Cadastrar e gerar código de ativação</button>
         </form>
       )}
     </div>

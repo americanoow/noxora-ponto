@@ -23,7 +23,7 @@ import {
 
 export const STATUS_LABEL: Record<RequestStatus, [string, "amber" | "tint" | "seal" | undefined]> =
   {
-    pending: ["Pendente", "amber"],
+    pending: ["Aguardando", "amber"],
     approved: ["Aprovado", "tint"],
     rejected: ["Recusado", "seal"],
     cancelled: ["Cancelado", undefined],
@@ -33,8 +33,8 @@ export function describeRequest(r: AttendanceRequest): string {
   if (r.type === "justification") {
     return `${r.kind_label} em ${dateBR(r.date)}${r.minutes ? ` (${r.minutes} min)` : " (dia todo)"}`;
   }
-  if (r.kind === "include") return `Incluir marcação às ${dateTimeBR(r.occurred_at)}`;
-  return `Desconsiderar marcação de ${dateTimeBR(r.record_occurred_at)}`;
+  if (r.kind === "include") return `Esqueceu de bater: incluir ${dateTimeBR(r.occurred_at)}`;
+  return `Batida por engano: ignorar ${dateTimeBR(r.record_occurred_at)}`;
 }
 
 export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
@@ -47,14 +47,14 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
   return (
     <Screen
       title="Pedidos"
-      subtitle="Inclusões, desconsiderações e abonos. A marcação original nunca é alterada."
+      subtitle="Pedidos de correção de ponto e de justificativa de ausência. A batida original nunca é apagada."
       toolbar={
         <Segmented
           label="Situação"
           value={status}
           onChange={setStatus}
           options={[
-            ["pending", "Pendentes"],
+            ["pending", "Aguardando"],
             ["approved", "Aprovados"],
             ["rejected", "Recusados"],
             ["", "Todos"],
@@ -73,8 +73,8 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
               <tr>
                 <th>Funcionário</th>
                 <th>Pedido</th>
-                <th>Justificativa</th>
-                <th>Pedido por</th>
+                <th>Motivo</th>
+                <th>Quem pediu</th>
                 <th>Situação</th>
                 <th />
               </tr>
@@ -112,7 +112,7 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
                     </td>
                     <td>
                       {r.status === "pending" && (
-                        <button onClick={() => setSelected(r)}>Decidir</button>
+                        <button onClick={() => setSelected(r)}>Responder</button>
                       )}
                     </td>
                   </tr>
@@ -121,7 +121,9 @@ export function RequestsScreen({ onDecided }: { onDecided?: () => void }) {
             </tbody>
           </table>
         ) : (
-          <Empty title={status === "pending" ? "Nenhum pedido pendente" : "Nenhum pedido"} />
+          <Empty
+            title={status === "pending" ? "Nenhum pedido aguardando resposta" : "Nenhum pedido"}
+          />
         )}
       </Group>
       <DecisionSheet
@@ -157,14 +159,16 @@ function DecisionSheet({
       onDone();
     });
   return (
-    <Sheet title="Decidir pedido" open={!!item} onClose={onClose}>
+    <Sheet title="Responder ao pedido" open={!!item} onClose={onClose}>
       <p>
         <strong>{item.employee.name}</strong>
       </p>
       <p>{describeRequest(item)}</p>
-      <p style={{ color: "var(--ink-2)" }}>Justificativa: {item.reason}</p>
-      {item.type === "justification" && item.document_ref && <p>Documento: {item.document_ref}</p>}
-      <Field label="Observação (obrigatória para recusar)">
+      <p style={{ color: "var(--ink-2)" }}>Motivo informado: {item.reason}</p>
+      {item.type === "justification" && item.document_ref && (
+        <p>Documento que comprova: {item.document_ref}</p>
+      )}
+      <Field label="Recado para o funcionário (obrigatório se for recusar)">
         <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
       </Field>
       <ErrorText message={error} />

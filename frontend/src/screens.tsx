@@ -38,7 +38,10 @@ export function ResetPasswordScreen({ uid, token }: { uid: string; token: string
   const [password, setPassword] = useState("");
   const [done, setDone] = useState(false);
 
-  if (done) return <p role="status">Senha atualizada. Você já pode entrar.</p>;
+  if (done)
+    return (
+      <p role="status">Senha trocada com sucesso! Agora você já pode entrar com a nova senha.</p>
+    );
   return (
     <form
       onSubmit={(e) => {
@@ -49,9 +52,9 @@ export function ResetPasswordScreen({ uid, token }: { uid: string; token: string
         });
       }}
     >
-      <h2>Definir nova senha</h2>
+      <h2>Criar uma nova senha</h2>
       <label>
-        Nova senha (mínimo de 10 caracteres)
+        Nova senha (use pelo menos 10 letras, números ou símbolos)
         <input
           type="password"
           value={password}
@@ -88,19 +91,19 @@ export function MembersPanel({ companyId, myRole }: { companyId: number; myRole:
     if (isAdmin) void load();
   }, [isAdmin, load]);
 
-  if (!isAdmin) return <p>Somente administradores da empresa gerenciam acessos.</p>;
+  if (!isAdmin) return <p>Só o administrador da empresa pode escolher quem usa o sistema.</p>;
 
   return (
     <section>
-      <h3>Acessos da empresa</h3>
+      <h3>Pessoas com acesso ao sistema</h3>
       <Error_ message={error} />
       <ul>
         {members?.map((m) => (
           <li key={m.id}>
             {m.name || m.email} ({m.email}) — {ROLE_LABELS[m.role]}
-            {m.is_active ? "" : " [inativo]"}{" "}
+            {m.is_active ? "" : " (acesso bloqueado)"}{" "}
             <select
-              aria-label={`Papel de ${m.email}`}
+              aria-label={`Tipo de acesso de ${m.email}`}
               value={m.role}
               onChange={(e) =>
                 void run(async () => {
@@ -123,7 +126,7 @@ export function MembersPanel({ companyId, myRole }: { companyId: number; myRole:
                 })
               }
             >
-              {m.is_active ? "Desativar" : "Reativar"}
+              {m.is_active ? "Bloquear acesso" : "Liberar acesso"}
             </button>
           </li>
         ))}
@@ -139,21 +142,21 @@ export function MembersPanel({ companyId, myRole }: { companyId: number; myRole:
           });
         }}
       >
-        <h4>Convidar usuário</h4>
+        <h4>Convidar uma pessoa</h4>
         <input
-          aria-label="E-mail do convidado"
+          aria-label="E-mail da pessoa convidada"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
         <input
-          aria-label="Nome do convidado"
+          aria-label="Nome da pessoa convidada"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
         <select
-          aria-label="Papel do convidado"
+          aria-label="Tipo de acesso da pessoa convidada"
           value={role}
           onChange={(e) => setRole(e.target.value as Role)}
         >
@@ -218,7 +221,7 @@ export function PlatformPanel() {
           required
         />
         <input
-          aria-label="E-mail do administrador"
+          aria-label="E-mail do administrador da empresa"
           type="email"
           value={adminEmail}
           onChange={(e) => setAdminEmail(e.target.value)}

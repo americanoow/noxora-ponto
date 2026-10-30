@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { resetCsrf } from "./http";
@@ -16,6 +16,7 @@ const me = (role: string, platform = false) => ({
 });
 
 beforeEach(() => {
+  window.location.hash = "";
   calls = [];
   resetCsrf();
   routes = {
@@ -34,6 +35,12 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
+
+const nav = () => within(screen.getByLabelText("Menu principal"));
+const menuItem = async (name: string) => {
+  await screen.findByLabelText("Menu principal");
+  return nav().getByRole("button", { name });
+};
 
 describe("App", () => {
   it("mostra o login quando não há sessão", async () => {
@@ -74,20 +81,30 @@ describe("App", () => {
     });
     routes["PATCH /api/companies/7/members/5/"] = () => ({ body: {} });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
+    fireEvent.click(await menuItem("Quem usa o sistema"));
     expect(await screen.findByText(/g@a.test/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Desativar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bloquear acesso" }));
     await waitFor(() =>
       expect(calls.some((c) => c.url === "/api/companies/7/members/5/")).toBe(true),
     );
   });
 
+  it("abre na tela de início com atalhos agrupados por categoria", async () => {
+    routes["GET /api/auth/me/"] = () => ({ body: me("company_admin") });
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: /Início/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Controle de ponto" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cadastros" })).toBeInTheDocument();
+    fireEvent.click(await menuItem("Início"));
+    expect(screen.getByRole("heading", { name: /Início/ })).toBeInTheDocument();
+  });
+
   it("funcionário vê só o próprio ponto e não carrega acessos", async () => {
     routes["GET /api/auth/me/"] = () => ({ body: me("employee") });
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Meu espelho" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Acessos" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Pedidos" })).not.toBeInTheDocument();
+    expect(await menuItem("Minha folha de ponto")).toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Quem usa o sistema" })).not.toBeInTheDocument();
+    expect(nav().queryByRole("button", { name: "Pedidos" })).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("/members/"))).toBe(false);
   });
 
@@ -124,12 +141,12 @@ it("descarta membros anteriores ao trocar para empresa que retorna 403", async (
   });
   routes["GET /api/companies/8/members/"] = () => ({ status: 403 });
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
+  fireEvent.click(await menuItem("Quem usa o sistema"));
   expect(await screen.findByText(/privado@a.test/)).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Empresa"), { target: { value: "8" } });
+  fireEvent.change(screen.getByLabelText("Trocar de empresa"), { target: { value: "8" } });
   // Trocar de empresa volta à raiz da navegação: os dados da empresa anterior somem.
-  fireEvent.click(await screen.findByRole("button", { name: "Acessos" }));
-  expect(await screen.findByText("Você não tem permissão para esta operação.")).toBeInTheDocument();
+  fireEvent.click(await menuItem("Quem usa o sistema"));
+  expect(await screen.findByText(/Você não tem permissão para fazer isto/)).toBeInTheDocument();
   expect(screen.queryByText(/privado@a.test/)).not.toBeInTheDocument();
 });
 
@@ -140,5 +157,5 @@ it("informa limite de tentativas no login", async () => {
   fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "a@a.test" } });
   fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "senha" } });
   fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Muitas tentativas");
+  expect(await screen.findByRole("alert")).toHaveTextContent("muitas vezes");
 });

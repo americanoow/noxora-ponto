@@ -28,13 +28,13 @@ import {
 
 type Tab = "units" | "employees" | "import" | "schedules" | "devices" | "records" | "employer";
 const TABS: [Tab, string][] = [
-  ["records", "Marcações"],
+  ["records", "Registros de ponto"],
   ["employees", "Funcionários"],
   ["units", "Unidades e setores"],
-  ["schedules", "Jornadas"],
+  ["schedules", "Horários de trabalho"],
   ["devices", "Tablets"],
-  ["import", "Importação"],
-  ["employer", "Empregador"],
+  ["import", "Cadastrar vários"],
+  ["employer", "Dados da empresa"],
 ];
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
@@ -126,7 +126,7 @@ export function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: b
         {units.data?.map((u: Unit) => (
           <li key={u.id}>
             <strong>{u.name}</strong>
-            {u.is_active ? "" : " [inativa]"}
+            {u.is_active ? "" : " (inativa)"}
             {canEdit && (
               <button
                 onClick={() => run(() => updateUnit(companyId, u.id, { is_active: !u.is_active }))}
@@ -140,7 +140,7 @@ export function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: b
                 .map((s: Sector) => (
                   <li key={s.id}>
                     {s.name}
-                    {s.is_active ? "" : " [inativo]"}
+                    {s.is_active ? "" : " (inativo)"}
                     {canEdit && (
                       <button
                         onClick={() =>
@@ -262,9 +262,9 @@ export function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdi
         {list.data?.results.map((e) => (
           <li key={e.id}>
             {e.registration} — {e.full_name} {e.cpf && `(${e.cpf})`} —{" "}
-            {e.unit?.name ?? "sem lotação"}
+            {e.unit?.name ?? "sem unidade definida"}
             {e.sector && ` / ${e.sector.name}`}
-            {e.is_active ? "" : " [inativo]"}
+            {e.is_active ? "" : " (inativo)"}
             {canEdit && (
               <>
                 <button
@@ -275,7 +275,7 @@ export function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdi
                   {e.is_active ? "Inativar" : "Reativar"}
                 </button>
                 <button onClick={() => setMoving(moving === e.id ? null : e.id)}>
-                  Alterar lotação
+                  Mudar de unidade ou setor
                 </button>
               </>
             )}
@@ -333,7 +333,7 @@ export function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdi
                     ))}
                 </select>
                 <input
-                  aria-label="Vigente a partir de"
+                  aria-label="Vale a partir de"
                   type="date"
                   value={move.from}
                   onChange={(ev) => setMove({ ...move, from: ev.target.value })}
@@ -439,29 +439,31 @@ export function SchedulesTab({ companyId, canEdit }: { companyId: number; canEdi
             });
           }}
         >
-          <h4>Nova jornada (uma jornada atribuída não pode mais ser alterada)</h4>
+          <h4>
+            Novo horário de trabalho (depois que alguém passar a usar, não será possível editar)
+          </h4>
           <input
-            aria-label="Nome da jornada"
+            aria-label="Nome do horário de trabalho (ex.: Comercial)"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
           />
           <input
-            aria-label="Início"
+            aria-label="Hora de entrada"
             type="time"
             value={start}
             onChange={(e) => setStart(e.target.value)}
             required
           />
           <input
-            aria-label="Fim"
+            aria-label="Hora de saída"
             type="time"
             value={end}
             onChange={(e) => setEnd(e.target.value)}
             required
           />
           <input
-            aria-label="Intervalo (min)"
+            aria-label="Tempo de intervalo (minutos)"
             type="number"
             min={0}
             max={480}
@@ -481,7 +483,7 @@ export function SchedulesTab({ companyId, canEdit }: { companyId: number; canEdi
             </label>
           ))}
           <button type="submit" disabled={days.length === 0}>
-            Criar jornada
+            Criar horário de trabalho
           </button>
         </form>
       )}
@@ -515,11 +517,12 @@ export function ImportTab({ companyId }: { companyId: number }) {
   return (
     <div>
       <p>
-        Colunas: matricula, nome (obrigatórias); cpf, unidade, setor, inicio (opcionais). A
-        importação grava tudo ou nada.
+        Cole aqui os dados da planilha, uma pessoa por linha, com as colunas separadas por vírgula:
+        matricula, nome (obrigatórias); cpf, unidade, setor, inicio (opcionais). Ou tudo é
+        cadastrado, ou nada.
       </p>
       <textarea
-        aria-label="Conteúdo CSV"
+        aria-label="Dados da planilha"
         rows={8}
         cols={70}
         value={csv}
@@ -532,17 +535,17 @@ export function ImportTab({ companyId }: { companyId: number }) {
       />
       <div>
         <button disabled={pending} onClick={() => send(false)}>
-          Pré-visualizar
+          Ver prévia
         </button>
         <button disabled={pending || previewCsv !== csv} onClick={() => send(true)}>
-          Importar
+          Cadastrar todos
         </button>
       </div>
       <Alert message={error} />
       {result && (
         <div role="status">
-          {result.total} linha(s): {result.valid} válida(s), {result.errors.length} erro(s).
-          {result.committed > 0 && ` ${result.committed} funcionário(s) importado(s).`}
+          {result.total} linha(s): {result.valid} correta(s), {result.errors.length} com erro.
+          {result.committed > 0 && ` ${result.committed} funcionário(s) cadastrado(s).`}
           <ul>
             {result.errors.map((e, i) => (
               <li key={i}>

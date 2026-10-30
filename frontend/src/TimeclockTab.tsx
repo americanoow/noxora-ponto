@@ -48,8 +48,8 @@ export function RecordsTab({ companyId }: { companyId: number }) {
   return (
     <div>
       <p>
-        Marcações são registros originais e não podem ser editados nem apagados. Ajustes e
-        justificativas são tratados à parte.
+        As batidas de ponto não podem ser editadas nem apagadas. Correções e justificativas são
+        feitas por pedidos, que ficam registrados à parte.
       </p>
       {error && <p role="alert">{error}</p>}
       <label>
@@ -61,32 +61,36 @@ export function RecordsTab({ companyId }: { companyId: number }) {
         <input type="date" value={filters.to} onChange={(e) => set({ to: e.target.value })} />
       </label>
       <label>
-        Origem
+        Como foi feita
         <select
           value={filters.offline}
           onChange={(e) => set({ offline: e.target.value as RecordFilters["offline"] })}
         >
           <option value="">Todas</option>
-          <option value="false">Online</option>
-          <option value="true">Offline (sincronizadas depois)</option>
+          <option value="false">Com internet</option>
+          <option value="true">Sem internet (enviadas depois)</option>
         </select>
       </label>
-      <p>{data ? `${data.count} marcação(ões)` : "Carregando…"}</p>
+      <p>{data ? `${data.count} batida(s)` : "Carregando…"}</p>
       <ul>
         {data?.results.map((r) => (
           <li key={r.id}>
-            <strong>NSR {r.nsr}</strong> —{" "}
+            <strong>Registro nº {r.nsr}</strong> —{" "}
             {formatLocalTime(r.occurred_at, r.occurred_offset_minutes)} — {r.employee.registration}{" "}
             {r.employee.name} — {r.unit.name} / {r.device.name}
             {r.declared_kind && ` — ${KIND_LABELS[r.declared_kind]}`}
-            {r.offline && " — registrada offline"}
+            {r.offline && " — feita sem internet"}
             {(r.sync_flags ?? []).length > 0 && (
               <span role="note">
                 {" "}
-                — revisar: {(r.sync_flags ?? []).map((f) => SYNC_FLAG_LABELS[f] ?? f).join("; ")}
+                — precisa de revisão:{" "}
+                {(r.sync_flags ?? []).map((f) => SYNC_FLAG_LABELS[f] ?? f).join("; ")}
               </span>
             )}
-            <code title={r.hash_sha256}> {r.hash_sha256.slice(0, 12)}…</code>
+            <code title={`Código de verificação: ${r.hash_sha256}`}>
+              {" "}
+              {r.hash_sha256.slice(0, 12)}…
+            </code>
           </li>
         ))}
       </ul>
@@ -144,10 +148,12 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
             .catch((err) => setError(errorMessage(err)));
         }}
       >
-        <p>Estes dados aparecem no Comprovante de Registro de Ponto. Alterações são auditadas.</p>
+        <p>
+          Estes dados aparecem no comprovante de ponto. Toda mudança fica registrada no histórico.
+        </p>
         {error && <p role="alert">{error}</p>}
         <label>
-          Razão social ou nome
+          Nome da empresa (razão social)
           <input
             value={form.legal_name}
             disabled={!canEdit}
@@ -155,7 +161,7 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
           />
         </label>
         <label>
-          Tipo de documento
+          Tipo de documento da empresa
           <select
             value={form.tax_id_type}
             disabled={!canEdit}
@@ -167,7 +173,7 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
           </select>
         </label>
         <label>
-          Documento (somente números)
+          Número do documento (só números)
           <input
             value={form.tax_id}
             disabled={!canEdit}
@@ -175,14 +181,14 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
           />
         </label>
         <label>
-          CEI/CAEPF/CNO (se houver)
+          Número CEI, CAEPF ou CNO (se tiver)
           <input
             value={form.cei_caepf_cno}
             disabled={!canEdit}
             onChange={(e) => set({ cei_caepf_cno: e.target.value })}
           />
         </label>
-        {canEdit && <button type="submit">Salvar dados do empregador</button>}
+        {canEdit && <button type="submit">Salvar dados da empresa</button>}
         {saved && <p role="status">Dados salvos.</p>}
       </form>
       <IdentificationModePanel companyId={companyId} canEdit={canEdit} />

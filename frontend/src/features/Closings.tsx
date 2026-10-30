@@ -31,12 +31,12 @@ export function ClosingsScreen() {
   const [creating, setCreating] = useState(false);
   return (
     <Screen
-      title="Fechamentos"
-      subtitle="O fechamento congela a apuração do período para folha e espelho."
+      title="Fechar o mês"
+      subtitle="Ao fechar, as horas do período ficam travadas para a folha de pagamento e para a conferência dos funcionários."
       toolbar={
         isAdmin && (
           <button className="primary" onClick={() => setCreating(true)}>
-            Fechar período
+            Fechar um período
           </button>
         )
       }
@@ -51,7 +51,7 @@ export function ClosingsScreen() {
             <Row
               key={c.id}
               title={`${dateBR(c.start)} a ${dateBR(c.end)}`}
-              subtitle={`${c.employees} funcionário(s), fechado por ${c.closed_by?.email ?? "—"} em ${dateTimeBR(c.closed_at)}`}
+              subtitle={`${c.employees} funcionário(s). Fechado por ${c.closed_by?.email ?? "—"} em ${dateTimeBR(c.closed_at)}`}
               accessory={
                 <Badge tone={c.status === "closed" ? "tint" : "amber"}>
                   {c.status === "closed" ? "Fechado" : "Reaberto"}
@@ -61,8 +61,8 @@ export function ClosingsScreen() {
             />
           ))
         ) : (
-          <Empty title="Nenhum período fechado">
-            {isAdmin && <p>Feche o mês depois de decidir os pedidos pendentes.</p>}
+          <Empty title="Nenhum período fechado ainda">
+            {isAdmin && <p>Feche o mês depois de responder a todos os pedidos aguardando.</p>}
           </Empty>
         )}
       </Group>
@@ -94,7 +94,7 @@ function CloseSheet({
   const [end, setEnd] = useState(last.to);
   const { pending, error, run } = useAction();
   return (
-    <Sheet title="Fechar período" open={open} onClose={onClose}>
+    <Sheet title="Fechar um período" open={open} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -102,17 +102,17 @@ function CloseSheet({
         }}
       >
         <div className="form-grid">
-          <Field label="Início">
+          <Field label="Primeiro dia">
             <input type="date" value={start} onChange={(e) => setStart(e.target.value)} required />
           </Field>
-          <Field label="Fim">
+          <Field label="Último dia">
             <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} required />
           </Field>
         </div>
         <p style={{ color: "var(--ink-2)", marginTop: 12 }}>
-          Todos os funcionários ativos entram no fechamento. Pedidos pendentes no período impedem o
-          fechamento. Marcações que chegarem depois são gravadas normalmente e o espelho passa a
-          indicar a divergência.
+          Todos os funcionários ativos entram no fechamento. Se houver pedidos aguardando resposta
+          nesse período, não será possível fechar. Batidas que chegarem depois continuam sendo
+          guardadas, e a folha de ponto avisará que mudou.
         </p>
         <ErrorText message={error} />
         <div className="actions">
@@ -166,7 +166,7 @@ export function ClosingDetailScreen({ id }: { id: number }) {
             c.status === "closed" &&
             profiles.data?.map((p) => (
               <Download key={p.id} href={downloads.payroll(companyId, p.id, c.id)}>
-                Folha: {p.name}
+                Folha de pagamento: {p.name}
               </Download>
             ))}
           {isAdmin && c.status === "closed" && (
@@ -179,17 +179,17 @@ export function ClosingDetailScreen({ id }: { id: number }) {
     >
       <Group
         title="Funcionários"
-        aside={`ciência de ${ackCount} de ${c.snapshot.employees.length}`}
+        aside={`${ackCount} de ${c.snapshot.employees.length} já conferiram`}
       >
         <table>
           <thead>
             <tr>
               <th>Funcionário</th>
-              <th>Trabalhado</th>
-              <th>Extras</th>
-              <th>Débito</th>
+              <th>Horas trabalhadas</th>
+              <th>Horas extras</th>
+              <th>Horas devidas</th>
               <th>Faltas</th>
-              <th>Ciência</th>
+              <th>Conferiu?</th>
             </tr>
           </thead>
           <tbody>
@@ -222,7 +222,7 @@ export function ClosingDetailScreen({ id }: { id: number }) {
                         {dateTimeBR(ack.acknowledged_at)}
                       </Badge>
                     ) : (
-                      <Badge>Aguardando</Badge>
+                      <Badge>Ainda não</Badge>
                     )}
                   </td>
                 </tr>
@@ -232,21 +232,21 @@ export function ClosingDetailScreen({ id }: { id: number }) {
         </table>
       </Group>
       <Group
-        title="Integridade"
-        footer="O hash identifica o conteúdo congelado. Ele não muda depois do fechamento."
+        title="Garantia de que nada mudou"
+        footer="Este código é uma “impressão digital” do período fechado. Se qualquer número mudasse, o código mudaria."
       >
         <Row
-          title="SHA-256 do instantâneo"
+          title="Código de verificação"
           value={<code style={{ fontSize: 12, wordBreak: "break-all" }}>{c.snapshot_sha256}</code>}
         />
-        <Row title="Motor de apuração" value={c.engine_version} />
+        <Row title="Versão do cálculo" value={c.engine_version} />
       </Group>
-      <Sheet title="Reabrir período" open={reopening} onClose={() => setReopening(false)}>
+      <Sheet title="Reabrir o período" open={reopening} onClose={() => setReopening(false)}>
         <p>
-          A reabertura fica registrada na auditoria e libera ajustes no período. O instantâneo atual
-          é preservado.
+          A reabertura fica registrada no histórico e permite novas correções no período. A cópia do
+          fechamento atual é guardada.
         </p>
-        <Field label="Motivo">
+        <Field label="Motivo da reabertura" hint="Escreva pelo menos 5 letras.">
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}

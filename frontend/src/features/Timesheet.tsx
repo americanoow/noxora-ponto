@@ -30,12 +30,12 @@ import {
 import { EmployeePicker } from "./EmployeePicker";
 
 const STATUS: Record<string, [string, "tint" | "amber" | "seal" | undefined]> = {
-  ok: ["Cumprida", "tint"],
-  inconsistent: ["Inconsistente", "seal"],
+  ok: ["Em dia", "tint"],
+  inconsistent: ["Revisar", "seal"],
   absent: ["Falta", "seal"],
   day_off: ["Folga", undefined],
-  justified: ["Abonada", "amber"],
-  upcoming: ["Prevista", undefined],
+  justified: ["Justificado", "amber"],
+  upcoming: ["Ainda não chegou", undefined],
   in_progress: ["Em andamento", "tint"],
 };
 
@@ -61,7 +61,7 @@ export function TimesheetScreen({
 
   return (
     <Screen
-      title="Espelho de ponto"
+      title="Folha de ponto"
       subtitle={
         sheet.data
           ? `${sheet.data.employee.name}, matrícula ${sheet.data.employee.registration}`
@@ -85,7 +85,7 @@ export function TimesheetScreen({
               <Download
                 href={downloads.timesheet(companyId, employeeId, period.from, period.to, "csv")}
               >
-                CSV
+                Planilha
               </Download>
             </>
           )}
@@ -96,8 +96,8 @@ export function TimesheetScreen({
         <Group>
           <Empty title="Escolha um funcionário">
             <p>
-              O espelho mostra, dia a dia, as marcações, o previsto, as horas extras e como cada
-              valor foi calculado.
+              A folha de ponto mostra, dia a dia, os horários batidos, as horas a cumprir, as horas
+              extras e como cada valor foi calculado.
             </p>
           </Empty>
         </Group>
@@ -129,13 +129,13 @@ export function PeriodPicker({
     <span className="toolbar">
       <input
         type="date"
-        aria-label="Início do período"
+        aria-label="Primeiro dia do período"
         value={from}
         onChange={(e) => e.target.value && onChange(e.target.value, to)}
       />
       <input
         type="date"
-        aria-label="Fim do período"
+        aria-label="Último dia do período"
         value={to}
         onChange={(e) => e.target.value && onChange(from, e.target.value)}
       />
@@ -168,29 +168,29 @@ export function TimesheetBody({
         <p key={c.id} role={c.divergent ? "alert" : "status"} className="notice">
           Período de {dateBR(c.start)} a {dateBR(c.end)} fechado em {dateTimeBR(c.closed_at)}.
           {c.divergent &&
-            " Chegaram marcações depois do fechamento: o espelho atual difere do fechado."}
+            " Chegaram batidas depois do fechamento: a folha de ponto de hoje é diferente da que foi fechada."}
         </p>
       ))}
       <Stats>
-        <Stat label="Previsto" figure={hm(t.expected_minutes)} />
-        <Stat label="Trabalhado" figure={hm(t.worked_minutes)} />
+        <Stat label="Horas a cumprir" figure={hm(t.expected_minutes)} />
+        <Stat label="Horas trabalhadas" figure={hm(t.worked_minutes)} />
         <Stat
-          label="Extras"
+          label="Horas extras"
           figure={overtime || "00:00"}
           tone={t.overtime_minutes ? "tint" : undefined}
         />
         <Stat
-          label="Débito"
+          label="Horas devidas"
           figure={hm(t.deficit_minutes)}
           tone={t.deficit_minutes ? "seal" : undefined}
         />
         <Stat
-          label="Saldo"
+          label="Saldo de horas"
           figure={hm(t.balance_minutes)}
           tone={t.balance_minutes < 0 ? "seal" : "tint"}
         />
         <Stat
-          label="Dias com ocorrência"
+          label="Dias com problema"
           figure={t.days_with_issues}
           tone={t.days_with_issues ? "amber" : undefined}
         />
@@ -198,7 +198,7 @@ export function TimesheetBody({
 
       <Group
         title="Dias"
-        aside={`Regras ${sheet.rule_versions.map((v) => `v${v.version}`).join(", ")}, fuso ${sheet.timezone}`}
+        aside={`Regras de cálculo usadas: ${sheet.rule_versions.map((v) => `versão ${v.version}`).join(", ")}`}
         footer={
           <div className="legend">
             <span>
@@ -207,15 +207,15 @@ export function TimesheetBody({
             </span>
             <span>
               <i style={{ border: "1.5px dashed var(--ink-2)" }} />
-              Previsto
+              Horário previsto
             </span>
             <span>
               <i style={{ background: "var(--night-soft)" }} />
-              Faixa noturna
+              Horário noturno
             </span>
             <span>
               <i style={{ borderLeft: "2px dotted var(--amber)", width: 2 }} />
-              Incluída por ajuste
+              Horário incluído por pedido
             </span>
           </div>
         }
@@ -228,7 +228,7 @@ export function TimesheetBody({
           <span />
           <RulerScale hours={crosses ? 30 : 24} />
           <span className="num hide-sm" style={{ fontSize: 12, color: "var(--ink-3)" }}>
-            Trab.
+            Trabalho
           </span>
           <span className="num hide-sm" style={{ fontSize: 12, color: "var(--ink-3)" }}>
             Saldo
@@ -258,7 +258,7 @@ export function TimesheetBody({
                 <span className="num">{balance ? hm(balance) : "—"}</span>
                 <span className="hide-sm">
                   {day.issues.length > 0 && day.status === "ok" ? (
-                    <Badge tone="amber">Com ocorrência</Badge>
+                    <Badge tone="amber">Com problema</Badge>
                   ) : (
                     <Badge tone={tone}>{label}</Badge>
                   )}
@@ -292,16 +292,17 @@ function DayDetail({ day, onRequest }: { day: DayResult; onRequest: () => void }
         {day.marks.map((m) => (
           <Badge key={m.at} tone={m.origin === "included" ? "amber" : undefined}>
             {m.local.slice(11)}
-            {m.origin === "included" ? " incluída" : ""}
+            {m.origin === "included" ? " (incluído)" : ""}
           </Badge>
         ))}
         {day.night_minutes > 0 && (
           <Badge tone="night">
-            Noturno {hm(day.night_minutes)} ({hm(day.night_reduced_minutes)} reduzidas)
+            Horas noturnas {hm(day.night_minutes)} (contam como {hm(day.night_reduced_minutes)} pela
+            hora reduzida)
           </Badge>
         )}
         {day.break_suppressed_minutes > 0 && (
-          <Badge tone="seal">Intervalo suprimido {day.break_suppressed_minutes} min</Badge>
+          <Badge tone="seal">Intervalo não cumprido: {day.break_suppressed_minutes} min</Badge>
         )}
       </div>
       {day.issues.length > 0 && (
@@ -313,7 +314,7 @@ function DayDetail({ day, onRequest }: { day: DayResult; onRequest: () => void }
       )}
       <details open>
         <summary style={{ fontSize: 13, color: "var(--ink-2)", cursor: "pointer" }}>
-          Como calculamos
+          Como chegamos a esses números
         </summary>
         <ol className="steps">
           {day.steps.map((s, i) => (
@@ -322,7 +323,7 @@ function DayDetail({ day, onRequest }: { day: DayResult; onRequest: () => void }
         </ol>
       </details>
       <button onClick={onRequest}>
-        <Icon name="plus" size={16} /> Pedir ajuste ou abono
+        <Icon name="plus" size={16} /> Pedir correção ou justificar ausência
       </button>
     </div>
   );
@@ -374,7 +375,7 @@ export function RequestSheet({
     });
 
   return (
-    <Sheet title={`Pedido para ${dayLabel(day.date)}`} open={!!day} onClose={onClose}>
+    <Sheet title={`Pedido para o dia ${dayLabel(day.date)}`} open={!!day} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -382,12 +383,12 @@ export function RequestSheet({
         }}
         style={{ display: "grid", gap: 12 }}
       >
-        <div className="segmented" role="group" aria-label="Tipo de pedido">
+        <div className="segmented" role="group" aria-label="O que você quer pedir">
           {(
             [
-              ["include", "Incluir marcação"],
-              ["disregard", "Desconsiderar"],
-              ["justification", "Abono"],
+              ["include", "Esqueci de bater"],
+              ["disregard", "Bati por engano"],
+              ["justification", "Justificar ausência"],
             ] as [Mode, string][]
           ).map(([k, l]) => (
             <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)}>
@@ -397,16 +398,16 @@ export function RequestSheet({
         </div>
         {mode === "include" && (
           <Field
-            label="Horário esquecido"
-            hint="No fuso da unidade. A marcação original não é alterada; o ajuste entra na apuração após aprovação."
+            label="Que horas você deveria ter batido?"
+            hint="A batida original não é alterada. O horário só passa a valer depois que o gestor aprovar."
           >
             <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
           </Field>
         )}
         {mode === "disregard" && (
           <Field
-            label="Marcação a desconsiderar"
-            hint="Ela continua guardada no registro de ponto; só deixa de contar na apuração."
+            label="Qual batida foi feita por engano?"
+            hint="Ela continua guardada no histórico, mas deixa de contar nas horas depois da aprovação."
           >
             <select value={record} onChange={(e) => setRecord(Number(e.target.value))} required>
               <option value="">Escolha…</option>
@@ -420,7 +421,7 @@ export function RequestSheet({
         )}
         {mode === "justification" && (
           <div className="form-grid">
-            <Field label="Motivo do abono">
+            <Field label="Motivo da ausência">
               <select value={kind} onChange={(e) => setKind(e.target.value)}>
                 {JUSTIFICATION_KINDS.map(([k, l]) => (
                   <option key={k} value={k}>
@@ -429,7 +430,7 @@ export function RequestSheet({
                 ))}
               </select>
             </Field>
-            <Field label="Minutos (vazio = dia todo)">
+            <Field label="Quantos minutos? (deixe vazio para o dia todo)">
               <input
                 type="number"
                 min={1}
@@ -438,12 +439,12 @@ export function RequestSheet({
                 onChange={(e) => setMinutes(e.target.value)}
               />
             </Field>
-            <Field label="Documento (nº ou referência)">
+            <Field label="Documento que comprova (opcional)">
               <input value={doc} onChange={(e) => setDoc(e.target.value)} maxLength={200} />
             </Field>
           </div>
         )}
-        <Field label="Justificativa">
+        <Field label="Explique o motivo" hint="Escreva pelo menos 5 letras.">
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}

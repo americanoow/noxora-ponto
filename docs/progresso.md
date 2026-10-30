@@ -49,3 +49,8 @@ Ambiente de nuvem: PostgreSQL 16, Redis 7, Flutter 3.47.8, Docker (imagens base 
 | Frontend completo (padrões da skill swiftui-patterns adaptados) | sim | 69 testes + verificação visual com dados reais (desktop e 390 px) | validação com usuários pendente |
 
 Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](pendencias-externas.md).
+
+## 2026-10-29 — Linguagem simples e motor facial em desenvolvimento
+- Interface reescrita em linguagem do dia a dia (glossário em D86), com descrição de cada função no Início, mensagens de erro acionáveis e leitura mais fácil (D87). Textos gerados pelo servidor continuam técnicos (D88, pendente). Frontend: 70 testes, tipos, lint e formatação limpos.
+- Motor facial OpenCV ativo em desenvolvimento (D89); funcionou no fluxo completo em celular Android (APK debug gerado neste computador). **Pendente:** recusa de outra pessoa/foto/vídeo, calibração do limiar, vivacidade certificada, LGPD, cofre de chaves, APK de produção assinado.
+- `availability`: o indício de ponto passa a citar a unidade da última batida.

@@ -42,20 +42,20 @@ import { PeriodPicker } from "./Timesheet";
 // ---------- Regras e feriados ----------
 
 const PARAM_LABELS: Record<string, string> = {
-  tolerance_per_mark_minutes: "Tolerância por marcação (min)",
-  tolerance_daily_minutes: "Tolerância diária (min)",
+  tolerance_per_mark_minutes: "Tolerância em cada batida (minutos)",
+  tolerance_daily_minutes: "Tolerância por dia (minutos)",
   overtime_rate_percent: "Adicional de hora extra (%)",
-  rest_day_overtime_rate_percent: "Adicional em folga/feriado (%)",
+  rest_day_overtime_rate_percent: "Adicional de hora extra em folga ou feriado (%)",
   night_start: "Início do horário noturno",
   night_end: "Fim do horário noturno",
   night_additional_percent: "Adicional noturno (%)",
-  night_reduced_hour: "Hora noturna reduzida (52 min 30 s)",
-  night_extension: "Prorrogação do horário noturno",
-  break_rules: "Intervalos mínimos",
-  min_rest_between_journeys_hours: "Descanso entre jornadas (h)",
-  max_daily_overtime_minutes: "Alerta de extras por dia (min)",
-  journey_split_gap_hours: "Separação de jornadas (h sem marcação)",
-  duplicate_mark_window_seconds: "Janela de toque duplo (s)",
+  night_reduced_hour: "Hora noturna menor (52 min 30 s contam como 1 hora)",
+  night_extension: "Continuar o adicional noturno depois do fim do horário noturno",
+  break_rules: "Intervalos obrigatórios",
+  min_rest_between_journeys_hours: "Descanso mínimo entre um dia de trabalho e outro (horas)",
+  max_daily_overtime_minutes: "Avisar quando as horas extras do dia passarem de (minutos)",
+  journey_split_gap_hours: "Considerar um novo dia de trabalho após (horas sem bater o ponto)",
+  duplicate_mark_window_seconds: "Ignorar a segunda batida feita em até (segundos)",
 };
 
 export function RulesScreen() {
@@ -77,7 +77,7 @@ export function RulesScreen() {
       subtitle={rules.data?.notice}
       toolbar={
         <button className="primary" onClick={() => setEditing(true)}>
-          Nova versão das regras
+          Mudar as regras
         </button>
       }
     >
@@ -89,10 +89,10 @@ export function RulesScreen() {
           <Group
             title={
               current
-                ? `Versão ${current.version}, vigente desde ${dateBR(current.valid_from)}`
-                : "Padrão do sistema (versão 0)"
+                ? `Regras versão ${current.version}, valem desde ${dateBR(current.valid_from)}`
+                : "Regras padrão do sistema"
             }
-            footer="Mudanças criam uma nova versão com data de início. Dias anteriores continuam calculados pela versão da época."
+            footer="Quando você muda uma regra, ela vale a partir da data escolhida. Os dias anteriores continuam calculados com as regras da época."
           >
             {Object.entries(PARAM_LABELS).map(([key, label]) => (
               <Row
@@ -104,7 +104,7 @@ export function RulesScreen() {
             ))}
           </Group>
           {rules.data && rules.data.versions.length > 1 && (
-            <Group title="Histórico de versões">
+            <Group title="Regras anteriores">
               {rules.data.versions.map((v) => (
                 <Row
                   key={v.id}
@@ -120,7 +120,7 @@ export function RulesScreen() {
 
       <Group
         title={`Feriados de ${year}`}
-        footer="Cadastre os feriados nacionais, estaduais e municipais que valem para a empresa ou para uma unidade."
+        footer="Cadastre os feriados nacionais, estaduais e municipais que valem para a empresa toda ou só para uma unidade."
       >
         {holidays.data?.length ? (
           holidays.data.map((h) => (
@@ -174,7 +174,7 @@ export function RulesScreen() {
           />
           <input
             aria-label="Nome do feriado"
-            placeholder="Nome"
+            placeholder="Nome do feriado"
             value={holiday.name}
             onChange={(e) => setHoliday({ ...holiday, name: e.target.value })}
             required
@@ -242,7 +242,7 @@ function RulesSheet({
   const { pending, error, run } = useAction();
   const set = (k: string, v: unknown) => setValues({ ...values, [k]: v });
   return (
-    <Sheet title="Nova versão das regras" open={open} onClose={onClose}>
+    <Sheet title="Mudar as regras" open={open} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -253,7 +253,7 @@ function RulesSheet({
         }}
       >
         <div className="form-grid">
-          <Field label="Vigente a partir de">
+          <Field label="Passa a valer em">
             <input
               type="date"
               value={validFrom}
@@ -285,13 +285,13 @@ function RulesSheet({
               );
             })}
         </div>
-        <Field label="Motivo da mudança (ex.: nova convenção coletiva)">
+        <Field label="Por que está mudando? (ex.: nova convenção coletiva)">
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
         </Field>
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Criar versão
+            Salvar as novas regras
           </button>
         </div>
       </form>
@@ -319,7 +319,7 @@ export function ReportsScreen() {
   return (
     <Screen
       title="Relatórios e arquivos"
-      subtitle="Toda exportação fica registrada na auditoria."
+      subtitle="Tudo o que você baixa aqui fica registrado no histórico de uso."
       toolbar={
         <PeriodPicker
           from={period.from}
@@ -331,24 +331,28 @@ export function ReportsScreen() {
       <Group title="Relatórios do período">
         <Row
           title="Resumo por funcionário"
-          subtitle="Previsto, trabalhado, extras por adicional, débitos, noturno e faltas (CSV)"
+          subtitle="Horas a cumprir, trabalhadas, extras, devidas, noturnas e faltas (planilha)"
           accessory={
-            <Download href={downloads.summary(companyId, period.from, period.to)}>CSV</Download>
+            <Download href={downloads.summary(companyId, period.from, period.to)}>
+              Planilha
+            </Download>
           }
         />
         <Row
-          title="Marcações originais"
-          subtitle="Registro de ponto com NSR e hash; CPF completo só para administradores (CSV)"
+          title="Batidas de ponto originais"
+          subtitle="Todas as batidas de ponto originais; o CPF completo aparece só para administradores (planilha)"
           accessory={
-            <Download href={downloads.records(companyId, period.from, period.to)}>CSV</Download>
+            <Download href={downloads.records(companyId, period.from, period.to)}>
+              Planilha
+            </Download>
           }
         />
       </Group>
       {isAdmin && (
         <>
           <Group
-            title="Arquivo Fonte de Dados (AFD)"
-            footer="Gerado por unidade (estabelecimento). Sem assinatura ICP-Brasil; cabeçalho e trailer ainda precisam de conferência com o leiaute oficial."
+            title="Arquivo para a fiscalização (AFD)"
+            footer="Gerado por unidade. Ainda não tem assinatura digital, e o formato precisa ser conferido com o modelo oficial antes de ser entregue à fiscalização."
           >
             {units.data?.map((u) => (
               <Row
@@ -363,13 +367,13 @@ export function ReportsScreen() {
             ))}
           </Group>
           <Group
-            title="Perfis de exportação para a folha"
+            title="Modelos de arquivo para a folha de pagamento"
             aside={
               <button className="plain" onClick={() => setCreatingProfile(true)}>
-                Novo perfil
+                Novo modelo
               </button>
             }
-            footer="A exportação para a folha usa sempre um período fechado. Baixe na tela do fechamento."
+            footer="O arquivo da folha de pagamento só pode ser gerado de um período já fechado. Baixe na tela “Fechar o mês”."
           >
             {profiles.data?.profiles.length ? (
               profiles.data.profiles.map((p) => (
@@ -383,9 +387,10 @@ export function ReportsScreen() {
                 />
               ))
             ) : (
-              <Empty title="Nenhum perfil de folha">
+              <Empty title="Nenhum modelo de folha de pagamento">
                 <p>
-                  Associe os eventos da apuração aos códigos de rubrica do seu sistema de folha.
+                  Diga qual código do seu sistema de folha de pagamento corresponde a cada tipo de
+                  hora (extra, noturna, falta…).
                 </p>
               </Empty>
             )}
@@ -398,14 +403,14 @@ export function ReportsScreen() {
                     <th>Tipo</th>
                     <th>Período</th>
                     <th>Gerado</th>
-                    <th>SHA-256</th>
-                    <th>Pendências</th>
+                    <th>Código de verificação</th>
+                    <th>Avisos</th>
                   </tr>
                 </thead>
                 <tbody>
                   {files.data.map((f) => (
                     <tr key={f.id}>
-                      <td>{f.kind === "afd" ? "AFD" : "Folha"}</td>
+                      <td>{f.kind === "afd" ? "Fiscalização (AFD)" : "Folha de pagamento"}</td>
                       <td>
                         {dateBR(f.start)} a {dateBR(f.end)}
                       </td>
@@ -466,7 +471,7 @@ function ProfileSheet({
   const [codes, setCodes] = useState<Record<string, string>>({});
   const { pending, error, run } = useAction();
   return (
-    <Sheet title="Perfil de folha" open={open} onClose={onClose}>
+    <Sheet title="Modelo de folha de pagamento" open={open} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -481,14 +486,14 @@ function ProfileSheet({
           <Field label="Nome">
             <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
           </Field>
-          <Field label="Formato">
+          <Field label="Tipo de arquivo">
             <select value={format} onChange={(e) => setFormat(e.target.value as "csv" | "fixed")}>
-              <option value="csv">CSV</option>
-              <option value="fixed">TXT de largura fixa</option>
+              <option value="csv">Planilha (CSV)</option>
+              <option value="fixed">Texto com colunas fixas (TXT)</option>
             </select>
           </Field>
           {Object.entries(events).map(([k, label]) => (
-            <Field key={k} label={`Código: ${label}`}>
+            <Field key={k} label={`Código para: ${label}`}>
               <input
                 value={codes[k] ?? ""}
                 onChange={(e) => setCodes({ ...codes, [k]: e.target.value })}
@@ -500,7 +505,7 @@ function ProfileSheet({
         <ErrorText message={error} />
         <div className="actions">
           <button type="submit" disabled={pending}>
-            Salvar perfil
+            Salvar modelo
           </button>
         </div>
       </form>
@@ -531,32 +536,32 @@ export function CompanyScreen() {
     });
   const p = policy.data;
   return (
-    <Screen title="Empresa e identificação">
+    <Screen title="Dados da empresa">
       <Group
-        title="Identificação no tablet"
+        title="Como o funcionário se identifica no tablet"
         padded
         footer={
           p?.engine
-            ? `Motor: ${p.engine.name} ${p.engine.version}${p.engine.simulator ? " (simulador, só desenvolvimento)" : ""}.`
-            : "Nenhum motor facial configurado no servidor."
+            ? `Reconhecimento facial: ${p.engine.name} ${p.engine.version}${p.engine.simulator ? " (versão de teste, não use com funcionários reais)" : ""}.`
+            : "O reconhecimento facial ainda não foi configurado no sistema."
         }
       >
         {!p ? (
           <Loading />
         ) : (
           <div className="form-grid">
-            <Field label="Como o trabalhador se identifica">
+            <Field label="Como o funcionário se identifica">
               <select
                 value={p.mode}
                 onChange={(e) => void change({ mode: e.target.value as Policy["mode"] })}
               >
-                <option value="registration">Somente matrícula (não é identificação forte)</option>
-                <option value="face">Reconhecimento facial (ou código de exceção)</option>
+                <option value="registration">Só digitando a matrícula (menos seguro)</option>
+                <option value="face">Reconhecimento facial (ou código liberado pelo gestor)</option>
               </select>
             </Field>
             <Field
-              label="Prova de presença aceita"
-              hint="O desafio básico (virar o rosto) barra foto parada, mas não é antifraude certificada."
+              label="Como confirmar que é uma pessoa de verdade"
+              hint="O teste simples (virar o rosto) barra uma foto parada, mas não é uma proteção certificada contra fraude."
             >
               <select
                 value={p.face_liveness_policy}
@@ -566,13 +571,13 @@ export function CompanyScreen() {
                   })
                 }
               >
-                <option value="certified">Somente vivacidade certificada</option>
-                <option value="basic_challenge">Aceitar desafio básico de movimento</option>
+                <option value="certified">Só com proteção certificada contra fraude</option>
+                <option value="basic_challenge">Aceitar o teste simples (virar o rosto)</option>
               </select>
             </Field>
             <Field
-              label="Tablet sem conexão"
-              hint="Offline só por matrícula, sinalizado para revisão; o comprovante sai após a sincronização."
+              label="Tablet sem internet"
+              hint="Sem internet, só dá para bater o ponto pela matrícula. A batida fica marcada para revisão, e o comprovante sai quando o tablet voltar a ter internet."
             >
               <select
                 value={p.offline_policy}
@@ -580,15 +585,15 @@ export function CompanyScreen() {
                   void change({ offline_policy: e.target.value as Policy["offline_policy"] })
                 }
               >
-                <option value="disabled">Não registrar sem conexão</option>
-                <option value="registration_only">Registrar por matrícula e revisar</option>
+                <option value="disabled">Não permitir bater o ponto sem internet</option>
+                <option value="registration_only">Permitir pela matrícula e revisar depois</option>
               </select>
             </Field>
           </div>
         )}
         <ErrorText message={error ?? policy.error} />
       </Group>
-      <Group title="Dados do empregador (comprovante e AFD)" padded>
+      <Group title="Dados da empresa que aparecem no comprovante" padded>
         <div className="legacy">
           <EmployerTab companyId={companyId} canEdit />
         </div>
@@ -606,14 +611,14 @@ export function BillingScreen() {
   const b = billing.data;
   const sub = b?.subscription;
   return (
-    <Screen title="Assinatura" subtitle={b?.notice}>
+    <Screen title="Plano e pagamentos" subtitle={b?.notice}>
       {!b ? (
         <Loading />
       ) : (
         <>
           <Group
             title="Situação"
-            footer={sub?.sandbox ? "Ambiente de testes: nenhuma cobrança real é feita." : undefined}
+            footer={sub?.sandbox ? "Ambiente de teste: nenhuma cobrança real é feita." : undefined}
           >
             <Row
               title="Plano"
@@ -629,7 +634,7 @@ export function BillingScreen() {
               }
             />
             {sub?.trial_ends_at && <Row title="Teste até" value={dateBR(sub.trial_ends_at)} />}
-            {sub && <Row title="Período atual até" value={dateBR(sub.current_period_end)} />}
+            {sub && <Row title="Pago até" value={dateBR(sub.current_period_end)} />}
             <Row
               title="Funcionários ativos"
               value={`${b.usage.active_employees}${sub?.plan.max_employees ? ` de ${sub.plan.max_employees}` : ""}`}
@@ -642,8 +647,8 @@ export function BillingScreen() {
               <Row
                 title={
                   sub.cancel_at_period_end
-                    ? "Cancelamento agendado para o fim do período"
-                    : "Renovação automática"
+                    ? "A assinatura será cancelada no fim do período pago"
+                    : "A assinatura renova sozinha"
                 }
                 accessory={
                   <button
@@ -656,7 +661,7 @@ export function BillingScreen() {
                       })
                     }
                   >
-                    {sub.cancel_at_period_end ? "Manter assinatura" : "Cancelar no fim do período"}
+                    {sub.cancel_at_period_end ? "Não cancelar" : "Cancelar no fim do período"}
                   </button>
                 }
               />
@@ -697,7 +702,7 @@ export function BillingScreen() {
                     <th>Período</th>
                     <th>Funcionários</th>
                     <th>Valor</th>
-                    <th>Vencimento</th>
+                    <th>Vence em</th>
                     <th>Situação</th>
                   </tr>
                 </thead>
@@ -748,15 +753,16 @@ export function AccountScreen() {
   return (
     <Screen title="Minha conta" subtitle={me.email}>
       <Group
-        title="Verificação em duas etapas"
+        title="Confirmação em duas etapas (mais segurança)"
         padded
-        footer="Use um aplicativo autenticador (Google Authenticator, Microsoft Authenticator, 1Password…). Recomendado para administradores."
+        footer="Além da senha, você digita um código de 6 números que aparece no seu celular, em um aplicativo como o Google Authenticator ou o Microsoft Authenticator. Recomendado para quem administra a empresa."
       >
         {codes ? (
           <>
             <p>
-              Guarde estes códigos de recuperação em local seguro. Cada um funciona uma vez e eles
-              não serão mostrados de novo.
+              Guarde estes códigos de emergência em um lugar seguro (anote em papel). Se você perder
+              o celular, cada um deles pode ser usado uma vez para entrar. Eles não serão mostrados
+              de novo.
             </p>
             <pre style={{ background: "var(--fill)", padding: 12, borderRadius: 8 }}>
               {codes.join("\n")}
@@ -783,7 +789,7 @@ export function AccountScreen() {
             }}
           >
             <p>
-              <Badge tone="tint">Ativa</Badge>
+              <Badge tone="tint">Ligada</Badge>
             </p>
             <div className="form-grid">
               <Field label="Senha">
@@ -794,13 +800,13 @@ export function AccountScreen() {
                   required
                 />
               </Field>
-              <Field label="Código atual ou de recuperação">
+              <Field label="Código do aplicativo (ou código de emergência)">
                 <input value={code} onChange={(e) => setCode(e.target.value)} required />
               </Field>
             </div>
             <div className="actions">
               <button type="submit" className="destructive" disabled={pending}>
-                Desativar
+                Desligar
               </button>
             </div>
           </form>
@@ -816,17 +822,17 @@ export function AccountScreen() {
             }}
           >
             <p>
-              No aplicativo autenticador, adicione uma conta pela chave abaixo (ou pelo endereço
-              otpauth) e digite o código gerado.
+              No aplicativo, escolha “adicionar conta” e digite a chave abaixo. Depois, escreva aqui
+              o código de 6 números que o aplicativo mostrar.
             </p>
             <p>
-              Chave:{" "}
+              Chave para digitar no aplicativo:{" "}
               <code style={{ fontSize: 15, letterSpacing: 1 }}>
                 {setup.secret.match(/.{1,4}/g)?.join(" ")}
               </code>
             </p>
             <p>
-              <a href={setup.otpauth_uri}>Abrir no aplicativo autenticador</a>
+              <a href={setup.otpauth_uri}>Tentar abrir direto no aplicativo</a>
             </p>
             <Field label="Código de 6 dígitos">
               <input
@@ -839,7 +845,7 @@ export function AccountScreen() {
             </Field>
             <div className="actions">
               <button type="submit" disabled={pending}>
-                Ativar
+                Ligar
               </button>
             </div>
           </form>
@@ -849,14 +855,14 @@ export function AccountScreen() {
             disabled={pending}
             onClick={() => void run(async () => setSetup(await startMfa()))}
           >
-            Configurar
+            Começar a configurar
           </button>
         )}
         <ErrorText message={error} />
       </Group>
-      <Group title="Sessão">
+      <Group title="Sair do sistema">
         <Row
-          title="Sair deste navegador"
+          title="Encerrar o acesso neste aparelho"
           accessory={<button onClick={() => void session.signOut()}>Sair</button>}
         />
       </Group>
