@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useModules } from "../lib/modules";
 import {
   AVAILABILITY_LABELS,
   type AvailabilityStatus,
   type BoardEmployee,
   getBoard,
   setAvailability,
+  setAvailabilityEnabled,
 } from "../api/operational";
 import { dateTimeBR } from "../lib/format";
 import { useCompany } from "../lib/session";
@@ -20,6 +22,37 @@ const TONE: Record<string, "tint" | "amber" | "seal" | undefined> = {
   unavailable: "seal",
   unknown: undefined,
 };
+
+/** Liga ou desliga o módulo opcional. Desligado, o que já foi informado fica guardado. */
+export function AvailabilityToggle() {
+  const { companyId, isAdmin } = useCompany();
+  const modules = useModules();
+  const { pending, error, run } = useAction();
+  if (!isAdmin) return null;
+  return (
+    <Group
+      title="Situação da equipe (opcional)"
+      padded
+      footer="Mostra quem está disponível, em pausa ou fora, informado à mão pela equipe ou pelo gestor. Exige atualização constante e não registra o ponto de ninguém. Desligado, nada disso aparece; o que já foi informado fica guardado."
+    >
+      <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <input
+          type="checkbox"
+          checked={modules.availability}
+          disabled={pending}
+          onChange={(e) =>
+            void run(async () => {
+              await setAvailabilityEnabled(companyId, e.target.checked);
+              modules.reload();
+            })
+          }
+        />
+        Usar a situação da equipe
+      </label>
+      <ErrorText message={error} />
+    </Group>
+  );
+}
 
 export function AvailabilityScreen() {
   const { companyId } = useCompany();
@@ -89,6 +122,7 @@ export function AvailabilityScreen() {
           board.reload();
         }}
       />
+      <AvailabilityToggle />
     </Screen>
   );
 }

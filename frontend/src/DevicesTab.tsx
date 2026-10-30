@@ -9,7 +9,6 @@ import {
   listDevices,
   reissueDeviceCode,
   revokeDevice,
-  updateDeviceLocation,
 } from "./devicesApi";
 import { type Unit, listUnits } from "./operationsApi";
 
@@ -88,7 +87,6 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
             {d.app_version && ` — versão do aplicativo ${d.app_version}`}
             {d.last_seen_at &&
               ` — última conexão em ${new Date(d.last_seen_at).toLocaleString("pt-BR")}`}
-            {d.collect_location && " — registra o local das batidas"}
             {canEdit && (
               <>
                 {d.status !== "revoked" && (
@@ -105,23 +103,6 @@ function DevicesPanel({ companyId, canEdit }: { companyId: number; canEdit: bool
                   }
                 >
                   {d.status === "pending" ? "Gerar novo código" : "Gerar novo código de ativação"}
-                </button>
-                <button
-                  onClick={() => {
-                    if (d.collect_location) {
-                      act(() => updateDeviceLocation(companyId, d.id, false, ""));
-                    } else {
-                      const reason = window.prompt(
-                        "Por que é preciso registrar o local das batidas? (explique em poucas palavras)",
-                      );
-                      if (reason?.trim())
-                        act(() => updateDeviceLocation(companyId, d.id, true, reason.trim()));
-                    }
-                  }}
-                >
-                  {d.collect_location
-                    ? "Parar de registrar o local"
-                    : "Registrar o local das batidas"}
                 </button>
               </>
             )}

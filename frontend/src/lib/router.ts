@@ -9,14 +9,14 @@ export type Destination =
   | { screen: "closings" }
   | { screen: "closing"; id: number }
   | { screen: "availability" }
-  | { screen: "records" }
+  | { screen: "records"; employeeId?: number; from?: string; to?: string }
   | { screen: "employees" }
   | { screen: "employee"; id: number }
   | { screen: "structure" }
   | { screen: "schedules" }
   | { screen: "devices" }
   | { screen: "rules" }
-  | { screen: "reports" }
+  | { screen: "fiscal" }
   | { screen: "company" }
   | { screen: "members" }
   | { screen: "billing" }

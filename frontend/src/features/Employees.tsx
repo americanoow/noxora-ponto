@@ -29,6 +29,8 @@ import {
   Sheet,
 } from "../ui/kit";
 import { ImportTab } from "../Operations";
+import { useModules } from "../lib/modules";
+import { AvailabilityToggle } from "./Availability";
 
 interface EmployeeDetail extends Employee {
   admission_date: string | null;
@@ -47,6 +49,7 @@ const emp = (c: number, id: number) => `/api/companies/${c}/employees/${id}`;
 
 export function EmployeesScreen() {
   const { companyId, isAdmin } = useCompany();
+  const modules = useModules();
   const router = useRouter();
   const [tab, setTab] = useState<"list" | "import">("list");
   const [q, setQ] = useState("");
@@ -183,6 +186,7 @@ export function EmployeesScreen() {
           </Group>
         </>
       )}
+      {!modules.availability && <AvailabilityToggle />}
       <CreateSheet
         open={creating}
         onClose={() => setCreating(false)}
@@ -588,8 +592,9 @@ function EditSheet({
             const changes: Record<string, unknown> = {
               full_name: form.full_name,
               admission_date: form.admission_date || null,
-              access_email: form.access_email,
             };
+            // Sem acesso ainda: o vínculo é feito pelo botão "Convidar e dar acesso".
+            if (employee.access_email) changes.access_email = form.access_email;
             if (form.cpf) changes.cpf = form.cpf;
             await request("PATCH", `${emp(companyId, employee.id)}/`, changes);
             onDone();
@@ -620,7 +625,11 @@ function EditSheet({
           </Field>
           <Field
             label="E-mail para acessar o sistema"
-            hint="Essa pessoa precisa ter sido convidada em “Quem usa o sistema”."
+            hint={
+              employee.access_email
+                ? "Para trocar, informe o e-mail de quem já tem acesso nesta empresa."
+                : "A pessoa recebe um convite por e-mail para criar a senha e vê só o próprio ponto."
+            }
           >
             <input
               type="email"
@@ -628,6 +637,24 @@ function EditSheet({
               onChange={(e) => setForm({ ...form, access_email: e.target.value })}
             />
           </Field>
+          {!employee.access_email && (
+            <div className="actions" style={{ alignSelf: "end" }}>
+              <button
+                type="button"
+                disabled={pending || !form.access_email.includes("@")}
+                onClick={() =>
+                  void run(async () => {
+                    await request("POST", `${emp(companyId, employee.id)}/access/`, {
+                      email: form.access_email,
+                    });
+                    onDone();
+                  })
+                }
+              >
+                Convidar e dar acesso
+              </button>
+            </div>
+          )}
         </div>
         <ErrorText message={error} />
         <div className="actions">

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { downloads } from "./api/operational";
 import { IdentificationModePanel } from "./BiometricsActions";
+import { isoDate, monthRange } from "./lib/format";
+import { Download } from "./ui/kit";
 import { errorMessage } from "./auth";
 import type { Page } from "./operationsApi";
 import {
@@ -14,10 +17,21 @@ import {
   updateEmployer,
 } from "./timeclockApi";
 
-export function RecordsTab({ companyId }: { companyId: number }) {
+export function RecordsTab({
+  companyId,
+  from = "",
+  to = "",
+  onPeriod,
+}: {
+  companyId: number;
+  /** Período inicial (vem da aba anterior) e aviso quando o usuário muda as datas. */
+  from?: string;
+  to?: string;
+  onPeriod?: (from: string, to: string) => void;
+}) {
   const [filters, setFilters] = useState<RecordFilters>({
-    from: "",
-    to: "",
+    from,
+    to,
     offline: "",
     page: 1,
   });
@@ -42,7 +56,14 @@ export function RecordsTab({ companyId }: { companyId: number }) {
     };
   }, [companyId, filters]);
 
-  const set = (patch: Partial<RecordFilters>) => setFilters({ ...filters, page: 1, ...patch });
+  const set = (patch: Partial<RecordFilters>) => {
+    const next = { ...filters, page: 1, ...patch };
+    setFilters(next);
+    if (("from" in patch || "to" in patch) && onPeriod) onPeriod(next.from, next.to);
+  };
+  const month = monthRange(isoDate(new Date()));
+  const sheetFrom = filters.from || month.from;
+  const sheetTo = filters.to || month.to;
   const pages = data ? Math.max(1, Math.ceil(data.count / 25)) : 1;
 
   return (
@@ -71,7 +92,13 @@ export function RecordsTab({ companyId }: { companyId: number }) {
           <option value="true">Sem internet (enviadas depois)</option>
         </select>
       </label>
-      <p>{data ? `${data.count} batida(s)` : "Carregando…"}</p>
+      <p>
+        {data ? `${data.count} batida(s)` : "Carregando…"}{" "}
+        <Download href={downloads.records(companyId, sheetFrom, sheetTo)}>
+          Planilha das batidas ({sheetFrom.split("-").reverse().join("/")} a{" "}
+          {sheetTo.split("-").reverse().join("/")})
+        </Download>
+      </p>
       <ul>
         {data?.results.map((r) => (
           <li key={r.id}>

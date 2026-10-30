@@ -56,7 +56,6 @@ export function navFor(
         tabs: [
           ["timesheet", "Folha de ponto"],
           ["records", "Registros originais"],
-          ["reports", "Relatórios e arquivos"],
         ],
       }),
       single({
@@ -100,19 +99,23 @@ export function navFor(
           icon: "shield",
           tabs: [
             ["company", "Dados da empresa"],
+            ["fiscal", "Arquivos fiscais"],
             ["billing", "Plano e pagamentos"],
           ],
         },
       );
     groups.push({ title: "Configurações", items: settings });
   }
-  const mine: NavItem[] = [
-    { screen: "my-day", label: "Hoje", icon: "today" },
-    { screen: "my-timesheet", label: "Minha folha de ponto", icon: "sheet" },
-    { screen: "my-requests", label: "Minhas solicitações", icon: "inbox" },
+  const mine = (labels: [string, string, string]): NavItem[] => [
+    { screen: "my-day", label: labels[0], icon: "today" },
+    { screen: "my-timesheet", label: labels[1], icon: "sheet" },
+    { screen: "my-requests", label: labels[2], icon: "inbox" },
   ];
-  if (company && linked) groups.push({ title: "Meu ponto", items: mine });
-  else if (company && company.role === "employee") groups.push(...mine.map(single));
+  // Quem também bate ponto tem o próprio grupo, com nomes que não repetem os da gestão.
+  if (company && linked)
+    groups.push({ title: "Meu ponto", items: mine(["Meu dia", "Minha folha", "Meus pedidos"]) });
+  else if (company && company.role === "employee")
+    groups.push(...mine(["Hoje", "Minha folha de ponto", "Minhas solicitações"]).map(single));
   if (isPlatform)
     groups.push({
       title: "Noxora",

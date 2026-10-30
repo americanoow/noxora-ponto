@@ -575,3 +575,46 @@ def test_postgresql_exclusao_de_vigencias_sobrepostas(tenant_a):
     Assignment.objects.create(employee=e, unit=unit, valid_from=datetime.date(2026, 1, 1))
     with pytest.raises(IntegrityError), transaction.atomic():
         Assignment.objects.create(employee=e, unit=unit, valid_from=datetime.date(2026, 3, 1))
+
+
+def test_convidar_e_dar_acesso_em_um_passo(tenant_a, tenant_b, django_capture_on_commit_callbacks):
+    from django.core import mail
+
+    from apps.companies.models import Membership, Role
+
+    admin = tenant_a.client("company_admin")
+    emp = make_employee(tenant_a.company, "1")
+    path = url(tenant_a.company, f"employees/{emp.pk}/access/")
+    with django_capture_on_commit_callbacks(execute=True):
+        r = admin.post(path, {"email": "Nova.Pessoa@a.test"}, format="json")
+    assert r.status_code == 201 and r.json()["access_email"] == "nova.pessoa@a.test"
+    emp.refresh_from_db()
+    membership = Membership.objects.get(company=tenant_a.company, user=emp.access_user)
+    assert membership.role == Role.EMPLOYEE and not emp.access_user.has_usable_password()
+    assert len(mail.outbox) == 1 and mail.outbox[0].to == ["nova.pessoa@a.test"]
+    # Já tem acesso: não troca o vínculo.
+    assert admin.post(path, {"email": "outra@a.test"}, format="json").status_code == 400
+    # Mesmo e-mail em outro cadastro da empresa é recusado (vínculo único).
+    other = make_employee(tenant_a.company, "2")
+    again = admin.post(
+        url(tenant_a.company, f"employees/{other.pk}/access/"), {"email": "nova.pessoa@a.test"}, format="json"
+    )
+    assert again.status_code == 400
+    # Quem já é gestor da empresa é só vinculado, sem perder o papel.
+    third = make_employee(tenant_a.company, "3")
+    manager = tenant_a.users["manager"]
+    ok = admin.post(
+        url(tenant_a.company, f"employees/{third.pk}/access/"), {"email": manager.email}, format="json"
+    )
+    assert ok.status_code == 201
+    assert Membership.objects.get(company=tenant_a.company, user=manager).role == Role.MANAGER
+    # Entrada inválida, papéis sem permissão e outra empresa.
+    fourth = make_employee(tenant_a.company, "4")
+    p4 = url(tenant_a.company, f"employees/{fourth.pk}/access/")
+    assert admin.post(p4, {"email": "invalido"}, format="json").status_code == 400
+    assert admin.post(p4, {}, format="json").status_code == 400
+    assert tenant_a.client("manager").post(p4, {"email": "x@a.test"}, format="json").status_code == 403
+    assert tenant_a.client("employee").post(p4, {"email": "x@a.test"}, format="json").status_code == 403
+    assert tenant_b.client("company_admin").post(p4, {"email": "x@b.test"}, format="json").status_code == 404
+    fourth.refresh_from_db()
+    assert fourth.access_user_id is None

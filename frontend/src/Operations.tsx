@@ -1,41 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BiometricsActions } from "./BiometricsActions";
-import { DevicesTab } from "./DevicesTab";
-import { EmployerTab, RecordsTab } from "./TimeclockTab";
 import { errorMessage } from "./auth";
 import {
-  type Employee,
-  type EmployeeFilters,
   type ImportResult,
-  type Page,
   type Schedule,
   type Sector,
   type Unit,
-  changeAssignment,
-  createEmployee,
   createSchedule,
   createSector,
   createUnit,
   importEmployees,
-  listEmployees,
   listSchedules,
   listSectors,
   listUnits,
-  updateEmployee,
   updateSector,
   updateUnit,
 } from "./operationsApi";
 
-type Tab = "units" | "employees" | "import" | "schedules" | "devices" | "records" | "employer";
-const TABS: [Tab, string][] = [
-  ["records", "Registros de ponto"],
-  ["employees", "Funcionários"],
-  ["units", "Unidades e setores"],
-  ["schedules", "Horários de trabalho"],
-  ["devices", "Tablets"],
-  ["import", "Cadastrar vários"],
-  ["employer", "Dados da empresa"],
-];
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
 function useLoader<T>(fn: () => Promise<T>, deps: unknown[]) {
@@ -78,34 +58,6 @@ function useRunner(after: () => void) {
 
 const Alert = ({ message }: { message: string | null }) =>
   message ? <p role="alert">{message}</p> : null;
-
-export function Operations({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
-  return (
-    <OperationsPanel key={`${companyId}:${canEdit}`} companyId={companyId} canEdit={canEdit} />
-  );
-}
-
-function OperationsPanel({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
-  const [tab, setTab] = useState<Tab>("employees");
-  return (
-    <section>
-      <nav aria-label="Operação">
-        {TABS.filter(([key]) => canEdit || key !== "import").map(([key, label]) => (
-          <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>
-            {label}
-          </button>
-        ))}
-      </nav>
-      {tab === "employees" && <EmployeesTab companyId={companyId} canEdit={canEdit} />}
-      {tab === "units" && <UnitsTab companyId={companyId} canEdit={canEdit} />}
-      {tab === "schedules" && <SchedulesTab companyId={companyId} canEdit={canEdit} />}
-      {tab === "devices" && <DevicesTab companyId={companyId} canEdit={canEdit} />}
-      {tab === "records" && <RecordsTab companyId={companyId} />}
-      {tab === "employer" && <EmployerTab companyId={companyId} canEdit={canEdit} />}
-      {tab === "import" && canEdit && <ImportTab companyId={companyId} />}
-    </section>
-  );
-}
 
 export function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
   const units = useLoader(() => listUnits(companyId), [companyId]);
@@ -206,190 +158,6 @@ export function UnitsTab({ companyId, canEdit }: { companyId: number; canEdit: b
             <button type="submit">Adicionar setor</button>
           </form>
         </>
-      )}
-    </div>
-  );
-}
-
-export function EmployeesTab({ companyId, canEdit }: { companyId: number; canEdit: boolean }) {
-  const [filters, setFilters] = useState<EmployeeFilters>({ q: "", unit: "", active: "", page: 1 });
-  const units = useLoader(() => listUnits(companyId), [companyId]);
-  const list = useLoader<Page<Employee>>(
-    () => listEmployees(companyId, filters),
-    [companyId, filters],
-  );
-  const { error, run } = useRunner(list.reload);
-  const [form, setForm] = useState({ registration: "", name: "", cpf: "" });
-  const [moving, setMoving] = useState<number | null>(null);
-  const [move, setMove] = useState({ unit: "", sector: "", from: "" });
-  const sectors = useLoader(() => listSectors(companyId), [companyId]);
-
-  const set = (patch: Partial<EmployeeFilters>) => setFilters({ ...filters, page: 1, ...patch });
-  const pages = list.data ? Math.max(1, Math.ceil(list.data.count / 25)) : 1;
-
-  return (
-    <div>
-      <Alert message={error ?? list.error ?? units.error ?? sectors.error} />
-      <input
-        aria-label="Buscar"
-        placeholder="Nome ou matrícula"
-        value={filters.q}
-        onChange={(e) => set({ q: e.target.value })}
-      />
-      <select
-        aria-label="Filtrar por unidade"
-        value={filters.unit}
-        onChange={(e) => set({ unit: e.target.value })}
-      >
-        <option value="">Todas as unidades</option>
-        {units.data?.map((u: Unit) => (
-          <option key={u.id} value={u.id}>
-            {u.name}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="Situação"
-        value={filters.active}
-        onChange={(e) => set({ active: e.target.value })}
-      >
-        <option value="">Todos</option>
-        <option value="true">Ativos</option>
-        <option value="false">Inativos</option>
-      </select>
-      <p>{list.data ? `${list.data.count} funcionário(s)` : "Carregando…"}</p>
-      <ul>
-        {list.data?.results.map((e) => (
-          <li key={e.id}>
-            {e.registration} — {e.full_name} {e.cpf && `(${e.cpf})`} —{" "}
-            {e.unit?.name ?? "sem unidade definida"}
-            {e.sector && ` / ${e.sector.name}`}
-            {e.is_active ? "" : " (inativo)"}
-            {canEdit && (
-              <>
-                <button
-                  onClick={() =>
-                    run(() => updateEmployee(companyId, e.id, { is_active: !e.is_active }))
-                  }
-                >
-                  {e.is_active ? "Inativar" : "Reativar"}
-                </button>
-                <button onClick={() => setMoving(moving === e.id ? null : e.id)}>
-                  Mudar de unidade ou setor
-                </button>
-              </>
-            )}
-            {e.is_active && (
-              <BiometricsActions
-                companyId={companyId}
-                employeeId={e.id}
-                employeeName={e.full_name}
-                canEdit={canEdit}
-              />
-            )}
-            {canEdit && moving === e.id && (
-              <form
-                onSubmit={(ev) => {
-                  ev.preventDefault();
-                  run(async () => {
-                    await changeAssignment(
-                      companyId,
-                      e.id,
-                      Number(move.unit),
-                      move.sector ? Number(move.sector) : null,
-                      move.from,
-                    );
-                    setMoving(null);
-                  });
-                }}
-              >
-                <select
-                  aria-label="Nova unidade"
-                  value={move.unit}
-                  onChange={(ev) => setMove({ ...move, unit: ev.target.value, sector: "" })}
-                  required
-                >
-                  <option value="">Unidade…</option>
-                  {units.data
-                    ?.filter((u: Unit) => u.is_active)
-                    .map((u: Unit) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  aria-label="Novo setor"
-                  value={move.sector}
-                  onChange={(ev) => setMove({ ...move, sector: ev.target.value })}
-                >
-                  <option value="">Sem setor</option>
-                  {sectors.data
-                    ?.filter((s: Sector) => s.is_active && String(s.unit) === move.unit)
-                    .map((s: Sector) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                </select>
-                <input
-                  aria-label="Vale a partir de"
-                  type="date"
-                  value={move.from}
-                  onChange={(ev) => setMove({ ...move, from: ev.target.value })}
-                  required
-                />
-                <button type="submit">Confirmar</button>
-              </form>
-            )}
-          </li>
-        ))}
-      </ul>
-      <p>
-        <button
-          disabled={filters.page <= 1}
-          onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
-        >
-          Anterior
-        </button>{" "}
-        Página {filters.page} de {pages}{" "}
-        <button
-          disabled={!list.data?.next}
-          onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
-        >
-          Próxima
-        </button>
-      </p>
-      {canEdit && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(async () => {
-              await createEmployee(companyId, form.registration, form.name, form.cpf);
-              setForm({ registration: "", name: "", cpf: "" });
-            });
-          }}
-        >
-          <h4>Novo funcionário</h4>
-          <input
-            aria-label="Matrícula"
-            value={form.registration}
-            onChange={(e) => setForm({ ...form, registration: e.target.value })}
-            required
-          />
-          <input
-            aria-label="Nome completo"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            required
-          />
-          <input
-            aria-label="CPF (opcional)"
-            value={form.cpf}
-            onChange={(e) => setForm({ ...form, cpf: e.target.value })}
-          />
-          <button type="submit">Cadastrar</button>
-        </form>
       )}
     </div>
   );

@@ -391,9 +391,23 @@ function CloseWizard({ onCancel, onClosed }: { onCancel: () => void; onClosed: (
               />
             ))}
             <Row
-              title="Relatórios e arquivos"
-              subtitle="Planilhas do período e arquivo para a fiscalização (AFD)."
-              onClick={() => router.select({ screen: "reports" })}
+              title="Resumo por funcionário (planilha)"
+              subtitle={`Horas do período ${dateBR(start)} a ${dateBR(end)}.`}
+              accessory={
+                <Download href={downloads.summary(companyId, start, end)}>Baixar</Download>
+              }
+            />
+            <Row
+              title="Batidas de ponto originais (planilha)"
+              subtitle="Todas as batidas do período. O CPF completo aparece só para administradores."
+              accessory={
+                <Download href={downloads.records(companyId, start, end)}>Baixar</Download>
+              }
+            />
+            <Row
+              title="Arquivos para a fiscalização (AFD)"
+              subtitle="Gerados por unidade, em Configurações."
+              onClick={() => router.select({ screen: "fiscal" })}
             />
           </Group>
           <div className="actions">
@@ -444,6 +458,10 @@ export function ClosingDetailScreen({ id }: { id: number }) {
       }
       toolbar={
         <>
+          <Download href={downloads.summary(companyId, c.start, c.end)}>Resumo (planilha)</Download>
+          <Download href={downloads.records(companyId, c.start, c.end)}>
+            Batidas (planilha)
+          </Download>
           {isAdmin &&
             c.status === "closed" &&
             profiles.data?.map((p) => (

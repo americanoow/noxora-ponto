@@ -15,7 +15,6 @@ import {
   downloads,
   getBilling,
   getPayrollProfiles,
-  setAvailabilityEnabled,
   listGeneratedFiles,
   setCancel,
   startMfa,
@@ -42,7 +41,6 @@ import {
   Sheet,
 } from "../ui/kit";
 import { ApiError } from "../http";
-import { useModules } from "../lib/modules";
 import { PeriodPicker } from "./Timesheet";
 
 // ---------- Regras e feriados ----------
@@ -310,7 +308,7 @@ function RulesSheet({
 
 // ---------- Relatórios e arquivos ----------
 
-export function ReportsScreen() {
+export function FiscalScreen() {
   const { companyId, isAdmin } = useCompany();
   const month = monthRange(isoDate(new Date()));
   const [period, setPeriod] = useState(month);
@@ -330,8 +328,8 @@ export function ReportsScreen() {
 
   return (
     <Screen
-      title="Relatórios e arquivos"
-      subtitle="Tudo o que você baixa aqui fica registrado no histórico de uso."
+      title="Arquivos fiscais e de folha"
+      subtitle="Arquivo para a fiscalização, modelos da folha de pagamento e o histórico de tudo o que foi gerado. As planilhas de horas ficam na Folha de ponto, nos Registros originais e no Fechamento."
       toolbar={
         <PeriodPicker
           from={period.from}
@@ -340,26 +338,6 @@ export function ReportsScreen() {
         />
       }
     >
-      <Group title="Relatórios do período">
-        <Row
-          title="Resumo por funcionário"
-          subtitle="Horas a cumprir, trabalhadas, extras, devidas, noturnas e faltas (planilha)"
-          accessory={
-            <Download href={downloads.summary(companyId, period.from, period.to)}>
-              Planilha
-            </Download>
-          }
-        />
-        <Row
-          title="Batidas de ponto originais"
-          subtitle="Todas as batidas de ponto originais; o CPF completo aparece só para administradores (planilha)"
-          accessory={
-            <Download href={downloads.records(companyId, period.from, period.to)}>
-              Planilha
-            </Download>
-          }
-        />
-      </Group>
       {isAdmin && (
         <>
           <Group
@@ -543,8 +521,6 @@ interface Policy {
 
 export function CompanyScreen() {
   const { companyId } = useCompany();
-  const modules = useModules();
-  const moduleAction = useAction();
   const policy = useTask(
     () => getIdentificationMode(companyId) as unknown as Promise<Policy>,
     [companyId],
@@ -613,27 +589,6 @@ export function CompanyScreen() {
           </div>
         )}
         <ErrorText message={error ?? policy.error} />
-      </Group>
-      <Group
-        title="Situação da equipe (opcional)"
-        padded
-        footer="Mostra quem está disponível, em pausa ou fora, informado à mão pela equipe ou pelo gestor. Exige atualização constante e não registra o ponto de ninguém. Desligado, nada disso aparece; o que já foi informado fica guardado."
-      >
-        <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <input
-            type="checkbox"
-            checked={modules.availability}
-            disabled={moduleAction.pending}
-            onChange={(e) =>
-              void moduleAction.run(async () => {
-                await setAvailabilityEnabled(companyId, e.target.checked);
-                modules.reload();
-              })
-            }
-          />
-          Usar a situação da equipe
-        </label>
-        <ErrorText message={moduleAction.error} />
       </Group>
       <Group title="Dados da empresa que aparecem no comprovante" padded>
         <div className="legacy">

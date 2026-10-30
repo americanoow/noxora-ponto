@@ -10,6 +10,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.services import get_or_invite_user, send_password_reset
 from apps.audit import services as audit
 from apps.billing import services as billing
 from apps.companies.models import Membership, Role
@@ -238,6 +239,53 @@ class EmployeeListView(APIView):
 
 def _employee_or_404(request, company, employee_id):
     return _get_or_404(_employees_with_assignments(services.visible_employees(request, company)), employee_id)
+
+
+class EmployeeAccessView(APIView):
+    """Convida e vincula em um passo: cria o acesso (papel de funcionário) e liga ao cadastro.
+
+    Usuário novo recebe o convite por e-mail para definir a senha. Quem já tem acesso à empresa (qualquer
+    papel) só é vinculado, sem trocar o papel. O vínculo é único por empresa."""
+
+    @transaction.atomic
+    def post(self, request, company_id, employee_id):
+        company = resolve_company(request, company_id, lock=True)
+        if request.user.is_platform_admin:
+            return Response({"detail": "Você não tem permissão para esta operação."}, status=403)
+        require_role(request, Role.COMPANY_ADMIN)
+        employee = (
+            Employee.objects.select_for_update(no_key=True).filter(company=company, pk=employee_id).first()
+        )
+        if employee is None:
+            raise Http404
+        if employee.access_user_id:
+            raise ValidationError({"email": "Este funcionário já tem acesso ao sistema."})
+        data = drf.EmailField().run_validation(request.data.get("email")) if "email" in request.data else None
+        if not data:
+            raise ValidationError({"email": "Informe o e-mail da pessoa."})
+        try:
+            with transaction.atomic():
+                user, created = get_or_invite_user(data, employee.full_name)
+                membership = Membership.objects.filter(company=company, user=user).first()
+                if membership is None:
+                    membership = Membership.objects.create(
+                        user=user, company=company, role=Role.EMPLOYEE, name=employee.full_name
+                    )
+                employee.access_user = user
+                employee.save(update_fields=["access_user"])
+                audit.record(
+                    request,
+                    "employee.access_granted",
+                    company=company,
+                    target=employee,
+                    membership=membership.pk,
+                    invited=created,
+                )
+        except IntegrityError:
+            raise ValidationError({"email": "Este e-mail já está ligado a outro funcionário."}) from None
+        if created:
+            transaction.on_commit(lambda: send_password_reset(user, invite=True))
+        return Response(employee_to_dict(employee, full_cpf=True), status=201)
 
 
 class EmployeeDetailView(APIView):

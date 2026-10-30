@@ -88,6 +88,9 @@ export function TimesheetScreen({
             to={period.to}
             onChange={(f, t) => update({ from: f, to: t })}
           />
+          <Download href={downloads.summary(companyId, period.from, period.to)}>
+            Resumo da equipe (planilha)
+          </Download>
           {employeeId && (
             <>
               <Download

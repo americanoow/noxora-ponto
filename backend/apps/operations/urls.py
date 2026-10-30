@@ -11,6 +11,11 @@ urlpatterns = [
     path("employees/import/", views.EmployeeImportView.as_view(), name="employee-import"),
     path("employees/<int:employee_id>/", views.EmployeeDetailView.as_view(), name="employee-detail"),
     path(
+        "employees/<int:employee_id>/access/",
+        views.EmployeeAccessView.as_view(),
+        name="employee-access",
+    ),
+    path(
         "employees/<int:employee_id>/assignments/",
         views.EmployeeAssignmentsView.as_view(),
         name="employee-assignments",

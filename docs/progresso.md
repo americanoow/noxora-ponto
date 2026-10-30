@@ -68,3 +68,7 @@ Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](p
 ## 2026-10-30 — Menu simplificado
 - Menu do gestor com seis entradas e abas dentro de cada uma; Meses fechados dentro de Minha folha; situação da equipe como módulo opcional; detalhes técnicos recolhidos (D114–D117).
 - Backend: 503 testes no PostgreSQL. Frontend: 77 testes, tipos, lint e build limpos.
+
+## 2026-10-30 — Ajustes após revisão do menu
+- Abas mantêm período; planilhas distribuídas nas telas de dados; AFD e folha em Arquivos fiscais; convidar e dar acesso em um passo; local das batidas escondido; código morto removido (D118–D122).
+- Backend: 504 testes no PostgreSQL. Frontend: 76 testes, tipos, lint e build limpos.

@@ -439,3 +439,81 @@ describe("Portal do funcionário", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("Lista de funcionários e acesso", () => {
+  const employee = (id: number, name: string) => ({
+    id,
+    registration: String(id),
+    full_name: name,
+    cpf: "***.***.***-25",
+    is_active: true,
+    unit: { id: 1, name: "Centro" },
+    sector: null,
+  });
+
+  it("lista com CPF protegido, busca com filtro e paginação só quando há mais páginas", async () => {
+    window.location.hash = "#/employees";
+    routes["GET /api/companies/7/employees/"] = () => ({
+      body: { count: 40, next: "x", previous: null, results: [employee(1, "Ana")] },
+    });
+    routes["GET /api/companies/7/units/"] = () => ({ body: [] });
+    render(<App />);
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Buscar/), { target: { value: "ana" } });
+    await waitFor(() => expect(calls.some((c) => c.url.includes("q=ana"))).toBe(true));
+    fireEvent.click(await screen.findByRole("button", { name: "Próxima" }));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("page=2"))).toBe(true));
+  });
+
+  it("convida e dá acesso em um passo, sem mandar o gestor para outra tela", async () => {
+    window.location.hash = "#/employee?id=5";
+    routes["GET /api/companies/7/employees/5/"] = () => ({
+      body: { ...employee(5, "Bia"), admission_date: null, access_email: "", cpf: "***" },
+    });
+    routes["GET /api/companies/7/employees/5/assignments/"] = () => ({ body: [] });
+    routes["GET /api/companies/7/employees/5/schedules/"] = () => ({ body: [] });
+    routes["POST /api/companies/7/employees/5/access/"] = () => ({ status: 201, body: {} });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    const dialog = await screen.findByRole("dialog");
+    const email = within(dialog).getByLabelText(/E-mail para acessar o sistema/);
+    const invite = within(dialog).getByRole("button", { name: "Convidar e dar acesso" });
+    expect(invite).toBeDisabled();
+    fireEvent.change(email, { target: { value: "bia@a.test" } });
+    fireEvent.click(invite);
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.endsWith("/employees/5/access/"))).toBe(true),
+    );
+    const sent = JSON.parse(
+      String(calls.find((c) => c.url.endsWith("/employees/5/access/"))!.init!.body),
+    );
+    expect(sent).toEqual({ email: "bia@a.test" });
+  });
+});
+
+describe("Abas que levam o contexto", () => {
+  it("o período escolhido na folha vai e volta com as abas", async () => {
+    window.location.hash = "#/timesheet?employeeId=4&from=2026-09-01&to=2026-09-30";
+    routes["GET /api/companies/7/attendance/timesheet/"] = () => ({ body: sheet });
+    routes["GET /api/companies/7/employees/"] = () => page([], 0);
+    routes["GET /api/companies/7/time-records/"] = () => page([], 0);
+    render(<App />);
+    const tabs = within(await screen.findByRole("group", { name: "Partes desta seção" }));
+    fireEvent.click(tabs.getByRole("button", { name: "Registros originais" }));
+    expect(await screen.findByLabelText("De")).toHaveValue("2026-09-01");
+    expect(screen.getByLabelText("Até")).toHaveValue("2026-09-30");
+    expect(window.location.hash).toContain("from=2026-09-01");
+    expect(screen.getByRole("link", { name: /Planilha das batidas/ })).toHaveAttribute(
+      "href",
+      expect.stringContaining("from=2026-09-01&to=2026-09-30"),
+    );
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Partes desta seção" })).getByRole("button", {
+        name: "Folha de ponto",
+      }),
+    );
+    await waitFor(() => expect(window.location.hash).toContain("employeeId=4"));
+    expect(window.location.hash).toContain("from=2026-09-01");
+    expect(window.location.hash).toContain("to=2026-09-30");
+  });
+});

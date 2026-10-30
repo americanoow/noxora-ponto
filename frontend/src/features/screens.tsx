@@ -3,11 +3,11 @@ import { DevicesTab } from "../DevicesTab";
 import { SchedulesTab, UnitsTab } from "../Operations";
 import { EmployeeDetailScreen, EmployeesScreen } from "./Employees";
 import { RecordsTab } from "../TimeclockTab";
-import type { Destination } from "../lib/router";
+import { type Destination, useRouter } from "../lib/router";
 import { useCompany } from "../lib/session";
 import { MembersPanel } from "../screens";
 import { Group, Screen } from "../ui/kit";
-import { AccountScreen, BillingScreen, CompanyScreen, ReportsScreen, RulesScreen } from "./Admin";
+import { AccountScreen, BillingScreen, CompanyScreen, FiscalScreen, RulesScreen } from "./Admin";
 import { AvailabilityScreen } from "./Availability";
 import { ClosingDetailScreen, ClosingsScreen } from "./Closings";
 import { PlatformScreen } from "./Platform";
@@ -24,6 +24,7 @@ export function ScreenView({
   destination: Destination;
   refreshPending: () => void;
 }) {
+  const router = useRouter();
   switch (destination.screen) {
     case "today":
       return <TodayScreen />;
@@ -48,7 +49,22 @@ export function ScreenView({
         <Legacy
           title="Registros de ponto"
           subtitle="Todos os registros feitos nos tablets. Só para consulta: o registro original não é alterado nem apagado."
-          render={(c) => <RecordsTab companyId={c} />}
+          render={(c) => (
+            <RecordsTab
+              key={`${destination.screen === "records" ? destination.from : ""}:${destination.screen === "records" ? destination.to : ""}`}
+              companyId={c}
+              from={destination.screen === "records" ? destination.from : undefined}
+              to={destination.screen === "records" ? destination.to : undefined}
+              onPeriod={(from, to) =>
+                router.replaceTop({
+                  screen: "records",
+                  employeeId: destination.screen === "records" ? destination.employeeId : undefined,
+                  from: from || undefined,
+                  to: to || undefined,
+                })
+              }
+            />
+          )}
         />
       );
     case "devices":
@@ -79,8 +95,8 @@ export function ScreenView({
       );
     case "rules":
       return <RulesScreen />;
-    case "reports":
-      return <ReportsScreen />;
+    case "fiscal":
+      return <FiscalScreen />;
     case "company":
       return <CompanyScreen />;
     case "members":
@@ -126,8 +142,8 @@ function MembersScreenView() {
   const { companyId, role } = useCompany();
   return (
     <Screen
-      title="Quem usa o sistema"
-      subtitle="Convide pessoas e escolha o que cada uma pode fazer."
+      title="Acessos"
+      subtitle="Convide pessoas e escolha o que cada uma pode fazer no sistema."
     >
       <Group padded>
         <div className="legacy">
