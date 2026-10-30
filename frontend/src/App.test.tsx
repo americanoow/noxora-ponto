@@ -94,7 +94,7 @@ describe("App", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: /^Hoje/ })).toBeInTheDocument();
     for (const grupo of ["Dia a dia", "Jornada", "Equipe", "Configurações"])
-      expect(nav().getByRole("heading", { name: grupo })).toBeInTheDocument();
+      expect(nav().getByRole("button", { name: grupo })).toBeInTheDocument();
     expect(nav().queryByRole("button", { name: "Início" })).not.toBeInTheDocument();
     fireEvent.click(await menuItem("Folhas de ponto"));
     expect(

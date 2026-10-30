@@ -10,6 +10,8 @@ import { Icon, type IconName } from "./ui/icons";
 import { Brand } from "./ui/Brand";
 import { ScreenView } from "./features/screens";
 
+const ACCOUNT = "__conta";
+
 interface NavItem {
   screen: ScreenName;
   label: string;
@@ -155,6 +157,7 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
   const path = useObservable(router, (s) => s.path);
   const top = path[path.length - 1];
   const [drawer, setDrawer] = useState(false);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const signOut = useAction();
 
   useEffect(() => router.attach(), [router]);
@@ -168,6 +171,7 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
     (screen: ScreenName) => {
       router.select({ screen } as Destination);
       setDrawer(false);
+      setOpenMenu(null);
     },
     [router],
   );
@@ -179,85 +183,136 @@ function CompanyShell({ company }: { company: CompanyContext | null }) {
   return (
     <RouterContext.Provider value={router}>
       <div className="window">
-        <header className="mobile-bar">
-          <button
-            className="plain"
-            aria-label="Abrir menu"
-            aria-expanded={drawer}
-            onClick={() => setDrawer(true)}
-          >
-            <Icon name="menu" size={22} />
+        <header className="topbar" data-open={drawer}>
+          <button className="brand-link" aria-label="Ir para Hoje" onClick={() => go(rootScreen)}>
+            <Brand />
           </button>
-          <Brand />
+          <button
+            className="plain hamburger"
+            aria-label={drawer ? "Fechar menu" : "Abrir menu"}
+            aria-expanded={drawer}
+            onClick={() => setDrawer(!drawer)}
+          >
+            <Icon name={drawer ? "x" : "menu"} size={24} />
+          </button>
+          <div className="topcollapse">
+            <nav className="topnav" aria-label="Menu principal">
+              {groups.map((g) => {
+                const active = g.items.some((i) => i.screen === current);
+                const open = openMenu === g.title;
+                return (
+                  <div
+                    key={g.title}
+                    className="menu"
+                    data-open={open}
+                    onMouseEnter={() => setOpenMenu(g.title)}
+                    onMouseLeave={() => setOpenMenu((o) => (o === g.title ? null : o))}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                        setOpenMenu((o) => (o === g.title ? null : o));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setOpenMenu(null);
+                    }}
+                  >
+                    <button
+                      className="menu-trigger"
+                      aria-haspopup="true"
+                      aria-expanded={open}
+                      aria-current={active ? "true" : undefined}
+                      onClick={(e) => setOpenMenu(open && e.detail === 0 ? null : g.title)}
+                    >
+                      {g.title}
+                      {g.items.some((i) => i.count) && <span className="pip" aria-hidden="true" />}
+                      <span className="caret" aria-hidden="true" />
+                    </button>
+                    <div className="menu-panel">
+                      {g.items.map((item) => (
+                        <button
+                          key={item.screen}
+                          className="nav-item"
+                          aria-current={current === item.screen ? "page" : undefined}
+                          onClick={() => go(item.screen)}
+                        >
+                          <Icon name={item.icon} />
+                          {item.label}
+                          {item.count !== undefined && <span className="count">{item.count}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </nav>
+            <div className="topbar-end">
+              {me.memberships.length > 1 ? (
+                <select
+                  aria-label="Trocar de empresa"
+                  value={company?.companyId ?? ""}
+                  onChange={(e) => session.selectCompany(Number(e.target.value))}
+                >
+                  {me.memberships.map((m) => (
+                    <option key={m.id} value={m.company_id}>
+                      {m.company_name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="company-name">{company?.companyName ?? "Plataforma Noxora"}</span>
+              )}
+              <div
+                className="menu menu-right"
+                data-open={openMenu === ACCOUNT}
+                onMouseEnter={() => setOpenMenu(ACCOUNT)}
+                onMouseLeave={() => setOpenMenu((o) => (o === ACCOUNT ? null : o))}
+                onBlur={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                    setOpenMenu((o) => (o === ACCOUNT ? null : o));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setOpenMenu(null);
+                }}
+              >
+                <button
+                  className="menu-trigger"
+                  aria-haspopup="true"
+                  aria-expanded={openMenu === ACCOUNT}
+                  onClick={(e) =>
+                    setOpenMenu(openMenu === ACCOUNT && e.detail === 0 ? null : ACCOUNT)
+                  }
+                >
+                  <span className="avatar" aria-hidden="true">
+                    {initials(name)}
+                  </span>
+                  <span className="who-email">{me.email}</span>
+                  <span className="caret" aria-hidden="true" />
+                </button>
+                <div className="menu-panel account-panel">
+                  <div className="who">
+                    <b>{me.email}</b>
+                    <small>
+                      {company
+                        ? `${company.companyName} · ${ROLE_LABELS[company.role]}`
+                        : "Equipe Noxora"}
+                    </small>
+                  </div>
+                  <button className="nav-item" onClick={() => go("account")}>
+                    <Icon name="person" /> Minha conta
+                  </button>
+                  <button
+                    className="nav-item"
+                    disabled={signOut.pending}
+                    onClick={() => void signOut.run(session.signOut)}
+                  >
+                    <Icon name="x" /> Sair
+                  </button>
+                  {signOut.error && <p role="alert">{signOut.error}</p>}
+                </div>
+              </div>
+            </div>
+          </div>
         </header>
         {drawer && <div className="scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
-        <aside className="sidebar" data-open={drawer} aria-label="Barra lateral">
-          <Brand />
-          <div className="company-switch">
-            <span className="label">Empresa</span>
-            {me.memberships.length > 1 ? (
-              <select
-                aria-label="Trocar de empresa"
-                value={company?.companyId ?? ""}
-                onChange={(e) => session.selectCompany(Number(e.target.value))}
-              >
-                {me.memberships.map((m) => (
-                  <option key={m.id} value={m.company_id}>
-                    {m.company_name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <strong>{company?.companyName ?? "Plataforma Noxora"}</strong>
-            )}
-          </div>
-          <nav className="sidenav" aria-label="Menu principal">
-            {groups.map((g) => (
-              <div className="nav-group" key={g.title}>
-                <h2>
-                  <span className="dot deco" aria-hidden="true" />
-                  {g.title}
-                </h2>
-                {g.items.map((item) => (
-                  <button
-                    key={item.screen}
-                    className="nav-item"
-                    aria-current={current === item.screen ? "page" : undefined}
-                    onClick={() => go(item.screen)}
-                  >
-                    <Icon name={item.icon} />
-                    {item.label}
-                    {item.count !== undefined && <span className="count">{item.count}</span>}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </nav>
-          <div className="account">
-            <div className="who">
-              <span className="avatar" aria-hidden="true">
-                {initials(name)}
-              </span>
-              <span>
-                <b>{me.email}</b>
-                <small>{company ? ROLE_LABELS[company.role] : "Equipe Noxora"}</small>
-              </span>
-            </div>
-            <div className="links">
-              <button className="plain" onClick={() => go("account")}>
-                Minha conta
-              </button>
-              <button
-                className="plain"
-                disabled={signOut.pending}
-                onClick={() => void signOut.run(session.signOut)}
-              >
-                Sair
-              </button>
-            </div>
-            {signOut.error && <p role="alert">{signOut.error}</p>}
-          </div>
-        </aside>
         <main className="content">
           {!company && !me.is_platform_admin ? (
             <NoCompany />
