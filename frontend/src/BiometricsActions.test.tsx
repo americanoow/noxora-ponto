@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BiometricsActions, IdentificationModePanel } from "./BiometricsActions";
+import { BiometricsActions } from "./BiometricsActions";
 import { resetCsrf } from "./http";
 
 let routes: Record<string, (init?: RequestInit) => { status?: number; body?: unknown }>;
@@ -50,6 +50,12 @@ describe("BiometricsActions", () => {
     fireEvent.change(screen.getByLabelText("Versão do termo de autorização"), {
       target: { value: "v2" },
     });
+    fireEvent.change(screen.getByLabelText("Número ou nome do termo assinado pelo funcionário"), {
+      target: { value: "Termo 12" },
+    });
+    expect(
+      screen.getByText(/Quem não autorizar registra o ponto pela matrícula/),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Registrar autorização" }));
     expect(
       await screen.findByText(/Autorização para usar o rosto: registrada/),
@@ -57,7 +63,10 @@ describe("BiometricsActions", () => {
     const post = calls.find((c) =>
       c.key.startsWith("POST /api/companies/7/employees/5/biometric/consent"),
     )!;
-    expect(JSON.parse(post.init!.body as string).policy_version).toBe("v2");
+    expect(JSON.parse(post.init!.body as string)).toMatchObject({
+      policy_version: "v2",
+      evidence_ref: "Termo 12",
+    });
   });
 
   it("gestor não vê controles de biometria, só a exceção, e o código aparece uma vez", async () => {
@@ -119,24 +128,6 @@ describe("BiometricsActions", () => {
   });
 });
 
-describe("IdentificationModePanel", () => {
-  it("administrador troca para o modo facial e vê o aviso", async () => {
-    routes["GET /api/companies/7/identification/"] = () => ({ body: { mode: "registration" } });
-    routes["PATCH /api/companies/7/identification/"] = () => ({ body: { mode: "face" } });
-    render(<IdentificationModePanel companyId={7} canEdit />);
-    fireEvent.change(await screen.findByLabelText("Como o funcionário se identifica"), {
-      target: { value: "face" },
-    });
-    expect(await screen.findByText(/não estiver configurado no sistema/)).toBeInTheDocument();
-  });
-
-  it("gestor só consulta", async () => {
-    routes["GET /api/companies/7/identification/"] = () => ({ body: { mode: "face" } });
-    render(<IdentificationModePanel companyId={7} canEdit={false} />);
-    expect(await screen.findByLabelText("Como o funcionário se identifica")).toBeDisabled();
-  });
-});
-
 it("fechar e reabrir não reapresenta o código de exceção", async () => {
   routes["POST /api/companies/7/employees/5/identification-exceptions/"] = () => ({
     body: { authorization_id: 9, code: "12345678", expires_at: "2026-10-22T00:15:00Z" },
@@ -168,47 +159,4 @@ it("recusa imagens grandes antes de ler ou enviar e limpa o seletor", async () =
   expect(read).not.toHaveBeenCalled();
   expect(calls.some((c) => c.key.includes("/enroll/"))).toBe(false);
   expect(input).toHaveValue("");
-});
-
-describe("IdentificationModePanel: política offline", () => {
-  it("administrador ativa a marcação offline e vê o aviso de limitação", async () => {
-    routes["GET /api/companies/7/identification/"] = () => ({
-      body: { mode: "registration", offline_policy: "disabled" },
-    });
-    routes["PATCH /api/companies/7/identification/"] = () => ({
-      body: { mode: "registration", offline_policy: "registration_only" },
-    });
-    render(<IdentificationModePanel companyId={7} canEdit />);
-    const select = await screen.findByLabelText("Bater o ponto sem internet");
-    expect(select).toHaveValue("disabled");
-    expect(
-      screen.getByText(/O reconhecimento facial não funciona sem internet/),
-    ).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: "registration_only" } });
-    await waitFor(() =>
-      expect(screen.getByLabelText("Bater o ponto sem internet")).toHaveValue("registration_only"),
-    );
-    const patch = calls.find((c) => c.key.startsWith("PATCH"))!;
-    expect(JSON.parse(patch.init!.body as string)).toEqual({ offline_policy: "registration_only" });
-  });
-
-  it("gestor só consulta; resposta antiga sem o campo assume desativada", async () => {
-    routes["GET /api/companies/7/identification/"] = () => ({ body: { mode: "registration" } });
-    render(<IdentificationModePanel companyId={7} canEdit={false} />);
-    const select = await screen.findByLabelText("Bater o ponto sem internet");
-    expect(select).toBeDisabled();
-    expect(select).toHaveValue("disabled");
-  });
-
-  it("exibe erro de permissão ao alterar", async () => {
-    routes["GET /api/companies/7/identification/"] = () => ({
-      body: { mode: "registration", offline_policy: "disabled" },
-    });
-    routes["PATCH /api/companies/7/identification/"] = () => ({ status: 403 });
-    render(<IdentificationModePanel companyId={7} canEdit />);
-    fireEvent.change(await screen.findByLabelText("Bater o ponto sem internet"), {
-      target: { value: "registration_only" },
-    });
-    expect(await screen.findByRole("alert")).toHaveTextContent("permissão");
-  });
 });

@@ -72,3 +72,7 @@ Verificações finais: ver resumo no fim da sessão e [pendencias-externas.md](p
 ## 2026-10-30 — Ajustes após revisão do menu
 - Abas mantêm período; planilhas distribuídas nas telas de dados; AFD e folha em Arquivos fiscais; convidar e dar acesso em um passo; local das batidas escondido; código morto removido (D118–D122).
 - Backend: 504 testes no PostgreSQL. Frontend: 76 testes, tipos, lint e build limpos.
+
+## 2026-10-31 — Revisão de segurança, LGPD e legislação trabalhista
+- Corrigido: biometria não pode mais impedir o registro (alternativa pela matrícula, sem capturar o rosto); titular retira a autorização e baixa os próprios dados; prova do termo obrigatória; retenção automática da biometria; limites legais nas regras; espelho mostra ajustes; `/admin/` removido; PDFs sem marcação injetada; nomes de arquivo e matrícula seguros; cookie CSRF HttpOnly; espera por conta no login e no segundo fator; CSP na borda; tablet só HTTPS em produção; código duplicado/morto removido (D123–D134).
+- Backend: 532 testes no PostgreSQL. Frontend: 73 testes, tipos, lint e build limpos. Tablet: 86 testes e `flutter analyze` limpos.

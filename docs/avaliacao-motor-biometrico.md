@@ -25,7 +25,7 @@ Verificação **1:1** (matrícula → rosto) em tablet Android compartilhado, co
 Nenhum dos candidatos foi validado em Android real. Reconhecimento **no aparelho** exigiria distribuir templates aos tablets (aumenta a superfície de risco) e continua sem prova de vivacidade. **Não se promete reconhecimento facial offline.** A etapa 7 deve definir a alternativa e suas condições (por exemplo, marcação por exceção autorizada com revisão posterior).
 
 ## Pendências para validação especializada
-- Base legal para tratamento biométrico (LGPD art. 11), RIPD/DPIA, política de retenção e descarte (o produto implementa exclusão e `purge_biometrics`, **sem prazo padrão**).
+- Base legal para tratamento biométrico (LGPD art. 11), RIPD/DPIA, política de retenção e descarte (o produto implementa exclusão e `purge_biometrics`, rodado todo dia pelo worker com prazos padrão de 30 dias após a inativação e 90 dias para tentativas — **a validar**).
 - Teste de eficácia (FAR/FRR, ataques de apresentação), viés demográfico e acessibilidade.
 - Gestão de chaves em KMS/HSM (hoje chave de aplicação por variável de ambiente), rotação e backup sem material biométrico em claro.
 - Contratos com operadores e eventual transferência internacional.

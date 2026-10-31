@@ -67,6 +67,7 @@ export const SYNC_FLAG_LABELS: Record<string, string> = {
   before_device_activation: "horário anterior à ativação do tablet",
   employee_inactive: "funcionário estava inativo quando a batida chegou",
   not_assigned_to_unit: "funcionário não trabalhava nesta unidade na data",
+  face_fallback_engine_unavailable: "registrada pela matrícula: reconhecimento facial fora do ar",
 };
 
 export const KIND_LABELS: Record<string, string> = {

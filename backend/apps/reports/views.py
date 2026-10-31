@@ -31,9 +31,15 @@ RECORDS_EXPORT_LIMIT = 50000
 RECENT_RECEIPTS_HOURS = 48  # Portaria 671, art. 80: extração pelo trabalhador das últimas 48 h
 
 
+def _safe_filename(name: str) -> str:
+    """Nome de arquivo para o cabeçalho: letras, números, ponto, hífen e sublinhado (nada mais)."""
+    cleaned = "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name)
+    return cleaned.strip("._") or "arquivo"
+
+
 def _file(content: bytes, filename: str, content_type: str) -> HttpResponse:
     response = HttpResponse(content, content_type=content_type)
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Content-Disposition"] = f'attachment; filename="{_safe_filename(filename)}"'
     response["Cache-Control"] = "no-store"
     return response
 
@@ -150,6 +156,25 @@ class MyClosingAckView(APIView):
         except IntegrityError:
             raise ValidationError({"detail": "Ciência já registrada para este período."}) from None
         return Response({"closing_id": closing.pk, "acknowledged_at": ack.acknowledged_at}, status=201)
+
+
+class MyDataView(APIView):
+    """Arquivo com os dados pessoais do próprio funcionário (LGPD, art. 18: acesso e portabilidade)."""
+
+    def get(self, request, company_id):
+        import json
+
+        from django.core.serializers.json import DjangoJSONEncoder
+
+        from . import personal_data
+
+        company = _member(request, company_id)
+        employee = own_employee(request, company)
+        content = json.dumps(
+            personal_data.collect(employee, request.user), cls=DjangoJSONEncoder, ensure_ascii=False, indent=2
+        ).encode("utf-8")
+        audit.record(request, "lgpd.personal_data_exported", company=company, target=employee)
+        return _file(content, f"meus-dados-{timezone.localdate()}.json", "application/json; charset=utf-8")
 
 
 class MyTimesheetPdfView(APIView):

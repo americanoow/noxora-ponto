@@ -16,6 +16,7 @@ from apps.biometrics.models import (
     BiometricTemplate,
     ExceptionAuthorization,
     ExceptionBudget,
+    LivenessChallenge,
     Outcome,
     VerificationAttempt,
 )
@@ -79,7 +80,9 @@ def enroll_via_api(tenant, employee, image=JPEG):
     admin = tenant.client("company_admin")
     assert (
         admin.post(
-            url(tenant.company, employee, "biometric/consent/"), {"policy_version": "v1"}, format="json"
+            url(tenant.company, employee, "biometric/consent/"),
+            {"policy_version": "v1", "evidence_ref": "Termo 01"},
+            format="json",
         ).status_code
         == 201
     )
@@ -235,7 +238,11 @@ def test_constraints_de_unicidade_no_banco(world):
 def test_imagens_invalidas_sao_rejeitadas(world):
     tenant, _, _, _, employee = world
     admin = tenant.client("company_admin")
-    admin.post(url(tenant.company, employee, "biometric/consent/"), {"policy_version": "v1"}, format="json")
+    admin.post(
+        url(tenant.company, employee, "biometric/consent/"),
+        {"policy_version": "v1", "evidence_ref": "Termo 01"},
+        format="json",
+    )
     path = url(tenant.company, employee, "biometric/enroll/")
     big = b64(b"\xff\xd8\xff" + b"0" * 1_100_000)
     for images in (
@@ -314,7 +321,9 @@ def test_resultados_de_falha(world):
     tenant, _, _, client, employee = world
     assert verify(client).json()["outcome"] == "no_consent"
     tenant.client("company_admin").post(
-        url(tenant.company, employee, "biometric/consent/"), {"policy_version": "v1"}, format="json"
+        url(tenant.company, employee, "biometric/consent/"),
+        {"policy_version": "v1", "evidence_ref": "Termo 01"},
+        format="json",
     )
     assert verify(client).json()["outcome"] == "no_template"
     enroll_via_api_template_only = tenant.client("company_admin").post(
@@ -486,10 +495,17 @@ def test_modo_facial_exige_face_ou_excecao(world):
         ).status_code
         == 200
     )
-    assert punch(client).status_code == 400  # só matrícula
-    assert punch(client, method="registration").status_code == 400
-    assert TimeRecord.objects.count() == 0
+    # Sem biometria ativa, a matrícula é a alternativa (LGPD e Portaria 671): a marcação é gravada,
+    # identificada como matrícula e sinalizada.
+    assert punch(client).status_code == 201
+    first = TimeRecord.objects.get()
+    assert first.identification_method == "registration"
+    assert first.identification_ref == "face_fallback:no_biometric" and not first.sync_flags
     enroll_via_api(tenant, employee)
+    # Com biometria ativa, só a face (ou exceção autorizada) vale.
+    assert punch(client).status_code == 400
+    assert punch(client, method="registration").status_code == 400
+    assert TimeRecord.objects.count() == 1
     vid = verify(client).json()["verification_id"]
     assert punch(client, method="face", verification_id=vid).status_code == 201
 
@@ -1175,3 +1191,100 @@ def test_rotacao_de_chave_recifra_templates(world, settings):
     # Continua verificando depois de remover a chave antiga.
     settings.BIOMETRIC_KEYS = {"k2": settings.BIOMETRIC_KEYS["k2"]}
     assert verify(client).json()["outcome"] == "success"
+
+
+# ---------- Alternativa sem biometria, titular e trava do modo facial ----------
+
+
+def test_desafio_avisa_quando_nao_ha_biometria_e_nao_abre_a_camera(world):
+    tenant, _, _, client, employee = world
+    tenant.company.identification_mode = "face"
+    tenant.company.save()
+    r = client.post("/api/device/face/challenge/", {"registration": "1"}, format="json")
+    assert r.status_code == 200 and r.json() == {"face_required": False, "reason": "no_biometric"}
+    assert not LivenessChallenge.objects.exists()
+    # Matrícula desconhecida ou sem matrícula: segue o fluxo normal (não revela nada).
+    unknown = client.post("/api/device/face/challenge/", {"registration": "999"}, format="json")
+    assert unknown.status_code == 201 and unknown.json()["face_required"] is True
+    enroll_via_api(tenant, employee)
+    again = client.post("/api/device/face/challenge/", {"registration": "1"}, format="json")
+    assert again.status_code == 201 and again.json()["face_required"] is True
+
+
+def test_motor_fora_do_ar_nao_impede_o_registro(world):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    tenant.company.identification_mode = "face"
+    tenant.company.save()
+    with mock.patch.object(services.engines, "get_engine", side_effect=engines.EngineUnavailable()):
+        assert punch(client).status_code == 201
+    assert TimeRecord.objects.get().sync_flags == ["face_fallback_engine_unavailable"]
+
+
+def test_consentimento_exige_referencia_do_termo(world):
+    tenant, _, _, _, employee = world
+    admin = tenant.client("company_admin")
+    path = url(tenant.company, employee, "biometric/consent/")
+    for evidence in ("", "  ", "x"):
+        r = admin.post(path, {"policy_version": "v1", "evidence_ref": evidence}, format="json")
+        assert r.status_code == 400 and "evidence_ref" in r.json()
+    assert (
+        admin.post(path, {"policy_version": "v1", "evidence_ref": "Termo 7"}, format="json").status_code
+        == 201
+    )
+
+
+def test_titular_consulta_e_retira_o_proprio_consentimento(world):
+    tenant, _, _, client, employee = world
+    employee.access_user = tenant.users["employee"]
+    employee.save()
+    enroll_via_api(tenant, employee)
+    me = tenant.client("employee")
+    path = f"/api/companies/{tenant.company.pk}/me/biometric/"
+    body = me.get(path).json()
+    assert body["enrolled"] is True and body["consent"]["policy_version"] == "v1"
+    assert "template" not in body and "ciphertext" not in str(body)
+    r = me.delete(path)
+    assert r.status_code == 200 and r.json()["enrolled"] is False and r.json()["consent"] is None
+    assert not BiometricTemplate.objects.filter(employee=employee, status="active").exists()
+    log = AuditLog.objects.get(action="biometric.consent_revoked")
+    assert log.metadata.get("by_holder") is True and log.actor_email == tenant.users["employee"].email
+    # Depois de retirar, o ponto segue pela matrícula mesmo no modo facial.
+    tenant.company.identification_mode = "face"
+    tenant.company.save()
+    assert punch(client).status_code == 201
+    # Sem vínculo de funcionário: recusado.
+    assert tenant.client("manager").get(path).status_code == 403
+
+
+def test_modo_facial_so_liga_com_motor_configurado(world):
+    tenant, _, _, _, _ = world
+    admin = tenant.client("company_admin")
+    path = f"/api/companies/{tenant.company.pk}/identification/"
+    with mock.patch.object(services.engines, "get_engine", side_effect=engines.EngineUnavailable()):
+        r = admin.patch(path, {"mode": "face"}, format="json")
+    assert r.status_code == 400 and "mode" in r.json()
+    tenant.company.refresh_from_db()
+    assert tenant.company.identification_mode == "registration"
+    assert admin.patch(path, {"mode": "face"}, format="json").status_code == 200
+
+
+def test_retencao_apaga_rosto_de_inativos_e_tentativas_antigas_nao_usadas(world, settings):
+    tenant, _, _, client, employee = world
+    enroll_via_api(tenant, employee)
+    verify(client, image=OUTRA)  # falha: fica como tentativa não usada
+    VerificationAttempt.objects.update(created_at=timezone.now() - datetime.timedelta(days=200))
+    LivenessChallenge.objects.create(
+        company=tenant.company,
+        device=Device.objects.get(),
+        steps=["center", "left", "right", "left"],
+        expires_at=timezone.now() - datetime.timedelta(days=3),
+    )
+    employee.is_active = False
+    employee.inactivated_at = timezone.now() - datetime.timedelta(days=31)
+    employee.save()
+    settings.BIOMETRIC_INACTIVE_RETENTION_DAYS = 30
+    call_command("purge_biometrics")
+    assert not BiometricTemplate.objects.filter(employee=employee, status="active").exists()
+    assert not LivenessChallenge.objects.exists()
+    assert not VerificationAttempt.objects.filter(consumed_at__isnull=True).exists()

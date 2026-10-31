@@ -10,6 +10,7 @@ urlpatterns = [
         "me/closings/<int:closing_id>/acknowledge/", views.MyClosingAckView.as_view(), name="me-closing-ack"
     ),
     path("me/timesheet.pdf", views.MyTimesheetPdfView.as_view(), name="me-timesheet-pdf"),
+    path("me/data.json", views.MyDataView.as_view(), name="me-data"),
     path("reports/timesheet/", views.TimesheetExportView.as_view(), name="report-timesheet"),
     path("reports/summary.csv", views.SummaryExportView.as_view(), name="report-summary"),
     path("reports/time-records.csv", views.TimeRecordsExportView.as_view(), name="report-time-records"),

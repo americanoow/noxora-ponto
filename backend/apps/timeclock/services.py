@@ -27,10 +27,10 @@ class IdentificationRejected(ValidationError):
 
 
 class RegistrationOnlyProvider:
-    """Identificação apenas pela matrícula. NÃO é identificação forte: só para desenvolvimento.
+    """Identificação apenas pela matrícula. NÃO é identificação forte (`TIMECLOCK_ALLOW_REGISTRATION_ONLY`).
 
-    Contrato para a etapa 6: um provedor facial implementa `verify(device, employee, payload)` e
-    devolve o método e a referência da verificação (nunca o dado biométrico).
+    No modo facial, a matrícula ainda é a alternativa obrigatória de quem não tem biometria ativa
+    (ver `biometrics.services.face_fallback_reason`); esse caso não depende desta chave.
     """
 
     method = "registration"
@@ -105,11 +105,24 @@ def record_punch(
     provider = PROVIDERS.get(method) if isinstance(method, str) else None
     if provider is None:
         raise ValidationError({"identification": "Método de identificação desconhecido."})
-    # Política da empresa: no modo facial só valem verificação facial ou exceção autorizada.
+    # Política da empresa: no modo facial valem a verificação facial ou a exceção autorizada. Quem não
+    # tem biometria ativa (ou com o motor fora do ar) usa a matrícula: ninguém fica sem registrar.
+    # Sem biometria é o caminho normal de quem não autorizou (só fica a referência); motor fora do ar é
+    # anomalia e fica sinalizado para revisão.
+    fallback, flags = None, None
     if device.company.identification_mode == "face" and method not in ("face", "authorized_exception"):
-        raise IdentificationRejected({"identification": "Esta empresa exige verificação facial."})
+        from apps.biometrics.services import face_fallback_reason
+
+        fallback = face_fallback_reason(employee) if method == RegistrationOnlyProvider.method else None
+        if fallback is None:
+            raise IdentificationRejected({"identification": "Esta empresa exige verificação facial."})
+        flags = ["face_fallback_engine_unavailable"] if fallback == "engine_unavailable" else None
     try:
-        result = provider.verify(device=device, employee=employee, payload=payload)
+        result = (
+            IdentificationResult(RegistrationOnlyProvider.method, f"face_fallback:{fallback}")
+            if fallback
+            else provider.verify(device=device, employee=employee, payload=payload)
+        )
     except IdentificationRejected:
         # Corrida do mesmo evento: o primeiro envio já consumiu o token e gravou a marcação.
         existing = _existing(device, client_event_id)
@@ -119,7 +132,9 @@ def record_punch(
 
     try:
         with transaction.atomic():
-            record = _insert(device, employee, client_event_id, declared_kind, device_reported_at, result)
+            record = _insert(
+                device, employee, client_event_id, declared_kind, device_reported_at, result, sync_flags=flags
+            )
     except IntegrityError:
         # Corrida entre dois envios do mesmo evento: o segundo devolve o primeiro.
         existing = _existing(device, client_event_id)

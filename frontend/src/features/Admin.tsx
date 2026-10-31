@@ -553,7 +553,9 @@ export function CompanyScreen() {
                 onChange={(e) => void change({ mode: e.target.value as Policy["mode"] })}
               >
                 <option value="registration">Só digitando a matrícula (menos seguro)</option>
-                <option value="face">Reconhecimento facial (ou código liberado pelo gestor)</option>
+                <option value="face">
+                  Reconhecimento facial para quem autorizou (os demais, pela matrícula)
+                </option>
               </select>
             </Field>
             <Field

@@ -158,6 +158,19 @@ def replace_schedule_days(schedule, days):
         ScheduleDay.objects.bulk_create([ScheduleDay(schedule=locked, **day) for day in days])
 
 
+REGISTRATION_CHARS = frozenset("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-_")
+
+
+def validate_registration(value) -> str:
+    """Matrícula: 1 a 30 caracteres, só letras sem acento, números, ponto, hífen e sublinhado."""
+    text = value.strip() if isinstance(value, str) else ""
+    if not 1 <= len(text) <= 30 or not set(text) <= REGISTRATION_CHARS or not text[0].isalnum():
+        raise ValueError(
+            "Matrícula: de 1 a 30 caracteres, usando letras sem acento, números, ponto, hífen ou sublinhado."
+        )
+    return text
+
+
 def employee_for_device(device, registration):
     """Funcionário ativo, de matrícula exata, lotado hoje na unidade do dispositivo (ou None).
 

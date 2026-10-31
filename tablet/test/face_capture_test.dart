@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:noxora_ponto_tablet/api_client.dart';
 import 'package:noxora_ponto_tablet/device_controller.dart';
 import 'package:noxora_ponto_tablet/face_capture.dart';
 import 'package:noxora_ponto_tablet/punch_panel.dart';
@@ -45,7 +46,8 @@ const fastSteps = [
 ];
 
 Future<DeviceController> activeController(List<http.Request> requests,
-    {Map<String, dynamic> verifyBody = const {
+    {Map<String, dynamic>? challengeBody,
+    Map<String, dynamic> verifyBody = const {
       'outcome': 'success',
       'liveness': 'passed',
       'verification_id': 7,
@@ -61,6 +63,7 @@ Future<DeviceController> activeController(List<http.Request> requests,
         return http.Response(jsonEncode({...faceScope, 'server_time': DateTime.now().toUtc().toIso8601String()}), 200);
       }
       if (r.url.path.endsWith('face/challenge/')) {
+        if (challengeBody != null) return http.Response(jsonEncode(challengeBody), 200);
         return http.Response(
             jsonEncode({'challenge_id': 5, 'steps': ['center', 'left', 'right'], 'expires_at': '2026-10-27T08:00:45Z'}),
             201);
@@ -102,6 +105,34 @@ void bigScreen(WidgetTester t) {
 }
 
 void main() {
+  test('URL sem HTTPS é recusada só em produção', () {
+    expect(insecureReleaseUrl('http://10.0.2.2:8000', release: true), isTrue);
+    expect(insecureReleaseUrl('https://ponto.exemplo.com.br', release: true), isFalse);
+    expect(insecureReleaseUrl('http://10.0.2.2:8000', release: false), isFalse);
+  });
+
+  testWidgets('sem biometria ativa: não abre a câmera e registra pela matrícula', (tester) async {
+    bigScreen(tester);
+    final requests = <http.Request>[];
+    final c = await tester.runAsync(() => activeController(requests,
+        challengeBody: const {'face_required': false, 'reason': 'no_biometric'}));
+    final camera = FakeCamera();
+    await tester.pumpWidget(app(c!, () => camera));
+    await tester.enterText(find.byType(TextField).first, '100');
+    await tester.tap(find.byKey(const Key('botao-face')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    expect(camera.shots, 0);
+    final challenge = requests.firstWhere((r) => r.url.path.endsWith('face/challenge/'));
+    expect((jsonDecode(challenge.body) as Map)['registration'], '100');
+    expect(requests.any((r) => r.url.path.endsWith('face/verify/')), isFalse);
+    final punch = requests.firstWhere((r) => r.url.path.endsWith('punches/'));
+    expect((jsonDecode(punch.body) as Map).containsKey('identification'), isFalse);
+    expect(find.text('Ponto registrado'), findsOneWidget);
+    c.dispose();
+  });
+
   testWidgets('desafio captura 3 quadros, verifica e registra com o token facial', (tester) async {
     bigScreen(tester);
     final requests = <http.Request>[];

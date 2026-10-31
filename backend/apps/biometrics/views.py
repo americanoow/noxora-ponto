@@ -2,7 +2,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.http import Http404
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -62,6 +62,49 @@ def _status(employee) -> dict:
     }
 
 
+# ---------- Portal do funcionário (titular dos dados) ----------
+
+
+class MyBiometricView(BiometricView):
+    """O próprio funcionário consulta a situação da sua biometria (nunca o dado) e pode retirar o
+    consentimento a qualquer momento, de forma gratuita e facilitada (LGPD, art. 8º, §5º, e art. 18, IX).
+    Retirar apaga o rosto cadastrado; o ponto passa a ser registrado pela matrícula."""
+
+    def _employee(self, request, company_id):
+        from apps.attendance.views import own_employee
+
+        company = resolve_company(request, company_id)
+        if request.membership is None:
+            raise PermissionDenied("Você não tem permissão para esta operação.")
+        return company, own_employee(request, company)
+
+    @staticmethod
+    def _mine(employee):
+        status = _status(employee)
+        return {
+            "consent": status["consent"],
+            "enrolled": status["template"] is not None,
+            "enrolled_at": status["template"]["created_at"] if status["template"] else None,
+            "notice": (
+                "O sistema guarda só um modelo matemático do rosto, criptografado, nunca a foto. "
+                "A biometria é opcional: sem ela, o ponto é registrado pela matrícula, sem prejuízo."
+            ),
+        }
+
+    def get(self, request, company_id):
+        _, employee = self._employee(request, company_id)
+        return Response(self._mine(employee))
+
+    def delete(self, request, company_id):
+        company, employee = self._employee(request, company_id)
+        with transaction.atomic():
+            services.revoke_consent(employee=employee, user=request.user)
+            audit.record(
+                request, "biometric.consent_revoked", company=company, target=employee, by_holder=True
+            )
+        return Response(self._mine(employee))
+
+
 # ---------- Painel ----------
 
 
@@ -98,6 +141,12 @@ class ConsentView(BiometricView):
         if not isinstance(evidence, str) or len(evidence) > 200:
             raise ValidationError({"evidence_ref": "Referência inválida."})
         evidence = evidence.strip()
+        # LGPD, art. 8º, §2º: cabe à empresa provar o consentimento. Sem referência ao termo assinado
+        # pelo funcionário (número, nome do arquivo, protocolo), o consentimento não é registrado.
+        if len(evidence) < 3:
+            raise ValidationError(
+                {"evidence_ref": "Informe a referência do termo assinado pelo funcionário (número ou nome)."}
+            )
         with transaction.atomic():
             services.grant_consent(
                 employee=employee, user=request.user, policy_version=version, evidence_ref=evidence
@@ -194,6 +243,15 @@ class IdentificationModeView(BiometricView):
         company = admin_company(request, company_id)
         data = request.data
         mode, offline = data.get("mode"), data.get("offline_policy")
+        if mode == "face" and company.identification_mode != "face":
+            # Ligar o modo facial sem motor configurado deixaria quem tem biometria dependente de código
+            # de exceção a cada marcação. Melhor recusar a mudança do que restringir o registro.
+            try:
+                engines.get_engine().check_ready()
+            except engines.EngineError:
+                raise ValidationError(
+                    {"mode": "O reconhecimento facial não está configurado no sistema. Fale com o suporte."}
+                ) from None
         liveness = data.get("face_liveness_policy")
         if mode is None and offline is None and liveness is None:
             raise ValidationError({"detail": "Informe 'mode', 'offline_policy' e/ou 'face_liveness_policy'."})
@@ -234,9 +292,20 @@ class FaceChallengeView(DeviceView):
     """Emite o desafio de movimento (sequência imprevisível, uso único, prazo curto) para este tablet."""
 
     def post(self, request):
+        # Antes de abrir a câmera: quem não tem biometria ativa não tem o rosto capturado (LGPD) e
+        # registra pela matrícula. Matrícula desconhecida segue o fluxo normal (nada é revelado aqui).
+        registration = request.data.get("registration")
+        if isinstance(registration, str) and registration.strip():
+            employee = ops_services.employee_for_device(request.device, registration.strip())
+            reason = services.face_fallback_reason(employee) if employee is not None else None
+            if reason is not None:
+                return Response(
+                    {"face_required": False, "reason": reason}, headers={"Cache-Control": "no-store"}
+                )
         challenge = services.issue_challenge(request.device)
         return Response(
             {
+                "face_required": True,
                 "challenge_id": challenge.pk,
                 "steps": challenge.steps,
                 "expires_at": challenge.expires_at,

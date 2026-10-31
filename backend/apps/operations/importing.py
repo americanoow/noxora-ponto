@@ -63,6 +63,14 @@ def parse(text):
     return rows
 
 
+def _valid_registration(value):
+    try:
+        services.validate_registration(value)
+    except ValueError:
+        return False
+    return True
+
+
 def validate(company, rows):
     """Retorna (registros válidos, erros). Erros trazem linha, campo e mensagem legível."""
     errors = []
@@ -87,8 +95,8 @@ def validate(company, rows):
         reg, name = row.get("matricula", ""), row.get("nome", "")
         if not reg:
             err("matricula", "Matrícula obrigatória.")
-        elif len(reg) > 30:
-            err("matricula", "Matrícula com mais de 30 caracteres.")
+        elif not _valid_registration(reg):
+            err("matricula", "Matrícula: até 30 letras sem acento, números, ponto, hífen ou sublinhado.")
         elif reg in existing_regs:
             err("matricula", "Matrícula já cadastrada.")
         elif reg in seen_regs:

@@ -1,4 +1,5 @@
-"""Worker único de tarefas periódicas: e-mails (10 s), cobrança (1 h) e verificação da cadeia (24 h).
+"""Worker único de tarefas periódicas: e-mails (10 s), cobrança (1 h), verificação da cadeia (24 h) e
+retenção da biometria (24 h).
 
 Cada tarefa é idempotente; vários workers podem rodar (a fila de e-mail usa SKIP LOCKED).
 """
@@ -15,6 +16,7 @@ TASKS = [
     ("outbox", 10, lambda: call_command("process_outbox")),
     ("billing", 3600, lambda: call_command("run_billing")),
     ("verify_timeclock", 86400, lambda: call_command("verify_timeclock")),
+    ("biometric_retention", 86400, lambda: call_command("purge_biometrics")),
 ]
 
 

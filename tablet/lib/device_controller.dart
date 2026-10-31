@@ -117,9 +117,17 @@ class PunchQueued extends PunchOutcome {
 /// Resultado da verificação facial 1:1 feita pelo servidor.
 /// Desafio de movimento emitido pelo servidor: `steps` são `center`, `left` ou `right`.
 class FaceChallenge {
-  const FaceChallenge(this.id, this.steps);
+  const FaceChallenge(this.id, this.steps) : fallbackReason = null;
+
+  /// Sem biometria ativa (não consentiu, retirou ou não cadastrou) ou motor fora do ar: a câmera não é
+  /// aberta e o ponto é registrado pela matrícula. O servidor confere o motivo de novo na marcação.
+  const FaceChallenge.notRequired(this.fallbackReason)
+      : id = 0,
+        steps = const [];
   final int id;
   final List<String> steps;
+  final String? fallbackReason;
+  bool get faceRequired => fallbackReason == null;
 }
 
 sealed class FaceOutcome {
@@ -562,7 +570,7 @@ class DeviceController extends ChangeNotifier {
 
   /// Pede ao servidor a sequência imprevisível do desafio de movimento (uso único, prazo curto).
   /// Sem ela não há prova de vivacidade; devolve `null` se não foi possível obter.
-  Future<FaceChallenge?> requestChallenge() async {
+  Future<FaceChallenge?> requestChallenge([String registration = '']) async {
     try {
       final credential = await store.read();
       if (credential == null) return null;
@@ -570,9 +578,14 @@ class DeviceController extends ChangeNotifier {
           .post(
             Uri.parse('$_baseUrl/api/device/face/challenge/'),
             headers: _headers(credential.token),
-            body: '{}',
+            body: jsonEncode({if (registration.trim().isNotEmpty) 'registration': registration.trim()}),
           )
           .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        if (body['face_required'] == false) return FaceChallenge.notRequired('${body['reason']}');
+        return null;
+      }
       if (response.statusCode != 201) return null;
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final id = body['challenge_id'];

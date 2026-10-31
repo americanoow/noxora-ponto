@@ -618,3 +618,18 @@ def test_convidar_e_dar_acesso_em_um_passo(tenant_a, tenant_b, django_capture_on
     assert tenant_b.client("company_admin").post(p4, {"email": "x@b.test"}, format="json").status_code == 404
     fourth.refresh_from_db()
     assert fourth.access_user_id is None
+
+
+@pytest.mark.parametrize("registration", ['12"3', "a b", "ação", "-1", "1\n2", "x" * 31, ""])
+def test_matricula_aceita_so_formato_seguro(tenant_a, registration):
+    r = tenant_a.client("company_admin").post(
+        url(tenant_a.company, "employees/"), {"registration": registration, "full_name": "A"}, format="json"
+    )
+    assert r.status_code == 400 and "registration" in r.json()
+
+
+def test_matricula_com_ponto_hifen_e_sublinhado_e_aceita(tenant_a):
+    r = tenant_a.client("company_admin").post(
+        url(tenant_a.company, "employees/"), {"registration": "RJ-001_a.2", "full_name": "A"}, format="json"
+    )
+    assert r.status_code == 201

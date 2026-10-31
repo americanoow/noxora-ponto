@@ -20,6 +20,7 @@ urlpatterns = [
         name="identification-exception",
     ),
     path("identification/", views.IdentificationModeView.as_view(), name="identification-mode"),
+    path("me/biometric/", views.MyBiometricView.as_view(), name="my-biometric"),
 ]
 
 device_urlpatterns = [

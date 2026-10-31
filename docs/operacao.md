@@ -20,7 +20,7 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod exe
 Remova o serviço `db` e use em `DATABASE_URL`/`MIGRATE_DATABASE_URL` a conexão direta ou o pooler em **modo sessão** com `sslmode=require` (o modo transação não preserva estado de sessão e exige desligar prepared statements; não foi testado). Requisitos: extensão `btree_gist` (disponível no Supabase), papel da aplicação sem propriedade das tabelas, backups PITR do plano escolhido **mais** os backups lógicos abaixo. O produto **não** usa armazenamento de arquivos hoje (imagens faciais nunca são gravadas; relatórios são gerados sob demanda), então o Storage do Supabase não é necessário. Regras de negócio permanecem no backend (não usar acesso direto do cliente ao banco).
 
 ## 2. Tarefas periódicas (`worker`)
-`python manage.py run_worker`: e-mails da outbox (10 s), cobrança (`run_billing`, 1 h), `verify_timeclock` (24 h; problemas aparecem como log `ERROR` "tarefa com alerta"). Comandos avulsos: `process_outbox`, `run_billing`, `verify_timeclock`, `purge_biometrics --inactive-days N` (sem prazo padrão: decisão jurídica).
+`python manage.py run_worker`: e-mails da outbox (10 s), cobrança (`run_billing`, 1 h), `verify_timeclock` (24 h; problemas aparecem como log `ERROR` "tarefa com alerta") e retenção da biometria (`purge_biometrics`, 24 h: rosto de inativos há `BIOMETRIC_INACTIVE_RETENTION_DAYS`, padrão 30; tentativas não usadas há `BIOMETRIC_ATTEMPT_RETENTION_DAYS`, padrão 90 — validar os prazos com o jurídico). Comandos avulsos: `process_outbox`, `run_billing`, `verify_timeclock`, `purge_biometrics [--inactive-days N] [--dry-run]`.
 
 ## 3. Backup e restauração verificada
 ```bash

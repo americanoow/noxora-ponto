@@ -124,3 +124,39 @@ def test_exportacoes_grandes_sao_recusadas_e_nunca_truncadas(world, monkeypatch)
     # Dentro do limite o arquivo sai completo.
     monkeypatch.setattr(report_views, "RECORDS_EXPORT_LIMIT", 50000)
     assert admin.get(world.url("reports/time-records.csv"), q).status_code == 200
+
+
+# ---------- LGPD: dados do titular e documentos sem marcação injetada ----------
+
+
+def test_titular_baixa_os_proprios_dados_sem_biometria_nem_dados_alheios(world):
+    import json
+
+    from apps.reports.views import _safe_filename
+
+    world.day(MON, "08:00", "12:00")
+    other = world.make_employee("9", "Outra Pessoa", world.schedule)
+    world.day(MON, "08:00", "12:00", employee=other)
+    r = world.tenant.client("employee").get(world.url("me/data.json"))
+    assert r.status_code == 200 and r["Content-Type"].startswith("application/json")
+    assert r["Content-Disposition"].startswith('attachment; filename="meus-dados-')
+    data = json.loads(r.content)
+    assert data["titular"]["cpf"] == "52998224725" and len(data["marcacoes"]) == 2
+    text = r.content.decode()
+    assert "Outra Pessoa" not in text and "ciphertext" not in text and "nonce" not in text
+    assert AuditLog.objects.filter(action="lgpd.personal_data_exported").exists()
+    assert world.tenant.client("manager").get(world.url("me/data.json")).status_code == 403
+    assert _safe_filename('espelho-"a b"\r\n.pdf') == "espelho-_a_b___.pdf"
+
+
+def test_pdf_nao_interpreta_marcacao_vinda_do_cadastro(world):
+    from apps.reports import exports
+
+    world.employee.full_name = 'Ana <img src="http://exemplo.invalid/x.png"/> <b>'
+    world.employee.save()
+    world.day(MON, "08:00", "12:00")
+    from apps.attendance import services as att
+
+    sheet = att.compute_employee(world.employee, MON, MON)
+    pdf = exports.timesheet_pdf(sheet, company_name="Empresa <font>")
+    assert pdf.startswith(b"%PDF")  # sem erro de marcação e sem buscar a imagem externa

@@ -212,7 +212,12 @@ def opencv_world(tenant_a, settings, engine):
     ops.assign_unit(employee, company, unit, None, datetime.date(2020, 1, 1))
     admin = tenant_a.client("company_admin")
     base = f"/api/companies/{company.pk}/employees/{employee.pk}/biometric/"
-    assert admin.post(base + "consent/", {"policy_version": "v1"}, format="json").status_code == 201
+    assert (
+        admin.post(
+            base + "consent/", {"policy_version": "v1", "evidence_ref": "Termo 01"}, format="json"
+        ).status_code
+        == 201
+    )
     b64 = lambda data: base64.b64encode(data).decode()  # noqa: E731
     assert admin.post(base + "enroll/", {"images": [b64(img("frente"))]}, format="json").status_code == 201
     client = APIClient()
@@ -372,3 +377,12 @@ def test_integracao_real_com_modelos(settings):
     result = engine.verify(template, recompressed.tobytes(), (data,))
     assert result.matched and result.score > 0.8
     assert result.liveness == "failed"  # mesma foto: sem movimento
+
+
+def test_motor_sem_modelos_libera_a_matricula_como_alternativa(tmp_path, settings):
+    from apps.biometrics import engines_opencv
+
+    settings.BIOMETRIC_MODEL_DIR = str(tmp_path)  # pasta vazia: modelos ausentes
+    engines_opencv._verified_files.clear()
+    with pytest.raises(engines.EngineUnavailable):
+        engines_opencv.OpenCVFaceEngine().check_ready()

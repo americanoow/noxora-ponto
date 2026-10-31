@@ -9,7 +9,26 @@ import 'punch_panel.dart';
 import 'theme.dart';
 import 'token_store.dart';
 
-void main() => runApp(const NoxoraApp());
+void main() {
+  if (insecureReleaseUrl(apiBaseUrl)) {
+    runApp(const MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Text(
+              'Configuração insegura: o endereço do servidor precisa usar HTTPS. Fale com o suporte.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 22),
+            ),
+          ),
+        ),
+      ),
+    ));
+    return;
+  }
+  runApp(const NoxoraApp());
+}
 
 class NoxoraApp extends StatelessWidget {
   const NoxoraApp({super.key, this.client, this.deviceController});

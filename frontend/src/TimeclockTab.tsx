@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { downloads } from "./api/operational";
-import { IdentificationModePanel } from "./BiometricsActions";
 import { isoDate, monthRange } from "./lib/format";
 import { Download } from "./ui/kit";
 import { errorMessage } from "./auth";
@@ -218,7 +217,6 @@ export function EmployerTab({ companyId, canEdit }: { companyId: number; canEdit
         {canEdit && <button type="submit">Salvar dados da empresa</button>}
         {saved && <p role="status">Dados salvos.</p>}
       </form>
-      <IdentificationModePanel companyId={companyId} canEdit={canEdit} />
     </>
   );
 }

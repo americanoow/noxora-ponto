@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// URL base da API. No emulador Android use 10.0.2.2; em dispositivo físico,
@@ -9,6 +10,10 @@ const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'http://10.0.2.2:8000',
 );
+
+/// Em produção o tablet só conversa por HTTPS: ele envia credenciais e imagens do rosto.
+bool insecureReleaseUrl(String url, {bool release = kReleaseMode}) =>
+    release && !url.toLowerCase().startsWith('https://');
 
 sealed class ApiStatus {
   const ApiStatus();

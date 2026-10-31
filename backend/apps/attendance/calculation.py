@@ -62,13 +62,17 @@ def validate_params(params: dict) -> dict:
     unknown = set(merged) - set(DEFAULT_PARAMS)
     if unknown:
         raise ValueError(f"Parâmetros desconhecidos: {', '.join(sorted(unknown))}.")
+    # Limites mínimos da lei (convenção ou acordo só podem melhorar para o trabalhador): tolerância de até
+    # 5 min por marcação e 10 min por dia (CLT art. 58, §1º; Súmula 449 do TST), hora extra com adicional de
+    # pelo menos 50% (CF art. 7º, XVI), adicional noturno de pelo menos 20% (CLT art. 73) e alerta de
+    # descanso entre jornadas a partir de 11 h (CLT art. 66). Valores menores esconderiam direitos.
     ints = {
-        "tolerance_per_mark_minutes": (0, 60),
-        "tolerance_daily_minutes": (0, 120),
-        "overtime_rate_percent": (0, 500),
-        "rest_day_overtime_rate_percent": (0, 500),
-        "night_additional_percent": (0, 500),
-        "min_rest_between_journeys_hours": (0, 48),
+        "tolerance_per_mark_minutes": (0, 5),
+        "tolerance_daily_minutes": (0, 10),
+        "overtime_rate_percent": (50, 500),
+        "rest_day_overtime_rate_percent": (100, 500),
+        "night_additional_percent": (20, 500),
+        "min_rest_between_journeys_hours": (11, 48),
         "max_daily_overtime_minutes": (0, 1440),
         "journey_split_gap_hours": (2, 24),
         "journey_max_open_hours": (2, 48),
@@ -98,6 +102,17 @@ def validate_params(params: dict) -> dict:
             )
         ):
             raise ValueError("break_rules: cada regra tem worked_over_minutes e min_break_minutes (minutos).")
+    # Intervalo mínimo (CLT art. 71): 15 min acima de 4 h e, acima de 6 h, 1 h (redutível a 30 min só por
+    # convenção ou acordo coletivo, art. 611-A, III). As regras não podem exigir menos que isso.
+    for worked, legal in ((241, 15), (361, 30)):
+        required = max(
+            (r["min_break_minutes"] for r in rules if worked > r["worked_over_minutes"]), default=0
+        )
+        if required < legal:
+            raise ValueError(
+                f"break_rules: acima de {worked - 1} min trabalhados o intervalo mínimo é de {legal} min "
+                "(CLT art. 71; abaixo de 1 h, só com convenção ou acordo coletivo)."
+            )
     return merged
 
 

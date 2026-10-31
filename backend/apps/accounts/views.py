@@ -70,10 +70,14 @@ class LoginView(PublicView):
         data = LoginSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         email = data.validated_data["email"]
+        subject = sensitive.email_subject(email)
+        sensitive.guard(subject, "login")
         user = authenticate(request, username=email, password=data.validated_data["password"])
         if user is None:
+            sensitive.register_failure(subject, "login", sensitive.LOGIN_STEPS)
             audit.record(request, "auth.login_failed", actor_email=email.lower())
             return Response({"detail": "E-mail ou senha inválidos."}, status=status.HTTP_400_BAD_REQUEST)
+        sensitive.reset(subject, "login")
         if mfa.enabled(user):
             # Senha correta, mas a sessão só é criada após o segundo fator.
             request.session.cycle_key()
@@ -96,7 +100,12 @@ class MfaVerifyView(PublicView):
             request.session.pop("mfa_pending", None)
             return Response({"detail": "Faça login novamente."}, status=status.HTTP_400_BAD_REQUEST)
         user = get_user_model().objects.filter(pk=pending["user"], is_active=True).first()
+        if user is not None:
+            # Por conta, além da sessão: refazer o login não reinicia a contagem de códigos errados.
+            sensitive.guard(user, "mfa_login")
         if user is None or not mfa.check(user, request.data.get("code")):
+            if user is not None:
+                sensitive.register_failure(user, "mfa_login", sensitive.MFA_LOGIN_STEPS)
             pending["attempts"] = pending.get("attempts", 0) + 1
             if pending["attempts"] >= mfa.MAX_PENDING_ATTEMPTS:
                 request.session.pop("mfa_pending", None)
@@ -105,6 +114,7 @@ class MfaVerifyView(PublicView):
             audit.record(request, "auth.mfa_failed", actor=user)
             return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
         request.session.pop("mfa_pending", None)
+        sensitive.reset(user, "mfa_login")
         login(request, user)
         audit.record(request, "auth.login", actor=user, mfa=True)
         return Response(serialize_me(user))

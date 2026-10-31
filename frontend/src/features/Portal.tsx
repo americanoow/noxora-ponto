@@ -12,6 +12,8 @@ import {
   acknowledgeClosing,
   downloads,
   getMyAvailability,
+  getMyBiometric,
+  revokeMyBiometric,
   listMyClosings,
   listMyPunches,
   setMyAvailability,
@@ -179,6 +181,58 @@ export function MyDayScreen() {
   );
 }
 
+/** Privacidade do titular: situação da biometria (com retirada do consentimento) e arquivo com os dados. */
+function MyPrivacy() {
+  const { companyId } = useCompany();
+  const bio = useTask(() => getMyBiometric(companyId), [companyId]);
+  const { pending, error, run } = useAction();
+  const b = bio.data;
+  return (
+    <Group
+      title="Privacidade e meus dados"
+      padded
+      footer="Você pode baixar tudo o que a empresa guarda sobre você neste sistema. Registros de ponto não podem ser apagados enquanto a lei exigir que sejam guardados."
+    >
+      <p>
+        Reconhecimento facial:{" "}
+        <b>
+          {b
+            ? b.enrolled
+              ? `cadastrado em ${dateTimeBR(b.enrolled_at)}`
+              : b.consent
+                ? "autorizado, ainda sem cadastro do rosto"
+                : "não usado (o ponto é registrado pela matrícula)"
+            : "—"}
+        </b>
+      </p>
+      {b?.notice && <p className="muted">{b.notice}</p>}
+      <div className="toolbar">
+        {b?.consent && (
+          <button
+            className="destructive"
+            disabled={pending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Retirar a autorização apaga o seu rosto cadastrado. Depois disso, o ponto passa a ser registrado pela matrícula. Continuar?",
+                )
+              )
+                void run(async () => {
+                  await revokeMyBiometric(companyId);
+                  bio.reload();
+                });
+            }}
+          >
+            Retirar minha autorização da biometria
+          </button>
+        )}
+        <Download href={downloads.myData(companyId)}>Baixar meus dados</Download>
+      </div>
+      <ErrorText message={error ?? (bio.error && !b ? bio.error : null)} />
+    </Group>
+  );
+}
+
 export function MyTimesheetScreen() {
   const { companyId } = useCompany();
   const [period, setPeriod] = useState(monthRange(isoDate(new Date())));
@@ -214,6 +268,7 @@ export function MyTimesheetScreen() {
       ) : null}
       <HourBankSection companyId={companyId} canEdit={false} mine />
       <MyClosedMonths />
+      <MyPrivacy />
     </Screen>
   );
 }

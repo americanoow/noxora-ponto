@@ -49,6 +49,10 @@ class BiometricEngine(ABC):
     # certificado) ou "certified" (motor com avaliação independente, p.ex. ISO/IEC 30107-3).
     liveness_method = "none"
 
+    def check_ready(self) -> None:
+        """Levanta `EngineUnavailable` se o motor não consegue trabalhar agora (ex.: modelo ausente)."""
+        return None  # padrão: pronto (motores com dependências externas sobrescrevem)
+
     @abstractmethod
     def enroll(self, images: list[bytes]) -> EnrollResult: ...
 

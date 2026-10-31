@@ -107,6 +107,11 @@ class OpenCVFaceEngine(BiometricEngine):
     version = "sface21-yunet23-1"
     liveness_method = LIVENESS_METHOD
 
+    def check_ready(self) -> None:
+        _cv()
+        model_path("detector")
+        model_path("recognizer")
+
     # ---- etapas isoladas (substituíveis nos testes) ----
 
     def _decode(self, data: bytes):

@@ -2,6 +2,7 @@
 
 import csv
 import io
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -81,16 +82,20 @@ def receipt_pdf(receipt: dict) -> bytes:
         ["Data e hora da marcação", receipt["occurred_at"]],
         ["Data e hora da gravação", receipt["recorded_at"]],
         ["Registro INPI do REP-P", receipt["rep_p_inpi_registration"] or "(pendente)"],
-        ["Hash SHA-256", Paragraph(receipt["hash_sha256"], styles["Code"])],
+        ["Hash SHA-256", Paragraph(escape(receipt["hash_sha256"]), styles["Code"])],
     ]
     story = [
-        Paragraph(receipt["title"], styles["Title"]),
+        Paragraph(escape(receipt["title"]), styles["Title"]),
         _table(rows, widths=[50 * mm, 125 * mm], header=False),
         Spacer(1, 6 * mm),
-        Paragraph("Documento SEM assinatura eletrônica. " + receipt.get("notice", ""), styles["Italic"]),
+        Paragraph(
+            escape("Documento SEM assinatura eletrônica. " + receipt.get("notice", "")), styles["Italic"]
+        ),
     ]
     if receipt.get("pending_fields"):
-        story.append(Paragraph("Campos pendentes: " + ", ".join(receipt["pending_fields"]), styles["Normal"]))
+        story.append(
+            Paragraph(escape("Campos pendentes: " + ", ".join(receipt["pending_fields"])), styles["Normal"])
+        )
     doc.build(story)
     return buffer.getvalue()
 
@@ -112,8 +117,11 @@ def timesheet_pdf(sheet: dict, *, company_name: str, closing: dict | None = None
     period = sheet["period"]
     story = [
         Paragraph("Espelho de ponto", styles["Title"]),
-        Paragraph(f"{company_name} — {e['name']} (matrícula {e['registration']})", styles["Normal"]),
-        Paragraph(f"Período: {period['from']} a {period['to']} · fuso {sheet['timezone']}", styles["Normal"]),
+        # Nomes vêm do cadastro: escapados para que marcação (ex.: <img src=...>) nunca seja interpretada.
+        Paragraph(escape(f"{company_name} — {e['name']} (matrícula {e['registration']})"), styles["Normal"]),
+        Paragraph(
+            escape(f"Período: {period['from']} a {period['to']} · fuso {sheet['timezone']}"), styles["Normal"]
+        ),
         Paragraph(
             "Situação: "
             + (
@@ -127,11 +135,15 @@ def timesheet_pdf(sheet: dict, *, company_name: str, closing: dict | None = None
     ]
     rows = [["Data", "Marcações", "Previsto", "Trab.", "Extra", "Débito", "Noturno", "Situação"]]
     for d in sheet["days"]:
-        marks = " ".join(m["local"][11:16] + ("*" if m["origin"] == "included" else "") for m in d["marks"])
+        # Transparência do tratamento (Portaria 671): o original desconsiderado continua visível (×).
+        marks = " ".join(
+            [m["local"][11:16] + ("*" if m["origin"] == "included" else "") for m in d["marks"]]
+            + [m["local"][11:16] + "×" for m in d.get("ignored_marks", [])]
+        )
         rows.append(
             [
                 d["date"][8:10] + "/" + d["date"][5:7],
-                Paragraph(marks or "-", styles["BodyText"]),
+                Paragraph(escape(marks or "-"), styles["BodyText"]),
                 hm(d["expected_minutes"]),
                 hm(d["worked_minutes"]),
                 hm(d["overtime_minutes"])
@@ -144,12 +156,27 @@ def timesheet_pdf(sheet: dict, *, company_name: str, closing: dict | None = None
     story.append(
         _table(rows, widths=[14 * mm, 52 * mm, 16 * mm, 16 * mm, 24 * mm, 16 * mm, 16 * mm, 26 * mm])
     )
+    story.append(
+        Paragraph(
+            "* marcação incluída por ajuste aprovado · × marcação original desconsiderada por ajuste "
+            "aprovado (o registro original é preservado) · ⚑ dia com ocorrência",
+            styles["Italic"],
+        )
+    )
     t = sheet["totals"]
     story += [
         Spacer(1, 4 * mm),
         _table(
             [
-                ["Previsto", "Trabalhado", "Extras", "Débito", "Abonado", "Noturno (reduzido)", "Saldo"],
+                [
+                    "Previsto",
+                    "Trabalhado",
+                    "Extras",
+                    "Débito",
+                    "Abonado",
+                    "Noturno (reduzido)",
+                    "Saldo do período",
+                ],
                 [
                     hm(t["expected_minutes"]),
                     hm(t["worked_minutes"]),

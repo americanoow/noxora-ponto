@@ -3,20 +3,14 @@ import { errorMessage } from "./auth";
 import {
   type BiometricStatus,
   type ExceptionGrant,
-  type IdentificationMode,
-  type IdentificationPolicy,
-  type OfflinePolicy,
   authorizeException,
   deleteTemplate,
   enrollFace,
   fileToBase64,
   getBiometricStatus,
-  getIdentificationMode,
   grantConsent,
   revokeConsent,
-  setIdentificationPolicy,
 } from "./biometricsApi";
-import { useEffect } from "react";
 
 interface Props {
   companyId: number;
@@ -119,11 +113,17 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
                     required
                   />
                   <input
-                    aria-label="Número ou nome do termo assinado (opcional)"
+                    aria-label="Número ou nome do termo assinado pelo funcionário"
                     value={evidence}
                     onChange={(e) => setEvidence(e.target.value)}
+                    minLength={3}
+                    required
                   />
                   <button type="submit">Registrar autorização</button>
+                  <p role="note">
+                    A biometria é opcional. Registre só com o termo assinado pelo próprio
+                    funcionário. Quem não autorizar registra o ponto pela matrícula, sem prejuízo.
+                  </p>
                 </form>
               ) : (
                 <>
@@ -168,70 +168,5 @@ export function BiometricsActions({ companyId, employeeId, employeeName, canEdit
         </div>
       )}
     </span>
-  );
-}
-
-/** Política de identificação e de marcação offline da empresa. */
-export function IdentificationModePanel({
-  companyId,
-  canEdit,
-}: {
-  companyId: number;
-  canEdit: boolean;
-}) {
-  const [policy, setPolicy] = useState<IdentificationPolicy | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getIdentificationMode(companyId)
-      .then((value) => setPolicy({ ...value, offline_policy: value.offline_policy ?? "disabled" }))
-      .catch((e) => setError(errorMessage(e)));
-  }, [companyId]);
-
-  if (error) return <p role="alert">{error}</p>;
-  if (!policy) return <p>Carregando…</p>;
-
-  const change = (changes: Partial<IdentificationPolicy>) => {
-    setError(null);
-    setIdentificationPolicy(companyId, changes)
-      .then((value) => setPolicy({ ...value, offline_policy: value.offline_policy ?? "disabled" }))
-      .catch((err) => setError(errorMessage(err)));
-  };
-
-  return (
-    <section>
-      <h4>Como o funcionário se identifica no tablet</h4>
-      <select
-        aria-label="Como o funcionário se identifica"
-        value={policy.mode}
-        disabled={!canEdit}
-        onChange={(e) => change({ mode: e.target.value as IdentificationMode })}
-      >
-        <option value="registration">Só digitando a matrícula (menos seguro)</option>
-        <option value="face">Reconhecimento facial (ou código liberado pelo gestor)</option>
-      </select>
-      {policy.mode === "face" && (
-        <p>
-          Com reconhecimento facial, só vale o rosto reconhecido ou um código liberado pelo gestor.
-          Se o reconhecimento facial não estiver configurado no sistema, os tablets não conseguirão
-          registrar o ponto.
-        </p>
-      )}
-      <h4>Bater o ponto com o tablet sem internet</h4>
-      <select
-        aria-label="Bater o ponto sem internet"
-        value={policy.offline_policy}
-        disabled={!canEdit}
-        onChange={(e) => change({ offline_policy: e.target.value as OfflinePolicy })}
-      >
-        <option value="disabled">Não permitir (sem internet, o tablet não registra)</option>
-        <option value="registration_only">Permitir pela matrícula e revisar depois</option>
-      </select>
-      <p>
-        O reconhecimento facial não funciona sem internet. Se você permitir, a batida sem internet
-        usa só a matrícula (menos seguro), fica marcada para revisão e só recebe o número de
-        registro e o comprovante quando o tablet voltar a ter internet.
-      </p>
-    </section>
   );
 }

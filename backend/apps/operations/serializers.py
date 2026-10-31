@@ -54,7 +54,12 @@ class EmployeeWriteSerializer(serializers.Serializer):
     access_email = serializers.EmailField(required=False, allow_blank=True, default="")
 
     def validate_registration(self, value):
-        return value.strip()
+        from .services import validate_registration
+
+        try:
+            return validate_registration(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from None
 
     def validate_full_name(self, value):
         return value.strip()

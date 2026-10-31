@@ -517,3 +517,77 @@ describe("Abas que levam o contexto", () => {
     expect(window.location.hash).toContain("to=2026-09-30");
   });
 });
+
+describe("Privacidade e configurações da empresa", () => {
+  it("funcionário vê a situação da biometria, retira a autorização e baixa os próprios dados", async () => {
+    window.location.hash = "#/my-timesheet";
+    routes["GET /api/auth/me/"] = () => ({
+      body: {
+        ...admin,
+        memberships: [{ id: 1, company_id: 7, company_name: "Empresa A", role: "employee" }],
+      },
+    });
+    routes["GET /api/companies/7/me/timesheet/"] = () => ({ body: sheet });
+    routes["GET /api/companies/7/me/closings/"] = () => ({ body: [] });
+    let enrolled = true;
+    routes["GET /api/companies/7/me/biometric/"] = () => ({
+      body: {
+        consent: enrolled ? { policy_version: "v1", granted_at: "2026-10-01T10:00:00Z" } : null,
+        enrolled,
+        enrolled_at: enrolled ? "2026-10-01T10:00:00Z" : null,
+        notice: "A biometria é opcional.",
+      },
+    });
+    routes["DELETE /api/companies/7/me/biometric/"] = () => {
+      enrolled = false;
+      return { body: {} };
+    };
+    vi.stubGlobal("confirm", () => true);
+    render(<App />);
+    expect(await screen.findByText(/cadastrado em/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Baixar meus dados" })).toHaveAttribute(
+      "href",
+      "/api/companies/7/me/data.json",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retirar minha autorização da biometria" }));
+    expect(
+      await screen.findByText(/não usado \(o ponto é registrado pela matrícula\)/),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith("/me/biometric/") && c.init?.method === "DELETE")).toBe(
+      true,
+    );
+  });
+
+  it("a política de marcação sem internet fica só na tela da empresa (sem controle duplicado)", async () => {
+    window.location.hash = "#/company";
+    routes["GET /api/companies/7/identification/"] = () => ({
+      body: {
+        mode: "registration",
+        offline_policy: "disabled",
+        face_liveness_policy: "certified",
+        engine: null,
+      },
+    });
+    routes["PATCH /api/companies/7/identification/"] = () => ({
+      body: {
+        mode: "registration",
+        offline_policy: "registration_only",
+        face_liveness_policy: "certified",
+      },
+    });
+    routes["GET /api/companies/7/employer/"] = () => ({
+      body: { legal_name: "", tax_id_type: "", tax_id: "", cei_caepf_cno: "" },
+    });
+    render(<App />);
+    const selects = await screen.findAllByLabelText(
+      /Tablet sem internet|Bater o ponto sem internet/,
+    );
+    expect(selects).toHaveLength(1);
+    fireEvent.change(selects[0], { target: { value: "registration_only" } });
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.url.endsWith("/identification/") && c.init?.method === "PATCH"),
+      ).toBe(true),
+    );
+  });
+});

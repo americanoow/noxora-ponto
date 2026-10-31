@@ -31,13 +31,3 @@ export const revokeDevice = (c: number, id: number) =>
   request<Device>("POST", `${base(c)}${id}/revoke/`);
 export const reissueDeviceCode = (c: number, id: number) =>
   request<DeviceWithCode>("POST", `${base(c)}${id}/activation-code/`);
-export const updateDeviceLocation = (
-  c: number,
-  id: number,
-  collect: boolean,
-  justification: string,
-) =>
-  request<Device>("PATCH", `${base(c)}${id}/`, {
-    collect_location: collect,
-    location_justification: justification,
-  });

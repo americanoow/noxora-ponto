@@ -15,7 +15,7 @@ Atualizado em 2026-10-27. Cada item diz **o que falta**, **por que o Claude não
 8. Leiaute oficial do **AFD** (cabeçalho, trailer, versão, CRC-16, preenchimento) e o **AEJ** (não implementado) — portais gov.br inacessíveis na rede da nuvem; ver [requisitos-rep-p.md](requisitos-rep-p.md).
 9. **Regras de apuração** (tolerância, adicionais, intervalos, noturno, DSR, banco de horas, convenções coletivas) — parâmetros com referência à CLT, tratados como hipóteses.
 10. **REP-P**: registro no INPI, Atestado Técnico e Termo de Responsabilidade, certificado ICP-Brasil (PAdES no comprovante, CAdES no AFD), sincronismo com a Hora Legal Brasileira, marcação offline (condições), unidade ≡ estabelecimento.
-11. **LGPD**: base legal da biometria (art. 11), RIPD, prazos de retenção (biometria, localização, marcações), contratos com operadores.
+11. **LGPD**: base legal da biometria (art. 11), **RIPD** (art. 38), **encarregado** e aviso de privacidade (art. 41), validação dos prazos padrão da biometria (30/90 dias, D127), prazos de guarda de marcações e da trilha de auditoria com IP (sem expurgo hoje), contratos com operadores. Já implementado: consentimento com prova do termo, alternativa sem biometria, retirada pelo próprio funcionário, exportação dos dados do titular (D123–D127).
 12. **Calibração do reconhecimento facial** (limiar, FAR/FRR, viés) e testes de ataque de apresentação com a população real.
 
 ## Testes físicos e acessos que não puderam ser feitos aqui

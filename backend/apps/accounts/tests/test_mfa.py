@@ -176,3 +176,36 @@ def test_reautenticacao_tambem_tem_limite_de_tentativas(tenant_a):
     for _ in range(3):
         assert client.post("/api/auth/reauth/", {"password": "errada"}, format="json").status_code == 400
     assert client.post("/api/auth/reauth/", {"password": PASSWORD}, format="json").status_code == 429
+
+
+def test_login_por_senha_tem_espera_por_conta_sem_revelar_cadastro(tenant_a):
+    from apps.accounts import sensitive
+
+    email = tenant_a.users["company_admin"].email
+    c = csrf_client()
+    for _ in range(10):
+        r = c.post("/api/auth/login/", {"email": email, "password": "errada-123456"}, format="json")
+        assert r.status_code in (400, 429)
+    # Mesmo de outro IP (sem o limite por IP), a conta está em espera; nem a senha certa entra agora.
+    sensitive_wait = sensitive.wait_seconds(sensitive.email_subject(email), "login")
+    assert 0 < sensitive_wait <= 60
+    r = csrf_client().post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
+    assert r.status_code == 429
+    # E-mail inexistente é contado do mesmo jeito (a resposta não revela se a conta existe).
+    ghost = "ninguem@a.test"
+    for _ in range(10):
+        sensitive.register_failure(sensitive.email_subject(ghost), "login", sensitive.LOGIN_STEPS)
+    assert sensitive.wait_seconds(sensitive.email_subject(ghost.upper()), "login") > 0
+
+
+def test_codigo_do_segundo_fator_conta_falhas_por_conta_entre_logins(tenant_a):
+    from apps.accounts import sensitive
+
+    user = tenant_a.users["company_admin"]
+    enable(tenant_a.client("company_admin"))
+    for _ in range(10):
+        sensitive.register_failure(user, "mfa_login", sensitive.MFA_LOGIN_STEPS)
+    c = csrf_client()
+    c.post("/api/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+    c.credentials(HTTP_X_CSRFTOKEN=c.get("/api/auth/csrf/").json()["csrfToken"])
+    assert c.post("/api/auth/mfa/verify/", {"code": "123456"}, format="json").status_code == 429

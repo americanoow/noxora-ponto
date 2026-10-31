@@ -33,7 +33,6 @@ if not DEBUG and (not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS):
     raise RuntimeError("DJANGO_ALLOWED_HOSTS deve listar hosts explícitos fora de debug.")
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -140,6 +139,7 @@ SESSION_SAVE_EVERY_REQUEST = True
 SESSION_ABSOLUTE_TIMEOUT = int(os.environ.get("SESSION_ABSOLUTE_TIMEOUT_SECONDS", 12 * 3600))
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_HTTPONLY = True
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
@@ -218,8 +218,8 @@ LOGGING = {
     },
 }
 
-# Núcleo de marcação (REP-P). Identificação só por matrícula NÃO é identificação forte: serve ao
-# desenvolvimento até a verificação facial (etapa 6). Desligue com TIMECLOCK_ALLOW_REGISTRATION_ONLY=false.
+# Núcleo de marcação (REP-P). Identificação só por matrícula NÃO é identificação forte. Desligar
+# (TIMECLOCK_ALLOW_REGISTRATION_ONLY=false) não afeta a alternativa de quem não tem biometria no modo facial.
 TIMECLOCK_ALLOW_REGISTRATION_ONLY = env_bool("TIMECLOCK_ALLOW_REGISTRATION_ONLY", True)
 TIMECLOCK_COLLECTOR_CODE = "01"  # provisório: ver docs/requisitos-rep-p.md, pendência 5
 # Número de registro do REP-P no INPI (art. 79, VII / art. 91). Externo: vazio até existir.
@@ -289,6 +289,11 @@ BIOMETRIC_LOCKOUT_WINDOW_SECONDS = 600
 BIOMETRIC_MAX_IMAGE_BYTES = 1_000_000
 BIOMETRIC_MAX_IMAGES = 5
 EXCEPTION_AUTHORIZATION_TTL_MINUTES = 15
+# Retenção (LGPD, art. 16): o rosto cadastrado deixa de ter finalidade quando o vínculo termina. Padrão de
+# 30 dias após a inativação (prazo para reverter um desligamento por engano); ajuste com o jurídico.
+BIOMETRIC_INACTIVE_RETENTION_DAYS = int(os.environ.get("BIOMETRIC_INACTIVE_RETENTION_DAYS", "30"))
+# Tentativas de verificação que não viraram marcação (inclui a nota de semelhança): 90 dias.
+BIOMETRIC_ATTEMPT_RETENTION_DAYS = int(os.environ.get("BIOMETRIC_ATTEMPT_RETENTION_DAYS", "90"))
 
 DEFAULT_EXCEPTION_REPORTER_FILTER = "apps.biometrics.security.BiometricExceptionFilter"
 

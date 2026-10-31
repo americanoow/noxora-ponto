@@ -59,6 +59,26 @@ def active_template(employee):
     return BiometricTemplate.objects.filter(employee=employee, status=TemplateStatus.ACTIVE).first()
 
 
+def face_fallback_reason(employee) -> str | None:
+    """Por que este funcionário se identifica pela matrícula mesmo no modo facial (ou None).
+
+    Ninguém fica impedido de registrar o ponto por não ter biometria: o consentimento só é livre se houver
+    alternativa (LGPD, art. 8º e art. 11) e o sistema não pode restringir a marcação (Portaria 671). A
+    alternativa vale para quem não consentiu, revogou ou ainda não cadastrou o rosto, e para quando o
+    motor está fora do ar. Quem tem biometria ativa continua precisando dela (ou de exceção autorizada)."""
+    template = active_template(employee)
+    if template is None or active_consent(employee) is None:
+        return "no_biometric"
+    try:
+        engine = engines.get_engine()
+        engine.check_ready()
+    except engines.EngineError:
+        return "engine_unavailable"
+    if (engine.name, engine.version) != (template.engine, template.engine_version):
+        return "engine_unavailable"
+    return None
+
+
 def grant_consent(*, employee, user, policy_version, evidence_ref=""):
     with transaction.atomic():
         locked = Employee.objects.select_for_update(no_key=True).get(pk=employee.pk)
@@ -414,6 +434,18 @@ def purge_inactive(*, days: int, dry_run: bool = False) -> int:
                 if not employee.is_active and employee.inactivated_at and employee.inactivated_at <= limit:
                     delete_template(template, user=None, reason="retention_purge")
     return count
+
+
+def purge_ephemeral(*, attempt_days: int, now=None) -> dict:
+    """Retenção mínima (LGPD, art. 15 e 16): apaga desafios de vivacidade vencidos e tentativas de
+    verificação que não viraram marcação (falhas e sucessos não usados) mais antigas que `attempt_days`.
+    Tentativas usadas numa marcação ficam: provam como aquele registro foi identificado."""
+    now = now or timezone.now()
+    challenges, _ = LivenessChallenge.objects.filter(expires_at__lt=now - datetime.timedelta(days=1)).delete()
+    attempts, _ = VerificationAttempt.objects.filter(
+        consumed_at__isnull=True, created_at__lt=now - datetime.timedelta(days=attempt_days)
+    ).delete()
+    return {"challenges": challenges, "attempts": attempts}
 
 
 @transaction.atomic

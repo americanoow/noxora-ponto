@@ -100,6 +100,8 @@ export const downloads = {
   myTimesheet: (c: number, from: string, to: string) =>
     `${c_(c)}/me/timesheet.pdf?from=${from}&to=${to}`,
   myReceipt: (c: number, id: number) => `${c_(c)}/me/punches/${id}/receipt/?format=pdf`,
+  /** Todos os dados pessoais do titular neste sistema (LGPD, art. 18), em JSON. */
+  myData: (c: number) => `${c_(c)}/me/data.json`,
   receipt: (c: number, id: number) => `${c_(c)}/time-records/${id}/receipt.pdf`,
   summary: (c: number, from: string, to: string) =>
     `${c_(c)}/reports/summary.csv?from=${from}&to=${to}`,
@@ -226,3 +228,14 @@ export const confirmMfa = (code: string) =>
   request<{ recovery_codes: string[] }>("PUT", "/api/auth/mfa/", { code });
 export const disableMfa = (password: string, code: string) =>
   request<void>("DELETE", "/api/auth/mfa/", { password, code });
+
+// Biometria do próprio funcionário (nunca o dado biométrico)
+export interface MyBiometric {
+  consent: { policy_version: string; granted_at: string } | null;
+  enrolled: boolean;
+  enrolled_at: string | null;
+  notice: string;
+}
+export const getMyBiometric = (c: number) => request<MyBiometric>("GET", `${c_(c)}/me/biometric/`);
+export const revokeMyBiometric = (c: number) =>
+  request<MyBiometric>("DELETE", `${c_(c)}/me/biometric/`);

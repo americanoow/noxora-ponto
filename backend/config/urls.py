@@ -1,4 +1,3 @@
-from django.contrib import admin
 from django.urls import include, path
 
 from apps.billing import urls as billing_urls
@@ -7,7 +6,6 @@ from apps.devices.urls import device_urlpatterns
 from apps.timeclock.urls import device_urlpatterns as timeclock_device_urlpatterns
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
     path("api/", include("apps.core.urls")),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/companies/", include("apps.companies.urls")),

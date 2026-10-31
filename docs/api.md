@@ -20,7 +20,7 @@ Base: `/api`. Painel e portal usam sessão por cookie + CSRF (`GET /api/auth/csr
 | `employees/`, `employees/{id}/`, `.../assignments/`, `.../schedules/`, `employees/import/` | GET A/G (escopo); escrita A |
 | `employer/`, `identification/` (modo, política offline, `face_liveness_policy`, motor) | GET A/G; PATCH A |
 | `devices/…` (criar, revogar, `activation-code/`, `locations/`) | A (leitura também G) |
-| `employees/{id}/biometric/` (+`consent/`, `enroll/`) | A |
+| `employees/{id}/biometric/` (+`consent/` com `evidence_ref` obrigatório, `enroll/`), `employees/{id}/access/` (`{email}`: convida e vincula) | A |
 | `employees/{id}/identification-exceptions/` | A/G (escopo): código de exceção de uso único |
 | `time-records/`, `time-records/{id}/`, `time-records/{id}/receipt.pdf` | A/G (escopo); somente leitura |
 | `attendance/rules/` | GET A/G (padrões + referências legais + versões); POST A (nova versão com `valid_from`) |
@@ -35,13 +35,13 @@ Base: `/api`. Painel e portal usam sessão por cookie + CSRF (`GET /api/auth/csr
 | `reports/timesheet/?employee=&from=&to=&format=pdf|csv`, `reports/summary.csv`, `reports/time-records.csv` | A/G (auditado; CPF completo só A) |
 | `fiscal/afd/?unit=&from=&to=`, `fiscal/payroll-profiles/`, `fiscal/payroll-export/?profile=&closing=`, `fiscal/files/` | A |
 | `billing/`, `billing/plan/` `{plan_code}`, `billing/cancel/` `{cancel}` | A |
-| `me/timesheet/`, `me/timesheet.pdf`, `me/punches/` (48 h por padrão), `me/punches/{id}/receipt/?format=pdf`, `me/requests/`, `me/{kind}/{id}/cancel/`, `me/closings/`, `me/closings/{id}/acknowledge/`, `me/availability/` | F (qualquer papel vinculado a um cadastro de funcionário) |
+| `me/timesheet/`, `me/timesheet.pdf`, `me/punches/` (48 h por padrão), `me/punches/{id}/receipt/?format=pdf`, `me/requests/`, `me/{kind}/{id}/cancel/`, `me/closings/`, `me/closings/{id}/acknowledge/`, `me/availability/`, `me/hour-bank/`, `me/biometric/` (GET situação; DELETE retira a autorização e apaga o rosto), `me/data.json` (todos os dados pessoais, LGPD art. 18) | F (qualquer papel vinculado a um cadastro de funcionário) |
 
 ## Plataforma (`/api/platform/`, P)
 `plans/` (GET/POST), `subscriptions/`, `companies/{id}/subscription/` (POST `{plan_code, trial_days}`), `billing/run/`, `invoices/{id}/simulate/` (`{event: paid|failed}`, só sandbox). Empresas: `POST /api/companies/` `{name, admin_email, admin_name}`, `PATCH /api/companies/{id}/`.
 
 ## Tablet (`/api/device/`)
-`activate/`, `me/`, `heartbeat/` (escopo, `server_time`, políticas), `rotate-credential/`, `location/`, `employees/?registration=`, `punches/` (`{registration, client_event_id, declared_kind?, identification?}`), `punches/batch/` (até 50 eventos offline), `punches/{id}/receipt/`, `face/verify/` (`{registration, image, frames[]}`).
+`activate/`, `me/`, `heartbeat/` (escopo, `server_time`, políticas), `rotate-credential/`, `location/`, `employees/?registration=`, `punches/` (`{registration, client_event_id, declared_kind?, identification?}`), `punches/batch/` (até 50 eventos offline), `punches/{id}/receipt/`, `face/challenge/` (`{registration?}`: desafio de vivacidade, ou `{face_required: false, reason}` quando o funcionário não tem biometria ativa), `face/verify/` (`{registration, image, frames[], challenge_id}`).
 
 ## Webhooks
 `POST /api/billing/webhooks/{gateway}/` com `X-Noxora-Signature: sha256=<hmac>`; idempotente por `id` do evento.

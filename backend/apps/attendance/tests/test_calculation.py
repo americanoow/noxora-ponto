@@ -285,3 +285,42 @@ def test_prorrogacao_noturna_so_vale_se_a_jornada_comecou_na_faixa_noturna():
         marks(MON, "06:00", "12:00", "13:00", "17:00"), c, params=validate_params({"night_extension": True})
     )
     assert com.night_minutes == 0 and not any("Prorrogação" in x for x in com.steps)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"tolerance_per_mark_minutes": 6},
+        {"tolerance_daily_minutes": 11},
+        {"overtime_rate_percent": 40},
+        {"rest_day_overtime_rate_percent": 50},
+        {"night_additional_percent": 10},
+        {"min_rest_between_journeys_hours": 8},
+        {
+            "break_rules": [
+                {"worked_over_minutes": 360, "min_break_minutes": 20},
+                {"worked_over_minutes": 240, "min_break_minutes": 15},
+            ]
+        },
+        {"break_rules": [{"worked_over_minutes": 360, "min_break_minutes": 60}]},
+        {"break_rules": []},
+    ],
+)
+def test_regras_nao_aceitam_menos_que_o_minimo_legal(params):
+    with pytest.raises(ValueError):
+        validate_params(params)
+
+
+def test_regras_aceitam_condicoes_mais_favoraveis_e_intervalo_reduzido_por_convencao():
+    ok = validate_params(
+        {
+            "tolerance_per_mark_minutes": 0,
+            "overtime_rate_percent": 75,
+            "night_additional_percent": 25,
+            "break_rules": [
+                {"worked_over_minutes": 360, "min_break_minutes": 30},
+                {"worked_over_minutes": 240, "min_break_minutes": 15},
+            ],
+        }
+    )
+    assert ok["overtime_rate_percent"] == 75

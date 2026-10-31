@@ -7,9 +7,12 @@
 		Referrer-Policy same-origin
 		X-Frame-Options DENY
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Só recursos do próprio domínio; sem scripts de terceiros, sem embutir o painel em outro site.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Cross-Origin-Opener-Policy same-origin
 		-Server
 	}
-	@api path /api/* /admin/* /static/*
+	@api path /api/* /static/*
 	handle @api {
 		reverse_proxy backend:8000
 	}

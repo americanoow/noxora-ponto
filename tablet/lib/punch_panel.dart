@@ -100,13 +100,21 @@ class _PunchPanelState extends State<PunchPanel> {
       _faceMessage = null;
     });
     // A sequência é sorteada pelo servidor: um vídeo gravado antes não a conhece.
-    final challenge = await widget.controller.requestChallenge();
+    final challenge = await widget.controller.requestChallenge(reg);
     if (!mounted) return;
     if (challenge == null) {
       setState(() {
         _busy = false;
         _faceMessage = 'Não foi possível iniciar a verificação. Confira a conexão e tente de novo.';
       });
+      return;
+    }
+    if (!challenge.faceRequired) {
+      // Sem biometria ativa: o rosto não é capturado e ninguém fica sem registrar o ponto.
+      setState(() => _faceMessage = challenge.fallbackReason == 'engine_unavailable'
+          ? 'Reconhecimento facial fora do ar: registro pela matrícula.'
+          : 'Sem biometria cadastrada: registro pela matrícula.');
+      await _send(null);
       return;
     }
     final delays = widget.challenge;
